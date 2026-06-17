@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="Floaty.OverlayPage"
+             BackgroundColor="Transparent">
+
+    <!-- Whole-window layout: the ring sits on top, a minimal action bar underneath.
+         Everything outside the drawn pixels is transparent so the desktop shows through. -->
+    <Grid RowDefinitions="*,Auto"
+          Padding="6"
+          RowSpacing="4"
+          BackgroundColor="Transparent">
+
+        <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
+        <Image x:Name="Ring"
+               Grid.Row="0"
+               Source="floaty_ring.png"
+               Aspect="AspectFit"
+               HeightRequest="170"
+               WidthRequest="170"
+               HorizontalOptions="Center"
+               VerticalOptions="Center">
+            <Image.GestureRecognizers>
+                <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
+            </Image.GestureRecognizers>
+        </Image>
+
+        <!-- Minimal action bar. Buttons are wired but no-op for this milestone. -->
+        <HorizontalStackLayout Grid.Row="1"
+                               Spacing="6"
+                               HorizontalOptions="Center">
+            <Button Text="📷"
+                    Clicked="OnScreenshotClicked"
+                    SemanticProperties.Description="Capture screenshot"
+                    Style="{StaticResource OverlayButton}" />
+            <Button Text="👁"
+                    Clicked="OnReadScreenClicked"
+                    SemanticProperties.Description="Read screen content"
+                    Style="{StaticResource OverlayButton}" />
+            <Button Text="💬"
+                    Clicked="OnOpenChatClicked"
+                    SemanticProperties.Description="Open chat"
+                    Style="{StaticResource OverlayButton}" />
+            <Button Text="⚙"
+                    Clicked="OnSettingsClicked"
+                    SemanticProperties.Description="Settings"
+                    Style="{StaticResource OverlayButton}" />
+        </HorizontalStackLayout>
+    </Grid>
+
+    <ContentPage.Resources>
+        <Style x:Key="OverlayButton" TargetType="Button">
+            <Setter Property="WidthRequest" Value="36" />
+            <Setter Property="HeightRequest" Value="36" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="18" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="BackgroundColor" Value="#CC202020" />
+            <Setter Property="TextColor" Value="White" />
+        </Style>
+    </ContentPage.Resources>
+
+</ContentPage>
