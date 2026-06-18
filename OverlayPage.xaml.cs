@@ -55,12 +55,12 @@ public partial class OverlayPage : ContentPage
     private void OnScreenshotClicked(object? sender, EventArgs e) =>
         Debug.WriteLine("[Floaty] TODO: capture screenshot");
 
-    private void OnReadScreenClicked(object? sender, EventArgs e) =>
-        Debug.WriteLine("[Floaty] TODO: read screen content via accessibility APIs");
-
     private void OnOpenChatClicked(object? sender, EventArgs e) =>
         Debug.WriteLine("[Floaty] TODO: open chat window (Blazor)");
 
     private void OnSettingsClicked(object? sender, EventArgs e) =>
         Debug.WriteLine("[Floaty] TODO: open settings");
+
+    private void OnCloseClicked(object? sender, EventArgs e) =>
+        Application.Current?.Quit();
 }

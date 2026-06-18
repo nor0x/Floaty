@@ -33,10 +33,6 @@
                     Clicked="OnScreenshotClicked"
                     SemanticProperties.Description="Capture screenshot"
                     Style="{StaticResource OverlayButton}" />
-            <Button Text="👁"
-                    Clicked="OnReadScreenClicked"
-                    SemanticProperties.Description="Read screen content"
-                    Style="{StaticResource OverlayButton}" />
             <Button Text="💬"
                     Clicked="OnOpenChatClicked"
                     SemanticProperties.Description="Open chat"
@@ -44,6 +40,10 @@
             <Button Text="⚙"
                     Clicked="OnSettingsClicked"
                     SemanticProperties.Description="Settings"
+                    Style="{StaticResource OverlayButton}" />
+            <Button Text="✕"
+                    Clicked="OnCloseClicked"
+                    SemanticProperties.Description="Close Floaty"
                     Style="{StaticResource OverlayButton}" />
         </HorizontalStackLayout>
     </Grid>
