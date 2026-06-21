@@ -43,6 +43,9 @@ public partial class OverlayPage : ContentPage
         _memoryService = memoryService;
         _services = services;
         MessagesList.ItemsSource = Messages;
+
+        // Summon (Alt+F): glide the window to the mouse with a ring spin.
+        _windowController.SummonRequested += OnSummonRequested;
     }
 
     private void OnRingPanUpdated(object? sender, PanUpdatedEventArgs e)
@@ -73,6 +76,46 @@ public partial class OverlayPage : ContentPage
                 _ = Ring.RotateToAsync(0, 350, Easing.SinOut);
                 break;
         }
+    }
+
+    // --- Summon (Alt+F): glide the window to the mouse cursor with a ring spin. ---
+
+    // The window glides for SummonMoveMs; the ring keeps spinning longer (SummonSpinMs) and
+    // decelerates to rest, so it carries momentum after the window has arrived.
+    private const uint SummonMoveMs = 480;
+    private const uint SummonSpinMs = 1000;
+    private const double SummonSpinDegrees = 720; // whole turns so it settles back at 0°
+
+    private void OnSummonRequested(int cursorX, int cursorY) =>
+        Dispatcher.Dispatch(() => AnimateSummon(cursorX, cursorY));
+
+    private void AnimateSummon(int cursorX, int cursorY)
+    {
+        _windowController.Activate();
+
+        var (startX, startY) = _windowController.GetPosition();
+        var (width, height) = _windowController.GetSize();
+
+        // Center the window (and thus the ring) on the cursor.
+        double dx = (cursorX - width / 2) - startX;
+        double dy = (cursorY - height / 2) - startY;
+
+        // Spin the ring (outlasts the glide and winds down with deceleration).
+        _ = SpinRingAsync();
+
+        new Animation(
+            t => _windowController.MoveTo(
+                (int)Math.Round(startX + dx * t),
+                (int)Math.Round(startY + dy * t)),
+            0, 1, Easing.CubicInOut)
+            .Commit(this, "FloatySummon", length: SummonMoveMs);
+    }
+
+    private async Task SpinRingAsync()
+    {
+        // CubicOut decelerates: the ring spins fast through the glide, then eases to a stop afterwards.
+        await Ring.RotateToAsync(Ring.Rotation + SummonSpinDegrees, SummonSpinMs, Easing.CubicOut);
+        Ring.Rotation = 0; // 720° ≡ 0°; reset without an unwind animation
     }
 
     // Toggle the slide-out chat panel, growing/shrinking the overlay window to match.

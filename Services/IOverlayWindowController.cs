@@ -20,4 +20,22 @@ public interface IOverlayWindowController
     /// Used to expand the overlay when the chat panel slides out and shrink it back when it closes.
     /// </summary>
     void Resize(double widthDip, double heightDip);
+
+    /// <summary>
+    /// Raised when the user presses the global summon hotkey (Alt+F). Carries the mouse cursor
+    /// position in physical screen pixels so the overlay can animate toward it.
+    /// </summary>
+    event Action<int, int>? SummonRequested;
+
+    /// <summary>Current top-left position of the overlay window, in physical screen pixels.</summary>
+    (int X, int Y) GetPosition();
+
+    /// <summary>Current size of the overlay window, in physical pixels.</summary>
+    (int Width, int Height) GetSize();
+
+    /// <summary>Moves the overlay window's top-left corner to the given physical screen pixel coordinate.</summary>
+    void MoveTo(int x, int y);
+
+    /// <summary>Ensures the overlay is visible and brought to the foreground (used when summoned).</summary>
+    void Activate();
 }

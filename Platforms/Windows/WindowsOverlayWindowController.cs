@@ -18,6 +18,11 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
     private nint _hwnd;
     private WindowsTrayIcon? _trayIcon;
 
+    // Keep the subclass delegate alive for the window's lifetime so the GC can't collect the callback.
+    private SUBCLASSPROC? _hotkeyProc;
+
+    public event Action<int, int>? SummonRequested;
+
     /// <summary>
     /// Called once from the WinUI <c>OnWindowCreated</c> lifecycle hook. Resolves the
     /// <see cref="AppWindow"/> for the freshly created native window and applies the overlay styling.
@@ -68,8 +73,28 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         // window is shown (the attribute doesn't take during OnWindowCreated).
         nativeWindow.Activated += OnActivatedRemoveBorder;
 
-        // Tear the tray icon down when the window closes so it doesn't linger in the notification area.
-        nativeWindow.Closed += (_, _) => _trayIcon?.Dispose();
+        // Global summon hotkey (Alt+F): subclass the window to receive WM_HOTKEY, then register it.
+        _hotkeyProc = HotkeyWndProc;
+        SetWindowSubclass(_hwnd, _hotkeyProc, HotkeySubclassId, 0);
+        if (!RegisterHotKey(_hwnd, HotkeyId, MOD_ALT | MOD_NOREPEAT, VK_F))
+            System.Diagnostics.Debug.WriteLine("[Floaty] Alt+F hotkey registration failed (already in use?).");
+
+        // Tear the tray icon + hotkey down when the window closes.
+        nativeWindow.Closed += (_, _) =>
+        {
+            UnregisterHotKey(_hwnd, HotkeyId);
+            if (_hotkeyProc is not null)
+                RemoveWindowSubclass(_hwnd, _hotkeyProc, HotkeySubclassId);
+            _trayIcon?.Dispose();
+        };
+    }
+
+    private nint HotkeyWndProc(nint hWnd, uint msg, nint wParam, nint lParam, nuint id, nuint refData)
+    {
+        if (msg == WM_HOTKEY && (int)wParam == HotkeyId && GetCursorPos(out var pt))
+            SummonRequested?.Invoke(pt.X, pt.Y);
+
+        return DefSubclassProc(hWnd, msg, wParam, lParam);
     }
 
     private void OnActivatedRemoveBorder(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
@@ -126,6 +151,69 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
             newWidth,
             newHeight));
     }
+
+    public (int X, int Y) GetPosition()
+    {
+        if (_appWindow is null)
+            return (0, 0);
+        var p = _appWindow.Position;
+        return (p.X, p.Y);
+    }
+
+    public (int Width, int Height) GetSize()
+    {
+        if (_appWindow is null)
+            return (0, 0);
+        var s = _appWindow.Size;
+        return (s.Width, s.Height);
+    }
+
+    public void MoveTo(int x, int y) => _appWindow?.Move(new PointInt32(x, y));
+
+    public void Activate()
+    {
+        _appWindow?.Show();
+        SetForegroundWindow(_hwnd);
+    }
+
+    // --- Global hotkey (Alt+F) ---
+
+    private const int HotkeyId = 0xF10A;
+    private const nuint HotkeySubclassId = 2; // distinct from WindowsTrayIcon's subclass id (1)
+    private const int WM_HOTKEY = 0x0312;
+    private const uint MOD_ALT = 0x0001;
+    private const uint MOD_NOREPEAT = 0x4000;
+    private const uint VK_F = 0x46;
+
+    private delegate nint SUBCLASSPROC(nint hWnd, uint uMsg, nint wParam, nint lParam, nuint uIdSubclass, nuint dwRefData);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(nint hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(nint hWnd, int id);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(nint hWnd);
+
+    [DllImport("comctl32.dll")]
+    private static extern bool SetWindowSubclass(nint hWnd, SUBCLASSPROC pfnSubclass, nuint uIdSubclass, nuint dwRefData);
+
+    [DllImport("comctl32.dll")]
+    private static extern bool RemoveWindowSubclass(nint hWnd, SUBCLASSPROC pfnSubclass, nuint uIdSubclass);
+
+    [DllImport("comctl32.dll")]
+    private static extern nint DefSubclassProc(nint hWnd, uint uMsg, nint wParam, nint lParam);
 
     // DWMWA_BORDER_COLOR (Windows 11 22000+); DWMWA_COLOR_NONE removes the border entirely.
     private const int DWMWA_BORDER_COLOR = 34;

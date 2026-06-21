@@ -83,4 +83,23 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
         var resized = new CGRect(centerX - (widthDip / 2), frame.Y, widthDip, heightDip);
         _nsWindow.SetValueForKey(NSValue.FromCGRect(resized), new NSString("frame"));
     }
+
+    // The global summon hotkey is not yet implemented on macOS; this event never fires there.
+#pragma warning disable CS0067
+    public event Action<int, int>? SummonRequested;
+#pragma warning restore CS0067
+
+    public (int X, int Y) GetPosition() => (0, 0);
+
+    public (int Width, int Height) GetSize() => (0, 0);
+
+    public void MoveTo(int x, int y)
+    {
+        // Not implemented on macOS yet (summon is Windows-only for now).
+    }
+
+    public void Activate()
+    {
+        // Not implemented on macOS yet.
+    }
 }
