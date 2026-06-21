@@ -10,4 +10,9 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
     {
         // Intentionally no-op: the floating overlay is a desktop-only surface.
     }
+
+    public void Resize(double widthDip, double heightDip)
+    {
+        // Intentionally no-op: the floating overlay is a desktop-only surface.
+    }
 }

@@ -1,0 +1,181 @@
+@inject SettingsService ConfigService
+
+<div class="settings">
+    <header class="settings-header">
+        <h1>Settings</h1>
+        <p class="subtitle">Configure how Floaty connects to AI providers.</p>
+    </header>
+
+    <section class="card">
+        <div class="card-head">
+            <h2>AI Provider</h2>
+            <p>Floaty uses this provider to answer your chats.</p>
+        </div>
+
+        <div class="field">
+            <label>Provider</label>
+            <select @bind="_config.Provider" disabled>
+                <option value="OpenAI">OpenAI</option>
+            </select>
+            <span class="hint">More providers coming soon.</span>
+        </div>
+
+        <div class="field">
+            <label for="apiKey">API key</label>
+            <input id="apiKey" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="sk-..." @bind="_config.OpenAiApiKey" @bind:event="oninput" />
+            <span class="hint">Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine except to call OpenAI.</span>
+        </div>
+
+        <div class="field">
+            <label for="model">Model</label>
+            <input id="model" type="text" autocomplete="off" spellcheck="false"
+                   @bind="_config.Model" @bind:event="oninput" />
+            <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
+        </div>
+
+        <div class="actions">
+            <button class="save" @onclick="Save">Save</button>
+            @if (_saved)
+            {
+                <span class="saved">Saved ✓</span>
+            }
+        </div>
+    </section>
+</div>
+
+@code {
+    private FloatyConfig _config = new();
+    private bool _saved;
+
+    protected override void OnInitialized()
+    {
+        // Work on a copy so edits aren't committed until the user clicks Save.
+        var current = ConfigService.Current;
+        _config = new FloatyConfig
+        {
+            Provider = current.Provider,
+            OpenAiApiKey = current.OpenAiApiKey,
+            Model = current.Model,
+        };
+    }
+
+    private void Save()
+    {
+        ConfigService.Save(_config);
+        _saved = true;
+    }
+}
+
+<style>
+    .settings {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px 28px 40px;
+        font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+        color: #1c1c1e;
+    }
+
+    .settings-header h1 {
+        font-size: 24px;
+        font-weight: 600;
+        margin: 0 0 4px;
+    }
+
+    .settings-header .subtitle {
+        margin: 0 0 24px;
+        color: #6b6b70;
+        font-size: 14px;
+    }
+
+    .card {
+        border: 1px solid #e4e4e8;
+        border-radius: 12px;
+        padding: 20px 22px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .card-head h2 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 2px;
+    }
+
+    .card-head p {
+        margin: 0 0 18px;
+        color: #6b6b70;
+        font-size: 13px;
+    }
+
+    .field {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 18px;
+    }
+
+    .field label {
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+
+    .field input,
+    .field select {
+        font-size: 14px;
+        padding: 9px 11px;
+        border: 1px solid #d3d3d9;
+        border-radius: 8px;
+        background: #fafafa;
+        outline: none;
+        transition: border-color .15s, box-shadow .15s;
+    }
+
+    .field input:focus {
+        border-color: #2b7fff;
+        box-shadow: 0 0 0 3px rgba(43, 127, 255, 0.15);
+        background: #fff;
+    }
+
+    .field .hint {
+        font-size: 12px;
+        color: #8a8a90;
+        margin-top: 6px;
+    }
+
+    .field code {
+        background: #f1f1f4;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+
+    .actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 4px;
+    }
+
+    .save {
+        background: #2b7fff;
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        padding: 9px 20px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .15s;
+    }
+
+    .save:hover {
+        background: #1f6ae0;
+    }
+
+    .saved {
+        color: #1f9d55;
+        font-size: 13px;
+        font-weight: 600;
+    }
+</style>

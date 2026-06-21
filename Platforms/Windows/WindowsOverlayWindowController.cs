@@ -24,6 +24,12 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
     /// </summary>
     public void Initialize(Microsoft.UI.Xaml.Window nativeWindow)
     {
+        // OnWindowCreated fires for every native window (overlay, settings, ...). Only the first
+        // one — the floating overlay — gets the borderless/transparent/always-on-top treatment;
+        // later windows (e.g. Settings) keep their normal chrome.
+        if (_appWindow is not null)
+            return;
+
         _hwnd = WindowNative.GetWindowHandle(nativeWindow);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
@@ -95,6 +101,30 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         _appWindow.Move(new PointInt32(
             current.X + (int)Math.Round(dxDip * scale),
             current.Y + (int)Math.Round(dyDip * scale)));
+    }
+
+    public void Resize(double widthDip, double heightDip)
+    {
+        if (_appWindow is null)
+            return;
+
+        // Sizes/positions are physical pixels; the incoming size is device-independent.
+        var scale = GetDpiForWindow(_hwnd) / 96.0;
+        var newWidth = (int)Math.Round(widthDip * scale);
+        var newHeight = (int)Math.Round(heightDip * scale);
+
+        var pos = _appWindow.Position;
+        var size = _appWindow.Size;
+
+        // Anchor the bottom edge and horizontal center so the window grows upward in place.
+        var bottom = pos.Y + size.Height;
+        var centerX = pos.X + (size.Width / 2);
+
+        _appWindow.MoveAndResize(new RectInt32(
+            centerX - (newWidth / 2),
+            bottom - newHeight,
+            newWidth,
+            newHeight));
     }
 
     // DWMWA_BORDER_COLOR (Windows 11 22000+); DWMWA_COLOR_NONE removes the border entirely.

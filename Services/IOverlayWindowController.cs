@@ -13,4 +13,11 @@ public interface IOverlayWindowController
     /// for any DPI / coordinate-system conversion the platform requires.
     /// </summary>
     void MoveBy(double dxDip, double dyDip);
+
+    /// <summary>
+    /// Resizes the overlay window to the given size in device-independent units, anchored at the
+    /// bottom edge and horizontal center so the window grows upward while the ring stays in place.
+    /// Used to expand the overlay when the chat panel slides out and shrink it back when it closes.
+    /// </summary>
+    void Resize(double widthDip, double heightDip);
 }

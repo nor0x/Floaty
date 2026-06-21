@@ -66,4 +66,21 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
         var moved = new CGRect(frame.X + dxDip, frame.Y - dyDip, frame.Width, frame.Height);
         _nsWindow.SetValueForKey(NSValue.FromCGRect(moved), new NSString("frame"));
     }
+
+    public void Resize(double widthDip, double heightDip)
+    {
+        if (_nsWindow is null)
+            return;
+
+        if (_nsWindow.ValueForKey(new NSString("frame")) is not NSValue frameValue)
+            return;
+
+        var frame = frameValue.CGRectValue;
+
+        // AppKit origin is bottom-left, so keep the bottom edge (frame.Y) fixed and grow upward,
+        // and keep the horizontal center fixed.
+        var centerX = frame.X + (frame.Width / 2);
+        var resized = new CGRect(centerX - (widthDip / 2), frame.Y, widthDip, heightDip);
+        _nsWindow.SetValueForKey(NSValue.FromCGRect(resized), new NSString("frame"));
+    }
 }

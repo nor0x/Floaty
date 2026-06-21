@@ -18,8 +18,13 @@ public static class MauiProgram
 
 		builder.Services.AddMauiBlazorWebView();
 
-		// The floating overlay page (native MAUI UI) and its native window controller.
+		// Local config (~/.floaty/config.json) and the AI chat service built on Microsoft.Extensions.AI.
+		builder.Services.AddSingleton<SettingsService>();
+		builder.Services.AddSingleton<IChatService, ChatService>();
+
+		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
+		builder.Services.AddTransient<SettingsPage>();
 
 #if WINDOWS
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.Windows.WindowsOverlayWindowController>();

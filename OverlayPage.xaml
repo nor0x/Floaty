@@ -1,19 +1,86 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:Floaty"
              x:Class="Floaty.OverlayPage"
+             x:DataType="local:OverlayPage"
              BackgroundColor="Transparent">
 
-    <!-- Whole-window layout: the ring sits on top, a minimal action bar underneath.
-         Everything outside the drawn pixels is transparent so the desktop shows through. -->
-    <Grid RowDefinitions="*,Auto"
+    <!-- Whole-window layout: chat panel (hidden until opened) on top, the ring and a minimal
+         action bar anchored at the bottom. Everything outside the drawn pixels is transparent so
+         the desktop shows through. The window grows upward when the chat panel slides out. -->
+    <Grid RowDefinitions="*,Auto,Auto"
           Padding="6"
-          RowSpacing="4"
+          RowSpacing="6"
           BackgroundColor="Transparent">
+
+        <!-- Slide-out chat panel: scrollable message list above, input box at the bottom.
+             Collapsed by default; toggled by the 💬 button. -->
+        <Border x:Name="ChatPanel"
+                Grid.Row="0"
+                IsVisible="False"
+                Stroke="#22FFFFFF"
+                StrokeThickness="1"
+                BackgroundColor="#E61C1C1E"
+                Padding="8"
+                StrokeShape="RoundRectangle 14">
+            <Grid RowDefinitions="*,Auto" RowSpacing="8">
+
+                <CollectionView x:Name="MessagesList"
+                                Grid.Row="0"
+                                VerticalOptions="Fill">
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="local:ChatMessageVm">
+                            <Grid Padding="0,3">
+                                <Border HorizontalOptions="{Binding Alignment}"
+                                        MaximumWidthRequest="280"
+                                        BackgroundColor="{Binding BubbleColor}"
+                                        Stroke="Transparent"
+                                        Padding="10,7"
+                                        StrokeShape="RoundRectangle 12">
+                                    <Label Text="{Binding Text}"
+                                           TextColor="White"
+                                           FontSize="13"
+                                           LineBreakMode="WordWrap" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
+
+                <Border Grid.Row="1"
+                        BackgroundColor="#33FFFFFF"
+                        Stroke="Transparent"
+                        Padding="4,2"
+                        StrokeShape="RoundRectangle 18">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Entry x:Name="ChatEntry"
+                               Grid.Column="0"
+                               Placeholder="Ask Floaty…"
+                               PlaceholderColor="#99FFFFFF"
+                               TextColor="White"
+                               BackgroundColor="Transparent"
+                               ReturnType="Send"
+                               Completed="OnSendClicked" />
+                        <Button Grid.Column="1"
+                                Text="➤"
+                                Clicked="OnSendClicked"
+                                SemanticProperties.Description="Send message"
+                                WidthRequest="36"
+                                HeightRequest="36"
+                                Padding="0"
+                                CornerRadius="18"
+                                FontSize="15"
+                                BackgroundColor="#3A6DF0"
+                                TextColor="White" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </Border>
 
         <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
         <Image x:Name="Ring"
-               Grid.Row="0"
+               Grid.Row="1"
                Source="floaty_ring.png"
                Aspect="AspectFit"
                HeightRequest="170"
@@ -25,8 +92,8 @@
             </Image.GestureRecognizers>
         </Image>
 
-        <!-- Minimal action bar. Buttons are wired but no-op for this milestone. -->
-        <HorizontalStackLayout Grid.Row="1"
+        <!-- Minimal action bar. -->
+        <HorizontalStackLayout Grid.Row="2"
                                Spacing="6"
                                HorizontalOptions="Center">
             <Button Text="📷"

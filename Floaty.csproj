@@ -69,6 +69,10 @@
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+
+        <!-- AI: provider-agnostic chat abstractions + OpenAI binding (Microsoft.Extensions.AI). -->
+        <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
+        <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
     </ItemGroup>
 
     <!-- Windows-only: transparent/borderless window support for the floating overlay. -->
