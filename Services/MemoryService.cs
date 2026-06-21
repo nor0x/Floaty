@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LiteGraph;
 using LiteGraph.GraphRepositories.Sqlite;
 using Microsoft.Extensions.AI;
@@ -78,6 +79,83 @@ public sealed class MemoryService : IMemoryService
 
         await client.Node.Create(node, cancellationToken);
         return true;
+    }
+
+    public async Task<IReadOnlyList<CaptureSearchResult>> SearchCapturesAsync(
+        string query,
+        int topK = 5,
+        CancellationToken cancellationToken = default)
+    {
+        var config = _settings.Current;
+        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(query))
+            return Array.Empty<CaptureSearchResult>();
+
+        var generator = GetOrCreateEmbeddings(config);
+        var embeddings = await generator.GenerateAsync([query], cancellationToken: cancellationToken);
+        var queryVector = embeddings[0].Vector.ToArray().ToList();
+
+        var client = await GetClientAsync(cancellationToken);
+
+        var request = new VectorSearchRequest
+        {
+            TenantGUID = TenantGuid,
+            GraphGUID = GraphGuid,
+            Domain = VectorSearchDomainEnum.Node,
+            SearchType = VectorSearchTypeEnum.CosineSimilarity,
+            TopK = topK,
+            Embeddings = queryVector,
+        };
+
+        var results = new List<CaptureSearchResult>();
+        await foreach (var hit in client.Vector.Search(request, cancellationToken))
+        {
+            if (hit.Node is null)
+                continue;
+
+            // Re-read the hit with its data + subordinates so we recover the embedded text and metadata.
+            var node = await client.Node.ReadByGuid(
+                TenantGuid, GraphGuid, hit.Node.GUID,
+                includeData: true, includeSubordinates: true, cancellationToken);
+
+            var content = node?.Vectors?.FirstOrDefault()?.Content ?? string.Empty;
+            var (imagePath, textPath, capturedUtc) = ParseCaptureData(node?.Data);
+
+            results.Add(new CaptureSearchResult(
+                Title: node?.Name ?? hit.Node.Name ?? "Capture",
+                CapturedUtc: capturedUtc,
+                Score: hit.Score,
+                ImagePath: imagePath,
+                TextPath: textPath,
+                Content: content));
+        }
+
+        return results;
+    }
+
+    // Best-effort extraction of the metadata we stored in Node.Data. Survives whatever concrete type
+    // LiteGraph rehydrates Data into by round-tripping through JSON.
+    private static (string? ImagePath, string? TextPath, DateTime? CapturedUtc) ParseCaptureData(object? data)
+    {
+        if (data is null)
+            return (null, null, null);
+
+        try
+        {
+            var element = JsonSerializer.SerializeToElement(data);
+
+            string? Str(string name) =>
+                element.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+
+            DateTime? capturedUtc = element.TryGetProperty("CapturedUtc", out var c) && c.TryGetDateTime(out var dt)
+                ? dt
+                : null;
+
+            return (Str("ImagePath"), Str("TextPath"), capturedUtc);
+        }
+        catch
+        {
+            return (null, null, null);
+        }
     }
 
     private IEmbeddingGenerator<string, Embedding<float>> GetOrCreateEmbeddings(FloatyConfig config)
