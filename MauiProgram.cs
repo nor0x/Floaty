@@ -22,16 +22,22 @@ public static class MauiProgram
 		builder.Services.AddSingleton<SettingsService>();
 		builder.Services.AddSingleton<IChatService, ChatService>();
 
+		// Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/litegraph.db).
+		builder.Services.AddSingleton<IMemoryService, MemoryService>();
+
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
 		builder.Services.AddTransient<SettingsPage>();
 
 #if WINDOWS
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.Windows.WindowsOverlayWindowController>();
+		builder.Services.AddSingleton<IScreenCaptureService, Floaty.Platforms.Windows.WindowsScreenCaptureService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
+		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
+		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 #endif
 
 		ConfigureOverlayWindow(builder);

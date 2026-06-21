@@ -73,13 +73,19 @@
         <!-- AI: provider-agnostic chat abstractions + OpenAI binding (Microsoft.Extensions.AI). -->
         <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
         <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
+
+        <!-- Local vector + graph store for capture embeddings (~/.floaty/litegraph.db). -->
+        <PackageReference Include="LiteGraph" Version="7.0.0" />
     </ItemGroup>
 
-    <!-- Windows-only: transparent/borderless window support for the floating overlay. -->
+    <!-- Windows-only: transparent/borderless window support for the floating overlay, plus
+         screen-capture dependencies (GDI bitmap encode + UI Automation) for the 📷 button. -->
     <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
         <!-- 2.7.0 is the latest WinUIEx aligned with WindowsAppSDK 1.7 (MAUI workload pins 1.7;
              newer WinUIEx pulls 1.8 and breaks the build). -->
         <PackageReference Include="WinUIEx" Version="2.7.0" />
+        <PackageReference Include="System.Drawing.Common" Version="10.0.0" />
+        <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
     </ItemGroup>
 
 </Project>

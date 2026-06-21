@@ -8,6 +8,8 @@ public partial class OverlayPage : ContentPage
 {
     private readonly IOverlayWindowController _windowController;
     private readonly IChatService _chatService;
+    private readonly IScreenCaptureService _captureService;
+    private readonly IMemoryService _memoryService;
     private readonly IServiceProvider _services;
 
     // Compact (chat closed) vs expanded (chat open) overlay window sizes, in device-independent units.
@@ -27,11 +29,18 @@ public partial class OverlayPage : ContentPage
 
     public ObservableCollection<ChatMessageVm> Messages { get; } = new();
 
-    public OverlayPage(IOverlayWindowController windowController, IChatService chatService, IServiceProvider services)
+    public OverlayPage(
+        IOverlayWindowController windowController,
+        IChatService chatService,
+        IScreenCaptureService captureService,
+        IMemoryService memoryService,
+        IServiceProvider services)
     {
         InitializeComponent();
         _windowController = windowController;
         _chatService = chatService;
+        _captureService = captureService;
+        _memoryService = memoryService;
         _services = services;
         MessagesList.ItemsSource = Messages;
     }
@@ -131,8 +140,36 @@ public partial class OverlayPage : ContentPage
             MessagesList.ScrollTo(Messages[^1], position: ScrollToPosition.End, animate: true);
     }
 
-    private void OnScreenshotClicked(object? sender, EventArgs e) =>
-        System.Diagnostics.Debug.WriteLine("[Floaty] TODO: capture screenshot");
+    private async void OnScreenshotClicked(object? sender, EventArgs e)
+    {
+        try
+        {
+            var result = await _captureService.CaptureUnderlyingWindowAsync();
+            if (result is null)
+            {
+                await ShowToastAsync("Nothing to capture");
+                return;
+            }
+
+            var stored = await _memoryService.RememberCaptureAsync(result);
+            await ShowToastAsync($"Saved ✓ — {result.WindowTitle}{(stored ? " · embedded" : " · no API key")}");
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync($"⚠️ {ex.Message}");
+        }
+    }
+
+    // Fade a short status message in above the action bar, hold briefly, then fade out.
+    private async Task ShowToastAsync(string message)
+    {
+        CaptureToast.Text = message;
+        CaptureToast.IsVisible = true;
+        await CaptureToast.FadeToAsync(1, 150);
+        await Task.Delay(1600);
+        await CaptureToast.FadeToAsync(0, 250);
+        CaptureToast.IsVisible = false;
+    }
 
     private void OnSettingsClicked(object? sender, EventArgs e)
     {

@@ -34,6 +34,13 @@
             <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
         </div>
 
+        <div class="field">
+            <label for="embeddingModel">Embedding model</label>
+            <input id="embeddingModel" type="text" autocomplete="off" spellcheck="false"
+                   @bind="_config.EmbeddingModel" @bind:event="oninput" />
+            <span class="hint">Used to vectorize captures for search. e.g. <code>text-embedding-3-small</code>.</span>
+        </div>
+
         <div class="actions">
             <button class="save" @onclick="Save">Save</button>
             @if (_saved)
@@ -57,6 +64,7 @@
             Provider = current.Provider,
             OpenAiApiKey = current.OpenAiApiKey,
             Model = current.Model,
+            EmbeddingModel = current.EmbeddingModel,
         };
     }
 

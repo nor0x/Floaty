@@ -18,11 +18,7 @@ public sealed class SettingsService
 
     public SettingsService()
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".floaty");
-        Directory.CreateDirectory(dir);
-        _configPath = Path.Combine(dir, "config.json");
+        _configPath = Path.Combine(FloatyPaths.Home, "config.json");
     }
 
     /// <summary>The current configuration, loaded lazily from disk (defaults if the file is missing/invalid).</summary>

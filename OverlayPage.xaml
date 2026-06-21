@@ -92,11 +92,25 @@
             </Image.GestureRecognizers>
         </Image>
 
-        <!-- Minimal action bar. -->
-        <HorizontalStackLayout Grid.Row="2"
-                               Spacing="6"
-                               HorizontalOptions="Center">
-            <Button Text="📷"
+        <!-- Action bar + transient capture toast, stacked so the toast sits just above the buttons. -->
+        <VerticalStackLayout Grid.Row="2"
+                             Spacing="4"
+                             HorizontalOptions="Center">
+            <Label x:Name="CaptureToast"
+                   IsVisible="False"
+                   Opacity="0"
+                   Text=""
+                   FontSize="11"
+                   TextColor="White"
+                   HorizontalTextAlignment="Center"
+                   LineBreakMode="TailTruncation"
+                   MaximumWidthRequest="180"
+                   Padding="8,3"
+                   BackgroundColor="#CC202020" />
+
+            <HorizontalStackLayout Spacing="6"
+                                   HorizontalOptions="Center">
+                <Button Text="📷"
                     Clicked="OnScreenshotClicked"
                     SemanticProperties.Description="Capture screenshot"
                     Style="{StaticResource OverlayButton}" />
@@ -108,11 +122,12 @@
                     Clicked="OnSettingsClicked"
                     SemanticProperties.Description="Settings"
                     Style="{StaticResource OverlayButton}" />
-            <Button Text="✕"
-                    Clicked="OnCloseClicked"
-                    SemanticProperties.Description="Close Floaty"
-                    Style="{StaticResource OverlayButton}" />
-        </HorizontalStackLayout>
+                <Button Text="✕"
+                        Clicked="OnCloseClicked"
+                        SemanticProperties.Description="Close Floaty"
+                        Style="{StaticResource OverlayButton}" />
+            </HorizontalStackLayout>
+        </VerticalStackLayout>
     </Grid>
 
     <ContentPage.Resources>

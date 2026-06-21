@@ -15,4 +15,7 @@ public sealed class FloatyConfig
 
     /// <summary>Chat model id, e.g. "gpt-4o-mini".</summary>
     public string Model { get; set; } = "gpt-4o-mini";
+
+    /// <summary>Embedding model id used to vectorize captures, e.g. "text-embedding-3-small".</summary>
+    public string EmbeddingModel { get; set; } = "text-embedding-3-small";
 }
