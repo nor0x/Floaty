@@ -182,7 +182,7 @@ public sealed class MemoryService : IMemoryService
             if (_client is not null)
                 return _client;
 
-            var dbPath = Path.Combine(FloatyPaths.Home, "litegraph.db");
+            var dbPath = Path.Combine(FloatyPaths.Home, "floaty.db");
             var client = new LiteGraphClient(new SqliteGraphRepository(dbPath));
             client.InitializeRepository();
 

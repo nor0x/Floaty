@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Text;
 using Floaty.Services;
 using Microsoft.Extensions.AI;
 
@@ -16,10 +18,33 @@ public partial class OverlayPage : ContentPage
     private const double CompactWidth = 200;
     private const double CompactHeight = 250;
     private const double ChatWidth = 360;
-    private const double ChatHeight = 560;
+
+    // User-adjustable chat panel width (dragged via the panel's right edge), clamped to this range.
+    private const double MinChatWidth = 280;
+    private const double MaxChatWidth = 680;
+    private double _chatWidth = ChatWidth;
+    private double _resizeStartWidth;
+
+    // Height reserved for the ring + action bar (everything below the chat panel). The chat window
+    // height is this plus the chat panel's own measured height, so the window grows with the panel.
+    private const double ChatBaseHeight = 196;
+
+    // Last window height we requested from the panel's SizeChanged, to avoid redundant resizes / oscillation.
+    private double _lastChatWindowHeight;
 
     // How many degrees the ring "rolls" per device-independent unit dragged horizontally.
     private const double RotationPerDip = 0.6;
+
+    // Constant idle spin: a slow, subtle rotation while the ring is otherwise at rest.
+    private const double IdleSpinDegPerSecond = 9;
+    private const int IdleSpinIntervalMs = 33; // ~30 fps
+    private IDispatcherTimer? _idleSpinTimer;
+
+    // True while a drag or summon spin is driving the ring, so the idle spin yields to it.
+    private bool _ringBusy;
+
+    // Subtle pause after the summon glide finishes before the chat input auto-appears.
+    private const int SummonRevealDelayMs = 180;
 
     // Cumulative pan offset reported on the previous PanUpdated event, used to derive per-frame deltas.
     private double _lastTotalX;
@@ -46,6 +71,22 @@ public partial class OverlayPage : ContentPage
 
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
         _windowController.SummonRequested += OnSummonRequested;
+
+        StartIdleSpin();
+    }
+
+    // Continuously rotate the ring by a small amount each tick, unless a drag/summon is in control.
+    private void StartIdleSpin()
+    {
+        _idleSpinTimer = Dispatcher.CreateTimer();
+        _idleSpinTimer.Interval = TimeSpan.FromMilliseconds(IdleSpinIntervalMs);
+        _idleSpinTimer.Tick += (_, _) =>
+        {
+            if (_ringBusy)
+                return;
+            Ring.Rotation = (Ring.Rotation + IdleSpinDegPerSecond * IdleSpinIntervalMs / 1000.0) % 360;
+        };
+        _idleSpinTimer.Start();
     }
 
     private void OnRingPanUpdated(object? sender, PanUpdatedEventArgs e)
@@ -55,6 +96,7 @@ public partial class OverlayPage : ContentPage
             case GestureStatus.Started:
                 _lastTotalX = 0;
                 _lastTotalY = 0;
+                _ringBusy = true; // pause the idle spin while dragging
                 break;
 
             case GestureStatus.Running:
@@ -72,8 +114,9 @@ public partial class OverlayPage : ContentPage
 
             case GestureStatus.Completed:
             case GestureStatus.Canceled:
-                // Ease the roll back to rest for a settled, natural feel.
-                _ = Ring.RotateToAsync(0, 350, Easing.SinOut);
+                _ = Ring.RotateToAsync(Random.Shared.Next(0, 360), 350, Easing.SinOut);
+                // Resume the idle spin from the ring's current angle.
+                _ringBusy = false;
                 break;
         }
     }
@@ -108,40 +151,102 @@ public partial class OverlayPage : ContentPage
                 (int)Math.Round(startX + dx * t),
                 (int)Math.Round(startY + dy * t)),
             0, 1, Easing.CubicInOut)
-            .Commit(this, "FloatySummon", length: SummonMoveMs);
+            .Commit(this, "FloatySummon", length: SummonMoveMs, finished: (progress, cancelled) =>
+            {
+                // Once it lands, reveal the chat input after a subtle beat.
+                if (!cancelled)
+                    _ = RevealChatAfterSummonAsync();
+            });
+    }
+
+    private async Task RevealChatAfterSummonAsync()
+    {
+        await Task.Delay(SummonRevealDelayMs);
+        await ShowChatAsync();
     }
 
     private async Task SpinRingAsync()
     {
+        _ringBusy = true; // take over from the idle spin for the summon flourish
         // CubicOut decelerates: the ring spins fast through the glide, then eases to a stop afterwards.
-        await Ring.RotateToAsync(Ring.Rotation + SummonSpinDegrees, SummonSpinMs, Easing.CubicOut);
-        Ring.Rotation = 0; // 720° ≡ 0°; reset without an unwind animation
+        await Ring.RotateToAsync(Random.Shared.Next(0, 360), SummonSpinMs, Easing.CubicOut);
+        _ringBusy = false;
     }
 
     // Toggle the slide-out chat panel, growing/shrinking the overlay window to match.
     private async void OnOpenChatClicked(object? sender, EventArgs e)
     {
-        _chatOpen = !_chatOpen;
-
         if (_chatOpen)
-        {
-            _windowController.Resize(ChatWidth, ChatHeight);
-            ChatPanel.IsVisible = true;
-
-            // Slide the panel up into view.
-            ChatPanel.TranslationY = 24;
-            ChatPanel.Opacity = 0;
-            await Task.WhenAll(
-                ChatPanel.TranslateToAsync(0, 0, 220, Easing.SinOut),
-                ChatPanel.FadeToAsync(1, 220));
-
-            ChatEntry.Focus();
-        }
+            CloseChat();
         else
+            await ShowChatAsync();
+    }
+
+    // Open the chat panel (idempotent — a no-op if already open). Only the input row shows until
+    // messages exist; the panel's SizeChanged grows the window from here as the messages area expands.
+    private async Task ShowChatAsync()
+    {
+        if (_chatOpen)
+            return;
+
+        _chatOpen = true;
+        MessagesList.IsVisible = Messages.Count > 0;
+        _lastChatWindowHeight = 0;
+        _windowController.Resize(_chatWidth, ChatBaseHeight + 80);
+        ChatPanel.IsVisible = true;
+
+        // Slide the panel up into view.
+        ChatPanel.TranslationY = 24;
+        ChatPanel.Opacity = 0;
+        await Task.WhenAll(
+            ChatPanel.TranslateToAsync(0, 0, 220, Easing.SinOut),
+            ChatPanel.FadeToAsync(1, 220));
+
+        ChatEntry.Focus();
+    }
+
+    private void CloseChat()
+    {
+        _chatOpen = false;
+        ChatEntry.Unfocus();
+        ChatPanel.IsVisible = false;
+        _lastChatWindowHeight = 0;
+        _windowController.Resize(CompactWidth, CompactHeight);
+    }
+
+    // Grow (or shrink) the overlay window to match the chat panel's content height. The panel hugs its
+    // content — collapsed messages area when empty, expanding up to MessagesList's MaximumHeightRequest
+    // (after which the CollectionView scrolls), so the window tracks it without leaving dead space.
+    private void OnChatPanelSizeChanged(object? sender, EventArgs e)
+    {
+        if (!_chatOpen || ChatPanel.Height <= 0)
+            return;
+
+        var target = ChatBaseHeight + ChatPanel.Height;
+        if (Math.Abs(target - _lastChatWindowHeight) < 1)
+            return;
+
+        _lastChatWindowHeight = target;
+        // Width is unchanged here, so center vs left anchor is equivalent — keep the existing behavior.
+        _windowController.Resize(_chatWidth, target);
+    }
+
+    // Drag the chat panel's right edge to widen/narrow it. The window grows from the left edge so the
+    // ring stays put; the bottom edge stays anchored. Height re-tracks via OnChatPanelSizeChanged as
+    // the message bubbles re-wrap to the new width.
+    private void OnResizeHandlePanUpdated(object? sender, PanUpdatedEventArgs e)
+    {
+        switch (e.StatusType)
         {
-            ChatEntry.Unfocus();
-            ChatPanel.IsVisible = false;
-            _windowController.Resize(CompactWidth, CompactHeight);
+            case GestureStatus.Started:
+                _resizeStartWidth = _chatWidth;
+                break;
+
+            case GestureStatus.Running:
+                _chatWidth = Math.Clamp(_resizeStartWidth + e.TotalX, MinChatWidth, MaxChatWidth);
+                var height = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
+                _windowController.Resize(_chatWidth, height, anchorLeft: true);
+                break;
         }
     }
 
@@ -162,12 +267,38 @@ public partial class OverlayPage : ContentPage
         Messages.Add(new ChatMessageVm(isUser: true, text));
         var pending = new ChatMessageVm(isUser: false, "…");
         Messages.Add(pending);
+        MessagesList.IsVisible = true;
         ScrollToLatest();
 
         try
         {
-            var reply = await _chatService.GetResponseAsync(history);
-            pending.Text = string.IsNullOrWhiteSpace(reply) ? "(no response)" : reply;
+            var streamed = new StringBuilder();
+            var repaint = Stopwatch.StartNew();
+            var lastScrollMs = 0L;
+
+            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history))
+            {
+                Debug.WriteLine($"[Chat] Received chunk: {chunk}");
+				if (string.IsNullOrEmpty(chunk))
+                    continue;
+
+                streamed.Append(chunk);
+
+                // Repaint at ~30 FPS so streaming feels fluid without overwhelming the UI thread.
+                if (repaint.ElapsedMilliseconds < 33)
+                    continue;
+
+                pending.Text = streamed.ToString();
+                if (repaint.ElapsedMilliseconds - lastScrollMs >= 140)
+                {
+                    ScrollToLatest();
+                    lastScrollMs = repaint.ElapsedMilliseconds;
+                }
+
+                repaint.Restart();
+            }
+
+            pending.Text = streamed.Length == 0 ? "(no response)" : streamed.ToString();
         }
         catch (Exception ex)
         {
@@ -224,6 +355,9 @@ public partial class OverlayPage : ContentPage
             Height = 640,
         });
     }
+
+    private void OnFloatToTaskbarClicked(object? sender, EventArgs e) =>
+        _windowController.FloatToTaskbarAndHide();
 
     private void OnCloseClicked(object? sender, EventArgs e) =>
         Application.Current?.Quit();

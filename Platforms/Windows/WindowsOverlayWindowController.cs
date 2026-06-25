@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Floaty.Services;
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Windows.Graphics;
 using WinRT.Interop;
@@ -17,6 +18,7 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
     private AppWindow? _appWindow;
     private nint _hwnd;
     private WindowsTrayIcon? _trayIcon;
+    private DispatcherQueueTimer? _floatHideTimer;
 
     // Keep the subclass delegate alive for the window's lifetime so the GC can't collect the callback.
     private SUBCLASSPROC? _hotkeyProc;
@@ -128,7 +130,7 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
             current.Y + (int)Math.Round(dyDip * scale)));
     }
 
-    public void Resize(double widthDip, double heightDip)
+    public void Resize(double widthDip, double heightDip, bool anchorLeft = false)
     {
         if (_appWindow is null)
             return;
@@ -141,12 +143,13 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         var pos = _appWindow.Position;
         var size = _appWindow.Size;
 
-        // Anchor the bottom edge and horizontal center so the window grows upward in place.
+        // Anchor the bottom edge so the window grows upward; horizontally anchor the left edge
+        // (ring side) or the center depending on the caller.
         var bottom = pos.Y + size.Height;
-        var centerX = pos.X + (size.Width / 2);
+        var newX = anchorLeft ? pos.X : pos.X + (size.Width / 2) - (newWidth / 2);
 
         _appWindow.MoveAndResize(new RectInt32(
-            centerX - (newWidth / 2),
+            newX,
             bottom - newHeight,
             newWidth,
             newHeight));
@@ -174,6 +177,51 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
     {
         _appWindow?.Show();
         SetForegroundWindow(_hwnd);
+    }
+
+    public void Hide() => _appWindow?.Hide();
+
+    public void FloatToTaskbarAndHide()
+    {
+        if (_appWindow is null)
+            return;
+
+        _floatHideTimer?.Stop();
+
+        var start = _appWindow.Position;
+        var size = _appWindow.Size;
+        var area = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Primary);
+        var work = area.WorkArea;
+
+        const int marginPx = 12;
+        var targetX = work.X + work.Width - size.Width - marginPx;
+        var targetY = work.Y + work.Height - size.Height - marginPx;
+
+        var timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(16);
+        var startedAt = DateTime.UtcNow;
+        const double durationMs = 300;
+
+        timer.Tick += (_, _) =>
+        {
+            var elapsedMs = (DateTime.UtcNow - startedAt).TotalMilliseconds;
+            var t = Math.Clamp(elapsedMs / durationMs, 0, 1);
+            var eased = 1 - Math.Pow(1 - t, 3); // cubic-out
+
+            _appWindow.Move(new PointInt32(
+                (int)Math.Round(start.X + (targetX - start.X) * eased),
+                (int)Math.Round(start.Y + (targetY - start.Y) * eased)));
+
+            if (t < 1)
+                return;
+
+            timer.Stop();
+            _floatHideTimer = null;
+            _appWindow.Hide();
+        };
+
+        _floatHideTimer = timer;
+        timer.Start();
     }
 
     // --- Global hotkey (Alt+F) ---

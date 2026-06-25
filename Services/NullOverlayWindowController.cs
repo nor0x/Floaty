@@ -11,7 +11,7 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
         // Intentionally no-op: the floating overlay is a desktop-only surface.
     }
 
-    public void Resize(double widthDip, double heightDip)
+    public void Resize(double widthDip, double heightDip, bool anchorLeft = false)
     {
         // Intentionally no-op: the floating overlay is a desktop-only surface.
     }
@@ -31,6 +31,16 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
     }
 
     public void Activate()
+    {
+        // Intentionally no-op.
+    }
+
+    public void Hide()
+    {
+        // Intentionally no-op.
+    }
+
+    public void FloatToTaskbarAndHide()
     {
         // Intentionally no-op.
     }

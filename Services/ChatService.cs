@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.AI;
 using OpenAI;
@@ -10,6 +11,10 @@ namespace Floaty.Services;
 /// </summary>
 public interface IChatService
 {
+    IAsyncEnumerable<string> GetStreamingResponseAsync(
+        IReadOnlyList<ChatMessage> history,
+        CancellationToken cancellationToken = default);
+
     Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,
         CancellationToken cancellationToken = default);
@@ -47,33 +52,43 @@ public sealed class ChatService : IChatService
         _chatOptions = new ChatOptions { Tools = new List<AITool> { searchTool } };
     }
 
-    public async Task<string> GetResponseAsync(
+    public async IAsyncEnumerable<string> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
-        CancellationToken cancellationToken = default)
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
 
         if (string.IsNullOrWhiteSpace(config.OpenAiApiKey))
-            return "Add your OpenAI API key in Settings (⚙) to start chatting.";
-
-        try
         {
-            var client = GetOrCreateClient(config);
+            yield return "Add your OpenAI API key in Settings (⚙) to start chatting.";
+            yield break;
+        }
 
-            var messages = new List<ChatMessage> { new(ChatRole.System, SystemPrompt) };
-            messages.AddRange(history);
+        var client = GetOrCreateClient(config);
+        var messages = new List<ChatMessage> { new(ChatRole.System, SystemPrompt) };
+        messages.AddRange(history);
 
-            var response = await client.GetResponseAsync(messages, _chatOptions, cancellationToken);
-            return response.Text;
-        }
-        catch (OperationCanceledException)
+        await foreach (var update in client.GetStreamingResponseAsync(messages, _chatOptions, cancellationToken)
+            .WithCancellation(cancellationToken))
         {
-            throw;
+            Debug.WriteLine("got: " + update.Text);
+            if (!string.IsNullOrEmpty(update.Text))
+                yield return update.Text;
         }
-        catch (Exception ex)
+    }
+
+    public async Task<string> GetResponseAsync(
+        IReadOnlyList<ChatMessage> history,
+        CancellationToken cancellationToken = default)
+    {
+        var sb = new StringBuilder();
+        await foreach (var chunk in GetStreamingResponseAsync(history, cancellationToken)
+            .WithCancellation(cancellationToken))
         {
-            return $"⚠️ {ex.Message}";
+            sb.Append(chunk);
         }
+
+        return sb.Length == 0 ? "(no response)" : sb.ToString();
     }
 
     [Description("Search the user's captured screen history (screenshots and the on-screen text Floaty " +
@@ -119,12 +134,14 @@ public sealed class ChatService : IChatService
 
         _clientKey = config.OpenAiApiKey;
         _clientModel = config.Model;
-        _client = new OpenAIClient(config.OpenAiApiKey)
-            .GetChatClient(config.Model)
-            .AsIChatClient()
+#pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+		_client = new OpenAIClient(config.OpenAiApiKey)
+            .GetResponsesClient()
+            .AsIChatClient(config.Model)
             .AsBuilder()
             .UseFunctionInvocation()
             .Build();
-        return _client;
+#pragma warning restore OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+		return _client;
     }
 }

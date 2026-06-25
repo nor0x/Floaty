@@ -15,11 +15,12 @@ public interface IOverlayWindowController
     void MoveBy(double dxDip, double dyDip);
 
     /// <summary>
-    /// Resizes the overlay window to the given size in device-independent units, anchored at the
-    /// bottom edge and horizontal center so the window grows upward while the ring stays in place.
-    /// Used to expand the overlay when the chat panel slides out and shrink it back when it closes.
+    /// Resizes the overlay window to the given size in device-independent units. The bottom edge is
+    /// always anchored (the window grows upward). Horizontally, the window is anchored at its center
+    /// by default, or at its left edge when <paramref name="anchorLeft"/> is true — used while the
+    /// user drags the chat panel's right edge so the ring on the left stays put.
     /// </summary>
-    void Resize(double widthDip, double heightDip);
+    void Resize(double widthDip, double heightDip, bool anchorLeft = false);
 
     /// <summary>
     /// Raised when the user presses the global summon hotkey (Alt+F). Carries the mouse cursor
@@ -38,4 +39,13 @@ public interface IOverlayWindowController
 
     /// <summary>Ensures the overlay is visible and brought to the foreground (used when summoned).</summary>
     void Activate();
+
+    /// <summary>Hides the overlay window while keeping the app process running.</summary>
+    void Hide();
+
+    /// <summary>
+    /// Animates the overlay to the platform taskbar/menu-bar corner and then hides it,
+    /// keeping the process alive so summon can bring it back.
+    /// </summary>
+    void FloatToTaskbarAndHide();
 }

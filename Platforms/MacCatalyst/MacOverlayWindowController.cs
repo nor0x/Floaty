@@ -3,6 +3,7 @@ using Floaty.Services;
 using Foundation;
 using ObjCRuntime;
 using UIKit;
+using System.Runtime.InteropServices;
 
 namespace Floaty.Platforms.MacCatalyst;
 
@@ -67,7 +68,7 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
         _nsWindow.SetValueForKey(NSValue.FromCGRect(moved), new NSString("frame"));
     }
 
-    public void Resize(double widthDip, double heightDip)
+    public void Resize(double widthDip, double heightDip, bool anchorLeft = false)
     {
         if (_nsWindow is null)
             return;
@@ -77,10 +78,10 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 
         var frame = frameValue.CGRectValue;
 
-        // AppKit origin is bottom-left, so keep the bottom edge (frame.Y) fixed and grow upward,
-        // and keep the horizontal center fixed.
-        var centerX = frame.X + (frame.Width / 2);
-        var resized = new CGRect(centerX - (widthDip / 2), frame.Y, widthDip, heightDip);
+        // AppKit origin is bottom-left, so keep the bottom edge (frame.Y) fixed and grow upward.
+        // Horizontally anchor the left edge (frame.X) or the center depending on the caller.
+        var newX = anchorLeft ? frame.X : frame.X + (frame.Width / 2) - (widthDip / 2);
+        var resized = new CGRect(newX, frame.Y, widthDip, heightDip);
         _nsWindow.SetValueForKey(NSValue.FromCGRect(resized), new NSString("frame"));
     }
 
@@ -101,5 +102,41 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
     public void Activate()
     {
         // Not implemented on macOS yet.
+    }
+
+    public void Hide()
+    {
+        if (_nsWindow is null)
+            return;
+
+        Messaging.void_objc_msgSend_IntPtr(
+            _nsWindow.Handle,
+            Selector.GetHandle("orderOut:"),
+            IntPtr.Zero);
+    }
+
+    public void FloatToTaskbarAndHide()
+    {
+        if (_nsWindow is null)
+            return;
+
+        if (_nsWindow.ValueForKey(new NSString("frame")) is not NSValue frameValue)
+        {
+            Hide();
+            return;
+        }
+
+        var frame = frameValue.CGRectValue;
+        var screen = UIScreen.MainScreen.Bounds;
+        const double margin = 12;
+
+        // AppKit frame origin is bottom-left. Top-right placement therefore uses a high y value.
+        var targetX = screen.Width - frame.Width - margin;
+        var targetY = screen.Height - frame.Height - margin;
+        _nsWindow.SetValueForKey(
+            NSValue.FromCGRect(new CGRect(targetX, targetY, frame.Width, frame.Height)),
+            new NSString("frame"));
+
+        Hide();
     }
 }

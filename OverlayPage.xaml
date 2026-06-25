@@ -1,47 +1,53 @@
-<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8"?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             xmlns:local="clr-namespace:Floaty"
-             x:Class="Floaty.OverlayPage"
-             x:DataType="local:OverlayPage"
-             BackgroundColor="Transparent">
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:local="clr-namespace:Floaty"
+    x:Class="Floaty.OverlayPage"
+    x:DataType="local:OverlayPage"
+    BackgroundColor="Transparent">
 
     <!-- Whole-window layout: chat panel (hidden until opened) on top, the ring and a minimal
          action bar anchored at the bottom. Everything outside the drawn pixels is transparent so
          the desktop shows through. The window grows upward when the chat panel slides out. -->
-    <Grid RowDefinitions="*,Auto,Auto"
-          Padding="6"
-          RowSpacing="6"
-          BackgroundColor="Transparent">
+    <Grid RowDefinitions="Auto"
+        ColumnDefinitions="Auto,*"
+        BackgroundColor="Transparent">
 
         <!-- Slide-out chat panel: scrollable message list above, input box at the bottom.
              Collapsed by default; toggled by the 💬 button. -->
         <Border x:Name="ChatPanel"
-                Grid.Row="0"
-                IsVisible="False"
-                Stroke="#22FFFFFF"
-                StrokeThickness="1"
-                BackgroundColor="#E61C1C1E"
-                Padding="8"
-                StrokeShape="RoundRectangle 14">
-            <Grid RowDefinitions="*,Auto" RowSpacing="8">
+            Grid.Column="1"
+            IsVisible="False"
+            VerticalOptions="Start"
+            Margin="-30,10,0,0"
+            Stroke="#22FFFFFF"
+            StrokeThickness="1"
+            BackgroundColor="#E61C1C1E"
+            Padding="16,8,8,8"
+            StrokeShape="RoundRectangle 14"
+            SizeChanged="OnChatPanelSizeChanged">
+            <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
+                 MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
 
                 <CollectionView x:Name="MessagesList"
-                                Grid.Row="0"
-                                VerticalOptions="Fill">
+                    Grid.Row="0"
+                    VerticalScrollBarVisibility="Never"
+                    IsVisible="False"
+                    MaximumHeightRequest="240">
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="local:ChatMessageVm">
                             <Grid Padding="0,3">
                                 <Border HorizontalOptions="{Binding Alignment}"
-                                        MaximumWidthRequest="280"
-                                        BackgroundColor="{Binding BubbleColor}"
-                                        Stroke="Transparent"
-                                        Padding="10,7"
-                                        StrokeShape="RoundRectangle 12">
+                                    MaximumWidthRequest="280"
+                                    BackgroundColor="{Binding BubbleColor}"
+                                    Stroke="Transparent"
+                                    Padding="10,7"
+                                    StrokeShape="RoundRectangle 12">
                                     <Label Text="{Binding Text}"
-                                           TextColor="White"
-                                           FontSize="13"
-                                           LineBreakMode="WordWrap" />
+                                        TextColor="White"
+                                        FontSize="13"
+                                        LineBreakMode="WordWrap" />
                                 </Border>
                             </Grid>
                         </DataTemplate>
@@ -49,85 +55,88 @@
                 </CollectionView>
 
                 <Border Grid.Row="1"
-                        BackgroundColor="#33FFFFFF"
-                        Stroke="Transparent"
-                        Padding="4,2"
-                        StrokeShape="RoundRectangle 18">
+                    BackgroundColor="#33FFFFFF"
+                    Stroke="Transparent"
+                    Padding="4,2"
+                    StrokeShape="RoundRectangle 18">
                     <Grid ColumnDefinitions="*,Auto">
                         <Entry x:Name="ChatEntry"
-                               Grid.Column="0"
-                               Placeholder="Ask Floaty…"
-                               PlaceholderColor="#99FFFFFF"
-                               TextColor="White"
-                               BackgroundColor="Transparent"
-                               ReturnType="Send"
-                               Completed="OnSendClicked" />
+                            Grid.Column="0"
+                            Placeholder="Ask Floaty…"
+                            PlaceholderColor="#99FFFFFF"
+                            TextColor="White"
+                            BackgroundColor="Transparent"
+                            ReturnType="Send"
+                            Completed="OnSendClicked" />
                         <Button Grid.Column="1"
-                                Text="➤"
-                                Clicked="OnSendClicked"
-                                SemanticProperties.Description="Send message"
-                                WidthRequest="36"
-                                HeightRequest="36"
-                                Padding="0"
-                                CornerRadius="18"
-                                FontSize="15"
-                                BackgroundColor="#3A6DF0"
-                                TextColor="White" />
+                            Text="➤"
+                            Clicked="OnSendClicked"
+                            SemanticProperties.Description="Send message"
+                            WidthRequest="36"
+                            HeightRequest="36"
+                            Padding="0"
+                            CornerRadius="18"
+                            FontSize="15"
+                            BackgroundColor="#3A6DF0"
+                            TextColor="White" />
                     </Grid>
                 </Border>
             </Grid>
         </Border>
 
-        <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
-        <Image x:Name="Ring"
-               Grid.Row="1"
-               Source="floaty_ring.png"
-               Aspect="AspectFit"
-               HeightRequest="170"
-               WidthRequest="170"
-               HorizontalOptions="Center"
-               VerticalOptions="Center">
-            <Image.GestureRecognizers>
-                <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
-            </Image.GestureRecognizers>
-        </Image>
-
         <!-- Action bar + transient capture toast, stacked so the toast sits just above the buttons. -->
-        <VerticalStackLayout Grid.Row="2"
-                             Spacing="4"
-                             HorizontalOptions="Center">
-            <Label x:Name="CaptureToast"
-                   IsVisible="False"
-                   Opacity="0"
-                   Text=""
-                   FontSize="11"
-                   TextColor="White"
-                   HorizontalTextAlignment="Center"
-                   LineBreakMode="TailTruncation"
-                   MaximumWidthRequest="180"
-                   Padding="8,3"
-                   BackgroundColor="#CC202020" />
+        <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="End">
 
-            <HorizontalStackLayout Spacing="6"
-                                   HorizontalOptions="Center">
+            <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
+            <Image x:Name="Ring"
+                Source="floaty_ring.png"
+                Aspect="AspectFit"
+                HeightRequest="148"
+                WidthRequest="148"
+                HorizontalOptions="Fill"
+                VerticalOptions="Fill">
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Float to taskbar"
+                            Clicked="OnFloatToTaskbarClicked" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Settings"
+                            Clicked="OnSettingsClicked" />
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Close Floaty"
+                            Clicked="OnCloseClicked" />
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+                <Image.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
+                </Image.GestureRecognizers>
+            </Image>
+            <HorizontalStackLayout Spacing="2"
+                Margin="0,-10,0,0"
+                HorizontalOptions="Center">
                 <Button Text="📷"
                     Clicked="OnScreenshotClicked"
                     SemanticProperties.Description="Capture screenshot"
                     Style="{StaticResource OverlayButton}" />
-            <Button Text="💬"
+                <Button Text="💬"
                     Clicked="OnOpenChatClicked"
                     SemanticProperties.Description="Open chat"
                     Style="{StaticResource OverlayButton}" />
-            <Button Text="⚙"
-                    Clicked="OnSettingsClicked"
-                    SemanticProperties.Description="Settings"
-                    Style="{StaticResource OverlayButton}" />
-                <Button Text="✕"
-                        Clicked="OnCloseClicked"
-                        SemanticProperties.Description="Close Floaty"
-                        Style="{StaticResource OverlayButton}" />
             </HorizontalStackLayout>
+            <Label x:Name="CaptureToast"
+                IsVisible="False"
+                Opacity="0"
+                Text=""
+                FontSize="11"
+                TextColor="White"
+                HorizontalTextAlignment="Center"
+                LineBreakMode="TailTruncation"
+                MaximumWidthRequest="180"
+                Padding="8,3"
+                BackgroundColor="#CC202020" />
+
         </VerticalStackLayout>
+
     </Grid>
 
     <ContentPage.Resources>
