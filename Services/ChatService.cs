@@ -27,7 +27,7 @@ public interface IChatService
 /// </summary>
 public sealed class ChatService : IChatService
 {
-    private const string SystemPrompt =
+    private const string DefaultSystemPrompt =
         "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
         "what's on their screen; each capture's on-screen text is stored in local memory. When the user " +
         "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
@@ -65,7 +65,8 @@ public sealed class ChatService : IChatService
         }
 
         var client = GetOrCreateClient(config);
-        var messages = new List<ChatMessage> { new(ChatRole.System, SystemPrompt) };
+        var systemPrompt = _settings.GetSystemPrompt(DefaultSystemPrompt);
+        var messages = new List<ChatMessage> { new(ChatRole.System, systemPrompt) };
         messages.AddRange(history);
 
         await foreach (var update in client.GetStreamingResponseAsync(messages, _chatOptions, cancellationToken)

@@ -3,57 +3,99 @@
 <div class="settings">
     <header class="settings-header">
         <h1>Settings</h1>
-        <p class="subtitle">Configure how Floaty connects to AI providers.</p>
+        <p class="subtitle">Configure Floaty behavior and AI provider options.</p>
     </header>
 
-    <section class="card">
-        <div class="card-head">
-            <h2>AI Provider</h2>
-            <p>Floaty uses this provider to answer your chats.</p>
-        </div>
+    <section class="settings-panel">
+        <aside class="tabs" aria-label="Settings sections">
+            <button class="tab @TabClass(SettingsSection.Behavior)" @onclick="() => SelectSection(SettingsSection.Behavior)">
+                Behavior
+            </button>
+            <button class="tab @TabClass(SettingsSection.ModelProvider)" @onclick="() => SelectSection(SettingsSection.ModelProvider)">
+                Model Provider
+            </button>
+        </aside>
 
-        <div class="field">
-            <label>Provider</label>
-            <select @bind="_config.Provider" disabled>
-                <option value="OpenAI">OpenAI</option>
-            </select>
-            <span class="hint">More providers coming soon.</span>
-        </div>
-
-        <div class="field">
-            <label for="apiKey">API key</label>
-            <input id="apiKey" type="password" autocomplete="off" spellcheck="false"
-                   placeholder="sk-..." @bind="_config.OpenAiApiKey" @bind:event="oninput" />
-            <span class="hint">Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine except to call OpenAI.</span>
-        </div>
-
-        <div class="field">
-            <label for="model">Model</label>
-            <input id="model" type="text" autocomplete="off" spellcheck="false"
-                   @bind="_config.Model" @bind:event="oninput" />
-            <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
-        </div>
-
-        <div class="field">
-            <label for="embeddingModel">Embedding model</label>
-            <input id="embeddingModel" type="text" autocomplete="off" spellcheck="false"
-                   @bind="_config.EmbeddingModel" @bind:event="oninput" />
-            <span class="hint">Used to vectorize captures for search. e.g. <code>text-embedding-3-small</code>.</span>
-        </div>
-
-        <div class="actions">
-            <button class="save" @onclick="Save">Save</button>
-            @if (_saved)
+        <div class="card">
+            @if (_activeSection == SettingsSection.Behavior)
             {
-                <span class="saved">Saved ✓</span>
+                <div class="card-head">
+                    <h2>Behavior</h2>
+                    <p>Define Floaty's system prompt used at the start of every chat.</p>
+                </div>
+
+                <div class="field">
+                    <label for="systemPrompt">System prompt</label>
+                    <textarea id="systemPrompt" rows="12" autocomplete="off" spellcheck="false"
+                              @bind="_systemPrompt" @bind:event="oninput"></textarea>
+                    <span class="hint">Saved locally to <code>~/.floaty/floaty.md</code>.</span>
+                </div>
             }
+            else
+            {
+                <div class="card-head">
+                    <h2>AI Provider</h2>
+                    <p>Floaty uses this provider to answer your chats.</p>
+                </div>
+
+                <div class="field">
+                    <label>Provider</label>
+                    <select @bind="_config.Provider" disabled>
+                        <option value="OpenAI">OpenAI</option>
+                    </select>
+                    <span class="hint">More providers coming soon.</span>
+                </div>
+
+                <div class="field">
+                    <label for="apiKey">API key</label>
+                    <input id="apiKey" type="password" autocomplete="off" spellcheck="false"
+                           placeholder="sk-..." @bind="_config.OpenAiApiKey" @bind:event="oninput" />
+                    <span class="hint">Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine except to call OpenAI.</span>
+                </div>
+
+                <div class="field">
+                    <label for="model">Model</label>
+                    <input id="model" type="text" autocomplete="off" spellcheck="false"
+                           @bind="_config.Model" @bind:event="oninput" />
+                    <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
+                </div>
+
+                <div class="field">
+                    <label for="embeddingModel">Embedding model</label>
+                    <input id="embeddingModel" type="text" autocomplete="off" spellcheck="false"
+                           @bind="_config.EmbeddingModel" @bind:event="oninput" />
+                    <span class="hint">Used to vectorize captures for search. e.g. <code>text-embedding-3-small</code>.</span>
+                </div>
+            }
+
+            <div class="actions">
+                <button class="save" @onclick="Save">Save</button>
+                @if (_saved)
+                {
+                    <span class="saved">Saved</span>
+                }
+            </div>
         </div>
     </section>
 </div>
 
 @code {
+    private const string DefaultSystemPrompt =
+        "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
+        "what's on their screen; each capture's on-screen text is stored in local memory. When the user " +
+        "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
+        "tool to retrieve it before answering, and ground your answer in what it returns. Be concise.";
+
+    private enum SettingsSection
+    {
+        Behavior,
+        ModelProvider,
+    }
+
     private FloatyConfig _config = new();
+    private string _systemPrompt = string.Empty;
     private bool _saved;
+    private SettingsSection _activeSection = SettingsSection.Behavior;
 
     protected override void OnInitialized()
     {
@@ -66,18 +108,29 @@
             Model = current.Model,
             EmbeddingModel = current.EmbeddingModel,
         };
+
+        _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
     }
 
     private void Save()
     {
         ConfigService.Save(_config);
+        ConfigService.SaveSystemPrompt(_systemPrompt);
         _saved = true;
     }
+
+    private void SelectSection(SettingsSection section)
+    {
+        _activeSection = section;
+        _saved = false;
+    }
+
+    private string TabClass(SettingsSection section) => section == _activeSection ? "active" : string.Empty;
 }
 
 <style>
     .settings {
-        max-width: 640px;
+        max-width: 980px;
         margin: 0 auto;
         padding: 24px 28px 40px;
         font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
@@ -94,6 +147,47 @@
         margin: 0 0 24px;
         color: #6b6b70;
         font-size: 14px;
+    }
+
+    .settings-panel {
+        display: grid;
+        grid-template-columns: 210px 1fr;
+        gap: 16px;
+        align-items: start;
+    }
+
+    .tabs {
+        border: 1px solid #e4e4e8;
+        border-radius: 12px;
+        background: #fff;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .tab {
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: #f7f7fa;
+        color: #2d2d31;
+        font-size: 14px;
+        font-weight: 600;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+        transition: background .15s, border-color .15s, color .15s;
+    }
+
+    .tab:hover {
+        background: #efeff5;
+    }
+
+    .tab.active {
+        background: #edf4ff;
+        border-color: #bfd6ff;
+        color: #0f53bd;
     }
 
     .card {
@@ -139,7 +233,22 @@
         transition: border-color .15s, box-shadow .15s;
     }
 
-    .field input:focus {
+    .field textarea {
+        min-height: 220px;
+        resize: vertical;
+        font-size: 13px;
+        line-height: 1.4;
+        padding: 10px 11px;
+        border: 1px solid #d3d3d9;
+        border-radius: 8px;
+        background: #fafafa;
+        outline: none;
+        font-family: Consolas, 'Courier New', monospace;
+        transition: border-color .15s, box-shadow .15s;
+    }
+
+    .field input:focus,
+    .field textarea:focus {
         border-color: #2b7fff;
         box-shadow: 0 0 0 3px rgba(43, 127, 255, 0.15);
         background: #fff;
@@ -185,5 +294,24 @@
         color: #1f9d55;
         font-size: 13px;
         font-weight: 600;
+    }
+
+    @@media (max-width: 780px) {
+        .settings {
+            padding: 20px 16px 30px;
+        }
+
+        .settings-panel {
+            grid-template-columns: 1fr;
+        }
+
+        .tabs {
+            flex-direction: row;
+        }
+
+        .tab {
+            flex: 1;
+            text-align: center;
+        }
     }
 </style>

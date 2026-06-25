@@ -11,6 +11,9 @@ public static class FloatyPaths
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         ".floaty"));
 
+    /// <summary><c>~/.floaty/floaty.md</c> — user-editable system prompt for chat behavior.</summary>
+    public static string SystemPrompt => Path.Combine(Home, "floaty.md");
+
     /// <summary><c>~/.floaty/captures</c> — screenshot + accessibility-content pairs from the 📷 button.</summary>
     public static string Captures => EnsureDir(Path.Combine(Home, "captures"));
 
