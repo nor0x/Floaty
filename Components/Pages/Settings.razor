@@ -8,13 +8,16 @@
 
     <section class="settings-panel">
         <aside class="tabs" aria-label="Settings sections">
-            <button class="tab @TabClass(SettingsSection.Behavior)" @onclick="() => SelectSection(SettingsSection.Behavior)">
+            <button class="tab @TabClass(SettingsSection.Behavior)"
+                    @onclick="() => SelectSection(SettingsSection.Behavior)">
                 Behavior
             </button>
-            <button class="tab @TabClass(SettingsSection.Appearance)" @onclick="() => SelectSection(SettingsSection.Appearance)">
+            <button class="tab @TabClass(SettingsSection.Appearance)"
+                    @onclick="() => SelectSection(SettingsSection.Appearance)">
                 Appearance
             </button>
-            <button class="tab @TabClass(SettingsSection.ModelProvider)" @onclick="() => SelectSection(SettingsSection.ModelProvider)">
+            <button class="tab @TabClass(SettingsSection.ModelProvider)"
+                    @onclick="() => SelectSection(SettingsSection.ModelProvider)">
                 Model Provider
             </button>
         </aside>
@@ -29,8 +32,8 @@
 
                 <div class="field">
                     <label for="systemPrompt">System prompt</label>
-                    <textarea id="systemPrompt" rows="12" autocomplete="off" spellcheck="false"
-                              @bind="_systemPrompt" @bind:event="oninput"></textarea>
+                    <textarea id="systemPrompt" rows="12" autocomplete="off" spellcheck="false" @bind="_systemPrompt"
+                              @bind:event="oninput"></textarea>
                     <span class="hint">Saved locally to <code>~/.floaty/floaty.md</code>.</span>
                 </div>
             }
@@ -38,73 +41,95 @@
             {
                 <div class="card-head">
                     <h2>Appearance</h2>
-                    <p>Choose a custom ring image used by the floating overlay.</p>
+                    <p>Choose the ring image used by the floating overlay.</p>
                 </div>
 
                 <div class="field">
-                    <label for="ringImage">Ring image</label>
-                    <select id="ringImage" @bind="_config.RingImageFileName">
-                        <option value="">Built-in default</option>
-                        @foreach (var image in _ringImages)
+                    <label>Ring image</label>
+
+                    <div class="ring-strip" role="list" aria-label="Ring image options">
+                        @foreach (var option in _ringOptions)
                         {
-                            <option value="@image">@image</option>
+                            <button type="button" role="listitem"
+                                    class="ring-option @(IsSelectedRing(option.Value) ? "selected" : string.Empty)"
+                                    title="@option.Label" @onclick="() => SelectRing(option.Value)">
+                                <span class="ring-preview">
+                                    @if (!string.IsNullOrWhiteSpace(option.PreviewSrc))
+                                    {
+                                        <img src="@option.PreviewSrc" alt="@option.Label" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="ring-fallback">@option.Label[..1].ToUpperInvariant()</span>
+                                    }
+                                </span>
+                                <span class="ring-name">@option.Label</span>
+                                <span class="ring-kind">@(option.IsBuiltIn ? "Built-in" : "Custom")</span>
+                            </button>
                         }
-                    </select>
-                    <span class="hint">Place images in <code>~/.floaty/ring</code> and click Reload.</span>
+                    </div>
+
+                    <span class="hint">
+                        Built-ins come from app resources. Add your own images to <code>~/.floaty/ring</code> and click
+                        Reload.
+                    </span>
                 </div>
 
                 <div class="actions sub-actions">
                     <button class="reload" @onclick="ReloadRingImages">Reload</button>
-                    <span class="hint">Found @_ringImages.Count image(s).</span>
-                </div>
-            }
-            else
-            {
-                <div class="card-head">
-                    <h2>AI Provider</h2>
-                    <p>Floaty uses this provider to answer your chats.</p>
-                </div>
-
-                <div class="field">
-                    <label>Provider</label>
-                    <select @bind="_config.Provider" disabled>
-                        <option value="OpenAI">OpenAI</option>
-                    </select>
-                    <span class="hint">More providers coming soon.</span>
-                </div>
-
-                <div class="field">
-                    <label for="apiKey">API key</label>
-                    <input id="apiKey" type="password" autocomplete="off" spellcheck="false"
-                           placeholder="sk-..." @bind="_config.OpenAiApiKey" @bind:event="oninput" />
-                    <span class="hint">Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine except to call OpenAI.</span>
-                </div>
-
-                <div class="field">
-                    <label for="model">Model</label>
-                    <input id="model" type="text" autocomplete="off" spellcheck="false"
-                           @bind="_config.Model" @bind:event="oninput" />
-                    <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
-                </div>
-
-                <div class="field">
-                    <label for="embeddingModel">Embedding model</label>
-                    <input id="embeddingModel" type="text" autocomplete="off" spellcheck="false"
-                           @bind="_config.EmbeddingModel" @bind:event="oninput" />
-                    <span class="hint">Used to vectorize captures for search. e.g. <code>text-embedding-3-small</code>.</span>
-                </div>
-            }
-
-            <div class="actions">
-                <button class="save" @onclick="Save">Save</button>
-                @if (_saved)
-                {
-                    <span class="saved">Saved</span>
+                    <span class="hint">Loaded @_ringOptions.Count option(s), including @_customRingCount custom
+                        image(s).</span>
+                    </div>
                 }
+            else
+                {
+                    <div class="card-head">
+                        <h2>AI Provider</h2>
+                        <p>Floaty uses this provider to answer your chats.</p>
+                    </div>
+
+                    <div class="field">
+                        <label>Provider</label>
+                        <select @bind="_config.Provider" disabled>
+                            <option value="OpenAI">OpenAI</option>
+                        </select>
+                        <span class="hint">More providers coming soon.</span>
+                    </div>
+
+                    <div class="field">
+                        <label for="apiKey">API key</label>
+                        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..."
+                               @bind="_config.OpenAiApiKey" @bind:event="oninput" />
+                        <span class="hint">Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine
+                            except to call OpenAI.</span>
+                        </div>
+
+                        <div class="field">
+                            <label for="model">Model</label>
+                            <input id="model" type="text" autocomplete="off" spellcheck="false" @bind="_config.Model"
+                                   @bind:event="oninput" />
+                            <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
+                        </div>
+
+                        <div class="field">
+                            <label for="embeddingModel">Embedding model</label>
+                            <input id="embeddingModel" type="text" autocomplete="off" spellcheck="false"
+                                   @bind="_config.EmbeddingModel" @bind:event="oninput" />
+                            <span class="hint">Used to vectorize captures for search. e.g.
+                                <code>text-embedding-3-small</code>.</span>
+                            </div>
+                        }
+
+                        <div class="actions">
+                            <button class="save" @onclick="Save">Save</button>
+                            @if (_saved)
+                            {
+                                <span class="saved">Saved</span>
+                            }
+                        </div>
+                    </div>
+                </section>
             </div>
-        </div>
-    </section>
-</div>
 
 @code {
     private const string DefaultSystemPrompt =
@@ -120,13 +145,16 @@
         ModelProvider,
     }
 
+    private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
+
     private FloatyConfig _config = new();
     private string _systemPrompt = string.Empty;
-    private List<string> _ringImages = new();
+    private List<RingImageOption> _ringOptions = new();
+    private int _customRingCount;
     private bool _saved;
     private SettingsSection _activeSection = SettingsSection.Behavior;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
         // Work on a copy so edits aren't committed until the user clicks Save.
         var current = ConfigService.Current;
@@ -140,7 +168,7 @@
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
-        ReloadRingImages();
+        await ReloadRingImages();
     }
 
     private void Save()
@@ -150,16 +178,60 @@
         _saved = true;
     }
 
-    private void ReloadRingImages()
+    private async Task ReloadRingImages()
     {
-        _ringImages = ConfigService.GetAvailableRingImages().ToList();
+        var customImages = ConfigService.GetAvailableRingImages().ToList();
+        var builtInImages = ConfigService
+            .GetBuiltInRingImages()
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
-        if (!string.IsNullOrWhiteSpace(_config.RingImageFileName) && !_ringImages.Contains(_config.RingImageFileName, StringComparer.OrdinalIgnoreCase))
+
+        var builtInOptions = new List<RingImageOption>();
+        foreach (var name in builtInImages)
+        {
+            var preview = await ConfigService.GetBuiltInRingImageDataUrlAsync(name);
+            builtInOptions.Add(new RingImageOption(name, name, true, preview));
+        }
+
+        var customOptions = new List<RingImageOption>();
+        foreach (var name in customImages)
+        {
+            var preview = await ConfigService.GetRingImageDataUrlAsync(name);
+            customOptions.Add(new RingImageOption(name, name, false, preview));
+        }
+
+        _ringOptions =
+        [
+            .. builtInOptions,
+            .. customOptions,
+        ];
+
+        _customRingCount = customImages.Count;
+
+        if (!ConfigService.IsValidRingSelection(_config.RingImageFileName))
         {
             _config.RingImageFileName = string.Empty;
         }
 
         _saved = false;
+    }
+
+    private void SelectRing(string value)
+    {
+        if (string.Equals(_config.RingImageFileName, value, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _config.RingImageFileName = value;
+        _saved = false;
+    }
+
+    private bool IsSelectedRing(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.IsNullOrWhiteSpace(_config.RingImageFileName);
+
+        return string.Equals(_config.RingImageFileName, value, StringComparison.OrdinalIgnoreCase);
     }
 
     private void SelectSection(SettingsSection section)
@@ -353,6 +425,80 @@
         margin-bottom: 12px;
     }
 
+    .ring-strip {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        padding: 4px 2px 6px;
+        scrollbar-width: thin;
+    }
+
+    .ring-option {
+        width: 120px;
+        min-width: 120px;
+        border: 1px solid #d9d9df;
+        border-radius: 10px;
+        background: #f9f9fc;
+        color: #242428;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        transition: border-color .15s, box-shadow .15s, background .15s;
+    }
+
+    .ring-option:hover {
+        border-color: #9bbcf6;
+        background: #f4f8ff;
+    }
+
+    .ring-option.selected {
+        border-color: #2b7fff;
+        background: #edf4ff;
+        box-shadow: 0 0 0 2px rgba(43, 127, 255, 0.16);
+    }
+
+    .ring-preview {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        border: 1px solid #e0e0e6;
+        overflow: hidden;
+    }
+
+    .ring-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    .ring-fallback {
+        font-size: 18px;
+        font-weight: 700;
+        color: #4d4d57;
+    }
+
+    .ring-name {
+        width: 100%;
+        font-size: 12px;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ring-kind {
+        font-size: 11px;
+        color: #6f6f76;
+    }
+
     .saved {
         color: #1f9d55;
         font-size: 13px;
@@ -375,6 +521,11 @@
         .tab {
             flex: 1;
             text-align: center;
+        }
+
+        .ring-option {
+            width: 108px;
+            min-width: 108px;
         }
     }
 </style>

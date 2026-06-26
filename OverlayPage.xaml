@@ -30,93 +30,129 @@
             <Grid>
                 <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
-                <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
 
                     <CollectionView x:Name="MessagesList"
-                    Grid.Row="0"
-                    VerticalScrollBarVisibility="Never"
-                    IsVisible="False"
-                    MaximumHeightRequest="240">
+                        Grid.Row="0"
+                        VerticalScrollBarVisibility="Never"
+                        IsVisible="False"
+                        MaximumHeightRequest="240">
                         <CollectionView.ItemTemplate>
                             <DataTemplate x:DataType="local:ChatMessageVm">
                                 <Grid Padding="0,3">
                                     <Border HorizontalOptions="{Binding Alignment}"
-                                    MaximumWidthRequest="280"
-                                    BackgroundColor="{Binding BubbleColor}"
-                                    Stroke="Transparent"
-                                    Padding="10,7"
-                                    StrokeShape="RoundRectangle 12">
+                                        MaximumWidthRequest="280"
+                                        BackgroundColor="{Binding BubbleColor}"
+                                        Stroke="Transparent"
+                                        Padding="10,7"
+                                        StrokeShape="RoundRectangle 12">
                                         <Label Text="{Binding Text}"
-                                        TextColor="White"
-                                        FontSize="13"
-                                        LineBreakMode="WordWrap" />
+                                            TextColor="White"
+                                            FontSize="13"
+                                            LineBreakMode="WordWrap" />
                                     </Border>
                                 </Grid>
                             </DataTemplate>
                         </CollectionView.ItemTemplate>
                     </CollectionView>
-
-                    <Border Grid.Row="1"
+                    <Border x:Name="SlashSuggestionsPanel"
+                        Grid.Row="1"
                         Margin="-5,0,15,0"
-                    BackgroundColor="#33FFFFFF"
-                    Stroke="Transparent"
-                    StrokeShape="RoundRectangle 18">
+                        IsVisible="False"
+                        MaximumHeightRequest="132"
+                        BackgroundColor="#CC151517"
+                        Stroke="#33FFFFFF"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 10"
+                        Padding="6,4">
+                        <CollectionView x:Name="SlashSuggestionsList"
+                            SelectionMode="Single"
+                            SelectionChanged="OnSlashSuggestionsSelectionChanged"
+                            VerticalScrollBarVisibility="Never"
+                            ItemsLayout="VerticalList">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="{x:Null}">
+                                    <Grid Padding="6,4" ColumnDefinitions="Auto,*">
+                                        <Label Grid.Column="0"
+                                            Text="{Binding Token}"
+                                            TextColor="White"
+                                            FontSize="13"
+                                            FontAttributes="Bold"
+                                            Margin="0,0,8,0" />
+                                        <Label Grid.Column="1"
+                                            Text="{Binding Description}"
+                                            TextColor="#CCFFFFFF"
+                                            FontSize="12"
+                                            LineBreakMode="TailTruncation" />
+                                    </Grid>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Border>
+                    <Border Grid.Row="2"
+                        Margin="-5,0,15,0"
+                        BackgroundColor="#33FFFFFF"
+                        Stroke="Transparent"
+                        StrokeShape="RoundRectangle 18">
                         <Grid ColumnDefinitions="*,Auto">
                             <Entry x:Name="ChatEntry"
-                            Grid.Column="0"
-                            Placeholder="Ask Floaty…"
-                            PlaceholderColor="#99FFFFFF"
-                            TextColor="White"
-                            BackgroundColor="Transparent"
-                            ReturnType="Send"
-                            Completed="OnSendClicked" />
+                                Grid.Column="0"
+                                Placeholder="Ask Floaty…"
+                                PlaceholderColor="#99FFFFFF"
+                                TextColor="White"
+                                BackgroundColor="Transparent"
+                                ReturnType="Send"
+                                TextChanged="OnChatEntryTextChanged"
+                                Completed="OnSendClicked" />
                             <Button Grid.Column="1"
-                            Text="➤"
-                            Clicked="OnSendClicked"
-                            SemanticProperties.Description="Send message"
-                            WidthRequest="36"
-                            HeightRequest="36"
-                            Padding="0"
-                            CornerRadius="18"
-                            FontSize="15"
-                            BackgroundColor="#3A6DF0"
-                            TextColor="White" />
+                                Text="➤"
+                                Clicked="OnSendClicked"
+                                SemanticProperties.Description="Send message"
+                                WidthRequest="36"
+                                HeightRequest="36"
+                                Padding="0"
+                                CornerRadius="18"
+                                FontSize="15"
+                                BackgroundColor="#3A6DF0"
+                                TextColor="White" />
                         </Grid>
                     </Border>
+
                 </Grid>
 
-                <!-- Right-edge controls: a chevron to fully collapse the panel and, below it, a grip
+                <!-- Right-edge controls: a chevron to fully collapse the panel and, below it, a
+                grip
                      to drag the panel width. -->
                 <HorizontalStackLayout HorizontalOptions="End"
-                                     VerticalOptions="End"
-                                     Spacing="0"
-                                     Margin="0,0,-10,0">
-
+                    VerticalOptions="End"
+                    Spacing="0"
+                    Margin="0,0,-10,0">
 
                     <!-- Chevron: collapse the chat panel entirely. -->
                     <Button Text="c"
-                       Clicked="OnCollapseChatClicked"
-                       SemanticProperties.Description="Collapse chat"
-                       WidthRequest="10"
-                       HeightRequest="34"
-                       Padding="0"
-                       FontSize="14"
-                       BackgroundColor="#55FFFFFF"
-                       TextColor="White" />
-                    <!-- Resize grip: drag to change the chat panel width. The transparent strip is the
+                        Clicked="OnCollapseChatClicked"
+                        SemanticProperties.Description="Collapse chat"
+                        WidthRequest="10"
+                        HeightRequest="34"
+                        Padding="0"
+                        FontSize="14"
+                        BackgroundColor="#55FFFFFF"
+                        TextColor="White" />
+                    <!-- Resize grip: drag to change the chat panel width. The transparent strip is
+                    the
                          hit area; the thin bar is the visible affordance. -->
                     <Border WidthRequest="5"
-                            Margin="0,0,4,0"
-                            HeightRequest="40"
-                            BackgroundColor="Transparent"
-                            Stroke="Transparent">
+                        Margin="0,0,4,0"
+                        HeightRequest="40"
+                        BackgroundColor="Transparent"
+                        Stroke="Transparent">
                         <Border WidthRequest="3"
-                                HeightRequest="34"
-                                HorizontalOptions="Center"
-                                VerticalOptions="Center"
-                                BackgroundColor="#55FFFFFF"
-                                Stroke="Transparent"
-                                StrokeShape="RoundRectangle 2" />
+                            HeightRequest="34"
+                            HorizontalOptions="Center"
+                            VerticalOptions="Center"
+                            BackgroundColor="#55FFFFFF"
+                            Stroke="Transparent"
+                            StrokeShape="RoundRectangle 2" />
                         <Border.GestureRecognizers>
                             <PanGestureRecognizer PanUpdated="OnResizeHandlePanUpdated" />
                         </Border.GestureRecognizers>
@@ -131,7 +167,7 @@
 
             <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
             <Image x:Name="Ring"
-                Source="floaty_ring.png"
+                Source="ring1.png"
                 Aspect="AspectFit"
                 HeightRequest="148"
                 WidthRequest="148"

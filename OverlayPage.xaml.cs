@@ -8,6 +8,19 @@ namespace Floaty;
 
 public partial class OverlayPage : ContentPage
 {
+    private sealed class SlashCommand
+    {
+        public SlashCommand(string name, string description)
+        {
+            Name = name;
+            Description = description;
+        }
+
+        public string Name { get; }
+        public string Description { get; }
+        public string Token => $"/{Name}";
+    }
+
     private readonly IOverlayWindowController _windowController;
     private readonly SettingsService _settings;
     private readonly IChatService _chatService;
@@ -47,6 +60,27 @@ public partial class OverlayPage : ContentPage
     // Subtle pause after the summon glide finishes before the chat input auto-appears.
     private const int SummonRevealDelayMs = 180;
 
+    // While waiting for the first model token, the ring does a "spin, pause, spin" loader loop.
+    private CancellationTokenSource? _chatWaitingSpinCts;
+
+    private readonly IReadOnlyList<SlashCommand> _allSlashCommands =
+    [
+        new("new", "Clear the current conversation"),
+        new("capture", "Capture and remember the current app"),
+        new("settings", "Open Floaty settings"),
+        new("config", "Open Floaty config folder"),
+    ];
+    private readonly ObservableCollection<SlashCommand> _filteredSlashCommands = new();
+    private bool _slashSuggestionsVisible;
+    private int _slashSelectedIndex = -1;
+    private string _activeSlashToken = string.Empty;
+    private bool _suppressEntryTextChanged;
+    private bool _updatingSlashSelection;
+
+#if WINDOWS
+    private Microsoft.UI.Xaml.Controls.TextBox? _chatEntryTextBox;
+#endif
+
     // Cumulative pan offset reported on the previous PanUpdated event, used to derive per-frame deltas.
     private double _lastTotalX;
     private double _lastTotalY;
@@ -55,6 +89,8 @@ public partial class OverlayPage : ContentPage
 
     // True while the open/collapse animation is running, so SizeChanged doesn't fight the animated resize.
     private bool _chatAnimating;
+
+    private bool _waitingForFirstChunk;
 
     public ObservableCollection<ChatMessageVm> Messages { get; } = new();
 
@@ -74,6 +110,8 @@ public partial class OverlayPage : ContentPage
         _memoryService = memoryService;
         _services = services;
         MessagesList.ItemsSource = Messages;
+        SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
+        ChatEntry.HandlerChanged += OnChatEntryHandlerChanged;
 
         _settings.Changed += OnSettingsChanged;
         ApplyRingImage();
@@ -89,8 +127,15 @@ public partial class OverlayPage : ContentPage
 
     private void ApplyRingImage()
     {
-        var selectedPath = _settings.GetRingImageFullPath(_settings.Current.RingImageFileName);
-        Ring.Source = selectedPath is null ? "floaty_ring.png" : ImageSource.FromFile(selectedPath);
+        var selected = _settings.Current.RingImageFileName;
+        if (_settings.IsBuiltInRingImage(selected))
+        {
+            Ring.Source = selected;
+            return;
+        }
+
+        var selectedPath = _settings.GetRingImageFullPath(selected);
+        Ring.Source = selectedPath is null ? "ring1.png" : ImageSource.FromFile(selectedPath);
     }
 
     // Continuously rotate the ring by a small amount each tick, unless a drag/summon is in control.
@@ -191,6 +236,75 @@ public partial class OverlayPage : ContentPage
         _ringBusy = false;
     }
 
+    // Chat loader animation: full spin -> short wait -> full spin -> longer wait, repeating
+    // until the first non-empty chunk arrives from the model.
+    private void StartChatWaitingSpin()
+    {
+        StopChatWaitingSpin();
+
+        _waitingForFirstChunk = true;
+        _ringBusy = true;
+        _chatWaitingSpinCts = new CancellationTokenSource();
+        _ = RunChatWaitingSpinAsync(_chatWaitingSpinCts.Token);
+    }
+
+    private void StopChatWaitingSpin()
+    {
+        _waitingForFirstChunk = false;
+
+        if (_chatWaitingSpinCts is not null)
+        {
+            _chatWaitingSpinCts.Cancel();
+            _chatWaitingSpinCts.Dispose();
+            _chatWaitingSpinCts = null;
+        }
+
+        _ringBusy = false;
+    }
+
+    private async Task RunChatWaitingSpinAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await AnimateRingByAsync(360, 720, Easing.CubicInOut, cancellationToken);
+                await Task.Delay(160, cancellationToken);
+                await AnimateRingByAsync(360, 620, Easing.SinOut, cancellationToken);
+                await Task.Delay(320, cancellationToken);
+
+                // Keep rotation values bounded while preserving visual orientation.
+                if (Math.Abs(Ring.Rotation) > 3600)
+                    Ring.Rotation %= 360;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the first streamed text arrives or the request completes.
+        }
+    }
+
+    private async Task AnimateRingByAsync(
+        double deltaDegrees,
+        int durationMs,
+        Easing easing,
+        CancellationToken cancellationToken)
+    {
+        var start = Ring.Rotation;
+        var stopwatch = Stopwatch.StartNew();
+
+        while (stopwatch.ElapsedMilliseconds < durationMs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var t = Math.Clamp(stopwatch.Elapsed.TotalMilliseconds / durationMs, 0, 1);
+            Ring.Rotation = start + deltaDegrees * easing.Ease(t);
+            await Task.Delay(16, cancellationToken);
+        }
+
+        Ring.Rotation = start + deltaDegrees;
+    }
+
     // Toggle the slide-out chat panel, growing/shrinking the overlay window to match.
     private void OnOpenChatClicked(object? sender, EventArgs e)
     {
@@ -233,6 +347,7 @@ public partial class OverlayPage : ContentPage
         if (!_chatOpen)
             return;
 
+        HideSlashSuggestions();
         _chatOpen = false;
         _chatAnimating = true;
         ChatEntry.Unfocus();
@@ -293,8 +408,269 @@ public partial class OverlayPage : ContentPage
         }
     }
 
+    private void OnChatEntryTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppressEntryTextChanged)
+            return;
+
+        UpdateSlashSuggestions(e.NewTextValue);
+    }
+
+    private void UpdateSlashSuggestions(string? text)
+    {
+        if (!_chatOpen || string.IsNullOrEmpty(text) || !text.StartsWith("/", StringComparison.Ordinal))
+        {
+            HideSlashSuggestions();
+            return;
+        }
+
+        var firstSpaceIndex = text.IndexOf(' ');
+        if (firstSpaceIndex >= 0)
+        {
+            HideSlashSuggestions();
+            return;
+        }
+
+        _activeSlashToken = text;
+        var filter = text[1..];
+        var previousSelection = GetSelectedSlashCommand()?.Name;
+
+        var matches = _allSlashCommands
+            .Where(command => command.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            HideSlashSuggestions();
+            return;
+        }
+
+        _filteredSlashCommands.Clear();
+        foreach (var command in matches)
+            _filteredSlashCommands.Add(command);
+
+        var selectedIndex = 0;
+        if (!string.IsNullOrEmpty(previousSelection))
+        {
+            var existingIndex = matches.FindIndex(command =>
+                string.Equals(command.Name, previousSelection, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0)
+                selectedIndex = existingIndex;
+        }
+
+        _slashSuggestionsVisible = true;
+        SlashSuggestionsPanel.IsVisible = true;
+        SetSlashSelection(selectedIndex);
+    }
+
+    private void HideSlashSuggestions()
+    {
+        _slashSuggestionsVisible = false;
+        _slashSelectedIndex = -1;
+        _activeSlashToken = string.Empty;
+        SlashSuggestionsPanel.IsVisible = false;
+
+        _updatingSlashSelection = true;
+        try
+        {
+            SlashSuggestionsList.SelectedItem = null;
+        }
+        finally
+        {
+            _updatingSlashSelection = false;
+        }
+
+        _filteredSlashCommands.Clear();
+    }
+
+    private void SetSlashSelection(int index)
+    {
+        if (_filteredSlashCommands.Count == 0)
+        {
+            _slashSelectedIndex = -1;
+            return;
+        }
+
+        _slashSelectedIndex = Math.Clamp(index, 0, _filteredSlashCommands.Count - 1);
+        _updatingSlashSelection = true;
+        try
+        {
+            var selected = _filteredSlashCommands[_slashSelectedIndex];
+            SlashSuggestionsList.SelectedItem = selected;
+            SlashSuggestionsList.ScrollTo(selected, position: ScrollToPosition.MakeVisible, animate: true);
+        }
+        finally
+        {
+            _updatingSlashSelection = false;
+        }
+    }
+
+    private SlashCommand? GetSelectedSlashCommand()
+    {
+        if (_slashSelectedIndex < 0 || _slashSelectedIndex >= _filteredSlashCommands.Count)
+            return null;
+        return _filteredSlashCommands[_slashSelectedIndex];
+    }
+
+    private bool TryAutocompleteSelectedCommand()
+    {
+        if (!_slashSuggestionsVisible)
+            return false;
+
+        var command = GetSelectedSlashCommand();
+        if (command is null)
+            return false;
+
+        var text = ChatEntry.Text ?? string.Empty;
+        var firstSpace = text.IndexOf(' ');
+        var remainder = firstSpace >= 0 ? text[(firstSpace + 1)..].TrimStart() : string.Empty;
+        var nextText = string.IsNullOrEmpty(remainder)
+            ? $"{command.Token} "
+            : $"{command.Token} {remainder}";
+
+        _suppressEntryTextChanged = true;
+        ChatEntry.Text = nextText;
+        _suppressEntryTextChanged = false;
+
+        ChatEntry.CursorPosition = nextText.Length;
+        HideSlashSuggestions();
+        return true;
+    }
+
+    private async Task<bool> TryExecuteSelectedSlashCommandAsync()
+    {
+        if (!_slashSuggestionsVisible)
+            return false;
+
+        var command = GetSelectedSlashCommand();
+        if (command is null)
+            return false;
+
+        await ExecuteSlashCommandAsync(command);
+        return true;
+    }
+
+    private async Task ExecuteSlashCommandAsync(SlashCommand command)
+    {
+        switch (command.Name)
+        {
+            case "new":
+                StopChatWaitingSpin();
+                Messages.Clear();
+                MessagesList.IsVisible = false;
+                break;
+
+            case "capture":
+                await CaptureAndRememberAsync(addSystemNote: true);
+                break;
+
+            case "settings":
+                OnSettingsClicked(this, EventArgs.Empty);
+                break;
+
+            case "config":
+                await OpenConfigFolderAsync();
+                break;
+        }
+
+        _suppressEntryTextChanged = true;
+        ChatEntry.Text = string.Empty;
+        _suppressEntryTextChanged = false;
+        HideSlashSuggestions();
+    }
+
+    private async Task OpenConfigFolderAsync()
+    {
+        try
+        {
+            var homeUri = new UriBuilder(Uri.UriSchemeFile, string.Empty)
+            {
+                Path = FloatyPaths.Home,
+            }.Uri;
+
+            var opened = await Launcher.Default.OpenAsync(homeUri);
+            if (!opened)
+                await ShowToastAsync("Unable to open config folder");
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync($"⚠️ {ex.Message}");
+        }
+    }
+
+    private async Task CaptureAndRememberAsync(bool addSystemNote)
+    {
+        try
+        {
+            var result = await _captureService.CaptureUnderlyingWindowAsync();
+            if (result is null)
+            {
+                await ShowToastAsync("Nothing to capture");
+                return;
+            }
+
+            var stored = await _memoryService.RememberCaptureAsync(result);
+            await ShowToastAsync($"Saved ✓ — {result.WindowTitle}{(stored ? " · embedded" : " · no API key")}");
+
+            if (addSystemNote)
+            {
+                Messages.Add(new ChatMessageVm(
+                    isUser: false,
+                    stored
+                        ? $"System: capture saved and embedded from {result.WindowTitle}."
+                        : $"System: capture saved from {result.WindowTitle} (not embedded; no API key)."));
+                MessagesList.IsVisible = true;
+                ScrollToLatest();
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync($"⚠️ {ex.Message}");
+        }
+    }
+
+    private void OnSlashSuggestionsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingSlashSelection)
+            return;
+
+        if (e.CurrentSelection.FirstOrDefault() is not SlashCommand command)
+            return;
+
+        _slashSelectedIndex = _filteredSlashCommands.IndexOf(command);
+        _ = ExecuteSlashCommandAsync(command);
+    }
+
+    private void OnChatEntryHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        if (_chatEntryTextBox is not null)
+            _chatEntryTextBox.KeyDown -= OnChatEntryTextBoxKeyDown;
+
+        _chatEntryTextBox = ChatEntry.Handler?.PlatformView as Microsoft.UI.Xaml.Controls.TextBox;
+        if (_chatEntryTextBox is not null)
+            _chatEntryTextBox.KeyDown += OnChatEntryTextBoxKeyDown;
+#endif
+    }
+
+#if WINDOWS
+    private void OnChatEntryTextBoxKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Tab)
+            return;
+
+        if (!TryAutocompleteSelectedCommand())
+            return;
+
+        e.Handled = true;
+    }
+#endif
+
     private async void OnSendClicked(object? sender, EventArgs e)
     {
+        if (await TryExecuteSelectedSlashCommandAsync())
+            return;
+
         var text = ChatEntry.Text?.Trim();
         if (string.IsNullOrEmpty(text))
             return;
@@ -312,6 +688,7 @@ public partial class OverlayPage : ContentPage
         Messages.Add(pending);
         MessagesList.IsVisible = true;
         ScrollToLatest();
+        StartChatWaitingSpin();
 
         try
         {
@@ -322,8 +699,11 @@ public partial class OverlayPage : ContentPage
             await foreach (var chunk in _chatService.GetStreamingResponseAsync(history))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
-				if (string.IsNullOrEmpty(chunk))
+                if (string.IsNullOrEmpty(chunk))
                     continue;
+
+                if (_waitingForFirstChunk)
+                    StopChatWaitingSpin();
 
                 streamed.Append(chunk);
 
@@ -347,6 +727,11 @@ public partial class OverlayPage : ContentPage
         {
             pending.Text = $"⚠️ {ex.Message}";
         }
+        finally
+        {
+            // Ensure the loader always stops (errors, empty streams, or very fast responses).
+            StopChatWaitingSpin();
+        }
 
         ScrollToLatest();
     }
@@ -359,22 +744,7 @@ public partial class OverlayPage : ContentPage
 
     private async void OnScreenshotClicked(object? sender, EventArgs e)
     {
-        try
-        {
-            var result = await _captureService.CaptureUnderlyingWindowAsync();
-            if (result is null)
-            {
-                await ShowToastAsync("Nothing to capture");
-                return;
-            }
-
-            var stored = await _memoryService.RememberCaptureAsync(result);
-            await ShowToastAsync($"Saved ✓ — {result.WindowTitle}{(stored ? " · embedded" : " · no API key")}");
-        }
-        catch (Exception ex)
-        {
-            await ShowToastAsync($"⚠️ {ex.Message}");
-        }
+        await CaptureAndRememberAsync(addSystemNote: false);
     }
 
     // Fade a short status message in above the action bar, hold briefly, then fade out.

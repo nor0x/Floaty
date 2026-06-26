@@ -8,6 +8,13 @@ namespace Floaty.Services;
 /// </summary>
 public sealed class SettingsService
 {
+    private static readonly string[] BuiltInRingImages =
+    [
+        "ring1.png",
+        "ring2.png",
+        "ring3.png",
+    ];
+
     private static readonly HashSet<string> RingImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png",
@@ -111,6 +118,79 @@ public sealed class SettingsService
         }
     }
 
+    /// <summary>Returns built-in ring image resource names packaged with the app.</summary>
+    public IReadOnlyList<string> GetBuiltInRingImages() => BuiltInRingImages;
+
+    /// <summary>True when the configured ring image points at a built-in packaged resource.</summary>
+    public bool IsBuiltInRingImage(string? fileName) =>
+        !string.IsNullOrWhiteSpace(fileName) &&
+        BuiltInRingImages.Contains(fileName, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Returns whether a ring image selection is valid (built-in resource or existing custom file).
+    /// Empty selection is valid and means use default ring.
+    /// </summary>
+    public bool IsValidRingSelection(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return true;
+
+        if (IsBuiltInRingImage(fileName))
+            return true;
+
+        return GetRingImageFullPath(fileName) is not null;
+    }
+
+    /// <summary>
+    /// Returns a base64 data URL for a configured ring image selection, or null when it cannot be resolved.
+    /// </summary>
+    public async Task<string?> GetRingImageDataUrlAsync(string? fileName)
+    {
+        if (IsBuiltInRingImage(fileName))
+            return await GetBuiltInRingImageDataUrlAsync(fileName);
+
+        var fullPath = GetRingImageFullPath(fileName);
+        if (fullPath is null)
+            return null;
+
+        try
+        {
+            var bytes = await File.ReadAllBytesAsync(fullPath);
+            return ToDataUrl(bytes, GetMimeType(fileName));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Returns a base64 data URL for a built-in ring image packaged in app resources, or null when unavailable.
+    /// </summary>
+    public async Task<string?> GetBuiltInRingImageDataUrlAsync(string fileName)
+    {
+        if (!IsBuiltInRingImage(fileName))
+            return null;
+
+        try
+        {
+            var stream = await TryOpenBuiltInRingStreamAsync(fileName);
+            if (stream is null)
+                return null;
+
+            await using (stream)
+            {
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                return ToDataUrl(ms.ToArray(), GetMimeType(fileName));
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Resolves a configured ring image filename to a full path in <c>~/.floaty/ring</c>, or null when invalid/missing.
     /// </summary>
@@ -128,5 +208,43 @@ public sealed class SettingsService
 
         var fullPath = Path.Combine(FloatyPaths.RingImages, safeName);
         return File.Exists(fullPath) ? fullPath : null;
+    }
+
+    private static string ToDataUrl(byte[] bytes, string mimeType) =>
+        $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
+
+    private static async Task<Stream?> TryOpenBuiltInRingStreamAsync(string fileName)
+    {
+        // MauiAsset with LogicalName="%(Filename)%(Extension)" resolves with bare filename.
+        try
+        {
+            return await FileSystem.OpenAppPackageFileAsync(fileName);
+        }
+        catch (FileNotFoundException)
+        {
+            // Some targets/package layouts may keep the source-relative path.
+            try
+            {
+                return await FileSystem.OpenAppPackageFileAsync($"Resources/Images/{fileName}");
+            }
+            catch (FileNotFoundException)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static string GetMimeType(string fileName)
+    {
+        var extension = Path.GetExtension(fileName);
+        return extension.ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
+            _ => "application/octet-stream",
+        };
     }
 }

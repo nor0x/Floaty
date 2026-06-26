@@ -5,7 +5,7 @@
              x:Class="Floaty.SettingsPage"
              Title="Floaty Settings">
 
-    <BlazorWebView HostPage="wwwroot/index.html">
+    <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html">
         <BlazorWebView.RootComponents>
             <RootComponent Selector="#app" ComponentType="{x:Type pages:Settings}" />
         </BlazorWebView.RootComponents>

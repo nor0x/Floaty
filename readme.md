@@ -10,7 +10,7 @@ In addition to the floating overlay, it also has a chat interface where you can 
 - Local memory that is automatically filled by interacting with the floating overlay
 - Custom Skills (Agent Skills (Skill.MD)) and MCP (Model Context Protocol) support for tool calls
 
-The overlay should have the image (floaty_ring.png) which is a swimming ring that has a hole in the middle where you can see the content of your screen. The overlay should be draggable (with natural rotation of the ring) and contain multiple buttons for different actions (e.g. capture screenshot, read screen content, open chat interface, etc.). The overlay should also have a settings button where you can configure the assistant's preferences and settings. Other than that the overlay should be as minimalistic and non-intrusive as possible without the regular window chrome and borders.
+The overlay should have the image (ring1.png) which is a swimming ring that has a hole in the middle where you can see the content of your screen. The overlay should be draggable (with natural rotation of the ring) and contain multiple buttons for different actions (e.g. capture screenshot, read screen content, open chat interface, etc.). The overlay should also have a settings button where you can configure the assistant's preferences and settings. Other than that the overlay should be as minimalistic and non-intrusive as possible without the regular window chrome and borders.
 
 # Local First Approach
 - memory, skills and logs are all locally stored in the users home directory under a .floaty folder where there is also a sqlite database for memory + vector search and a config json file for settings and preferences.
