@@ -17,6 +17,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/captures</c> — screenshot + accessibility-content pairs from the 📷 button.</summary>
     public static string Captures => EnsureDir(Path.Combine(Home, "captures"));
 
+    /// <summary><c>~/.floaty/ring</c> — user-provided ring images available in Appearance settings.</summary>
+    public static string RingImages => EnsureDir(Path.Combine(Home, "ring"));
+
     private static string EnsureDir(string path)
     {
         Directory.CreateDirectory(path);

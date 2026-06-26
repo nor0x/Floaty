@@ -18,4 +18,9 @@ public sealed class FloatyConfig
 
     /// <summary>Embedding model id used to vectorize captures, e.g. "text-embedding-3-small".</summary>
     public string EmbeddingModel { get; set; } = "text-embedding-3-small";
+
+    /// <summary>
+    /// Selected ring image filename from <c>~/.floaty/ring</c>. Empty uses the built-in default ring.
+    /// </summary>
+    public string RingImageFileName { get; set; } = string.Empty;
 }

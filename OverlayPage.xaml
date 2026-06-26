@@ -23,44 +23,46 @@
             Stroke="#22FFFFFF"
             StrokeThickness="1"
             BackgroundColor="#E61C1C1E"
-            Padding="16,8,8,8"
+            Padding="14,8,8,8"
             StrokeShape="RoundRectangle 14"
             SizeChanged="OnChatPanelSizeChanged">
-            <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
+            <!-- Content + a right-edge resize grip overlaid on top of it. -->
+            <Grid>
+                <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
-            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
 
-                <CollectionView x:Name="MessagesList"
+                    <CollectionView x:Name="MessagesList"
                     Grid.Row="0"
                     VerticalScrollBarVisibility="Never"
                     IsVisible="False"
                     MaximumHeightRequest="240">
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="local:ChatMessageVm">
-                            <Grid Padding="0,3">
-                                <Border HorizontalOptions="{Binding Alignment}"
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="local:ChatMessageVm">
+                                <Grid Padding="0,3">
+                                    <Border HorizontalOptions="{Binding Alignment}"
                                     MaximumWidthRequest="280"
                                     BackgroundColor="{Binding BubbleColor}"
                                     Stroke="Transparent"
                                     Padding="10,7"
                                     StrokeShape="RoundRectangle 12">
-                                    <Label Text="{Binding Text}"
+                                        <Label Text="{Binding Text}"
                                         TextColor="White"
                                         FontSize="13"
                                         LineBreakMode="WordWrap" />
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
 
-                <Border Grid.Row="1"
+                    <Border Grid.Row="1"
+                        Margin="-5,0,15,0"
                     BackgroundColor="#33FFFFFF"
                     Stroke="Transparent"
-                    Padding="4,2"
                     StrokeShape="RoundRectangle 18">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <Entry x:Name="ChatEntry"
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Entry x:Name="ChatEntry"
                             Grid.Column="0"
                             Placeholder="Ask Floaty…"
                             PlaceholderColor="#99FFFFFF"
@@ -68,7 +70,7 @@
                             BackgroundColor="Transparent"
                             ReturnType="Send"
                             Completed="OnSendClicked" />
-                        <Button Grid.Column="1"
+                            <Button Grid.Column="1"
                             Text="➤"
                             Clicked="OnSendClicked"
                             SemanticProperties.Description="Send message"
@@ -79,8 +81,48 @@
                             FontSize="15"
                             BackgroundColor="#3A6DF0"
                             TextColor="White" />
-                    </Grid>
-                </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- Right-edge controls: a chevron to fully collapse the panel and, below it, a grip
+                     to drag the panel width. -->
+                <HorizontalStackLayout HorizontalOptions="End"
+                                     VerticalOptions="End"
+                                     Spacing="0"
+                                     Margin="0,0,-10,0">
+
+
+                    <!-- Chevron: collapse the chat panel entirely. -->
+                    <Button Text="c"
+                       Clicked="OnCollapseChatClicked"
+                       SemanticProperties.Description="Collapse chat"
+                       WidthRequest="10"
+                       HeightRequest="34"
+                       Padding="0"
+                       FontSize="14"
+                       BackgroundColor="#55FFFFFF"
+                       TextColor="White" />
+                    <!-- Resize grip: drag to change the chat panel width. The transparent strip is the
+                         hit area; the thin bar is the visible affordance. -->
+                    <Border WidthRequest="5"
+                            Margin="0,0,4,0"
+                            HeightRequest="40"
+                            BackgroundColor="Transparent"
+                            Stroke="Transparent">
+                        <Border WidthRequest="3"
+                                HeightRequest="34"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center"
+                                BackgroundColor="#55FFFFFF"
+                                Stroke="Transparent"
+                                StrokeShape="RoundRectangle 2" />
+                        <Border.GestureRecognizers>
+                            <PanGestureRecognizer PanUpdated="OnResizeHandlePanUpdated" />
+                        </Border.GestureRecognizers>
+                    </Border>
+
+                </HorizontalStackLayout>
             </Grid>
         </Border>
 

@@ -9,6 +9,7 @@ namespace Floaty;
 public partial class OverlayPage : ContentPage
 {
     private readonly IOverlayWindowController _windowController;
+    private readonly SettingsService _settings;
     private readonly IChatService _chatService;
     private readonly IScreenCaptureService _captureService;
     private readonly IMemoryService _memoryService;
@@ -52,10 +53,14 @@ public partial class OverlayPage : ContentPage
 
     private bool _chatOpen;
 
+    // True while the open/collapse animation is running, so SizeChanged doesn't fight the animated resize.
+    private bool _chatAnimating;
+
     public ObservableCollection<ChatMessageVm> Messages { get; } = new();
 
     public OverlayPage(
         IOverlayWindowController windowController,
+        SettingsService settings,
         IChatService chatService,
         IScreenCaptureService captureService,
         IMemoryService memoryService,
@@ -63,16 +68,29 @@ public partial class OverlayPage : ContentPage
     {
         InitializeComponent();
         _windowController = windowController;
+        _settings = settings;
         _chatService = chatService;
         _captureService = captureService;
         _memoryService = memoryService;
         _services = services;
         MessagesList.ItemsSource = Messages;
 
+        _settings.Changed += OnSettingsChanged;
+        ApplyRingImage();
+
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
         _windowController.SummonRequested += OnSummonRequested;
 
         StartIdleSpin();
+    }
+
+    private void OnSettingsChanged(object? sender, EventArgs e) =>
+        Dispatcher.Dispatch(ApplyRingImage);
+
+    private void ApplyRingImage()
+    {
+        var selectedPath = _settings.GetRingImageFullPath(_settings.Current.RingImageFileName);
+        Ring.Source = selectedPath is null ? "floaty_ring.png" : ImageSource.FromFile(selectedPath);
     }
 
     // Continuously rotate the ring by a small amount each tick, unless a drag/summon is in control.
@@ -174,16 +192,17 @@ public partial class OverlayPage : ContentPage
     }
 
     // Toggle the slide-out chat panel, growing/shrinking the overlay window to match.
-    private async void OnOpenChatClicked(object? sender, EventArgs e)
+    private void OnOpenChatClicked(object? sender, EventArgs e)
     {
         if (_chatOpen)
-            CloseChat();
+            CollapseChat();
         else
-            await ShowChatAsync();
+            _ = ShowChatAsync();
     }
 
     // Open the chat panel (idempotent — a no-op if already open). Only the input row shows until
     // messages exist; the panel's SizeChanged grows the window from here as the messages area expands.
+    // The window grows from its left edge (anchorLeft) so the ring on the left stays put.
     private async Task ShowChatAsync()
     {
         if (_chatOpen)
@@ -192,7 +211,7 @@ public partial class OverlayPage : ContentPage
         _chatOpen = true;
         MessagesList.IsVisible = Messages.Count > 0;
         _lastChatWindowHeight = 0;
-        _windowController.Resize(_chatWidth, ChatBaseHeight + 80);
+        _windowController.Resize(_chatWidth, ChatBaseHeight + 80, anchorLeft: true);
         ChatPanel.IsVisible = true;
 
         // Slide the panel up into view.
@@ -205,13 +224,37 @@ public partial class OverlayPage : ContentPage
         ChatEntry.Focus();
     }
 
-    private void CloseChat()
+    private void OnCollapseChatClicked(object? sender, EventArgs e) => CollapseChat();
+
+    // Collapse the chat panel: animate the window width down to compact, anchored at the left edge so
+    // the panel slides shut to the left (to width 0) while the ring and action bar stay fixed in place.
+    private void CollapseChat()
     {
+        if (!_chatOpen)
+            return;
+
         _chatOpen = false;
+        _chatAnimating = true;
         ChatEntry.Unfocus();
-        ChatPanel.IsVisible = false;
-        _lastChatWindowHeight = 0;
-        _windowController.Resize(CompactWidth, CompactHeight);
+
+        var startWidth = _chatWidth;
+        var startHeight = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
+
+        _ = ChatPanel.FadeToAsync(0, 180);
+        new Animation(t => _windowController.Resize(
+                startWidth + (CompactWidth - startWidth) * t,
+                startHeight + (CompactHeight - startHeight) * t,
+                anchorLeft: true),
+            0, 1, Easing.CubicIn)
+            .Commit(this, "ChatCollapse", length: 220, finished: (_, _) =>
+            {
+                ChatPanel.IsVisible = false;
+                ChatPanel.Opacity = 1;
+                ChatPanel.TranslationY = 0;
+                _lastChatWindowHeight = 0;
+                _chatAnimating = false;
+                _windowController.Resize(CompactWidth, CompactHeight, anchorLeft: true);
+            });
     }
 
     // Grow (or shrink) the overlay window to match the chat panel's content height. The panel hugs its
@@ -219,7 +262,7 @@ public partial class OverlayPage : ContentPage
     // (after which the CollectionView scrolls), so the window tracks it without leaving dead space.
     private void OnChatPanelSizeChanged(object? sender, EventArgs e)
     {
-        if (!_chatOpen || ChatPanel.Height <= 0)
+        if (!_chatOpen || _chatAnimating || ChatPanel.Height <= 0)
             return;
 
         var target = ChatBaseHeight + ChatPanel.Height;
@@ -227,8 +270,8 @@ public partial class OverlayPage : ContentPage
             return;
 
         _lastChatWindowHeight = target;
-        // Width is unchanged here, so center vs left anchor is equivalent — keep the existing behavior.
-        _windowController.Resize(_chatWidth, target);
+        // Anchor the left edge so the ring stays put as the panel height changes.
+        _windowController.Resize(_chatWidth, target, anchorLeft: true);
     }
 
     // Drag the chat panel's right edge to widen/narrow it. The window grows from the left edge so the

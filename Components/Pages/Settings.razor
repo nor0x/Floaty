@@ -11,6 +11,9 @@
             <button class="tab @TabClass(SettingsSection.Behavior)" @onclick="() => SelectSection(SettingsSection.Behavior)">
                 Behavior
             </button>
+            <button class="tab @TabClass(SettingsSection.Appearance)" @onclick="() => SelectSection(SettingsSection.Appearance)">
+                Appearance
+            </button>
             <button class="tab @TabClass(SettingsSection.ModelProvider)" @onclick="() => SelectSection(SettingsSection.ModelProvider)">
                 Model Provider
             </button>
@@ -29,6 +32,30 @@
                     <textarea id="systemPrompt" rows="12" autocomplete="off" spellcheck="false"
                               @bind="_systemPrompt" @bind:event="oninput"></textarea>
                     <span class="hint">Saved locally to <code>~/.floaty/floaty.md</code>.</span>
+                </div>
+            }
+            else if (_activeSection == SettingsSection.Appearance)
+            {
+                <div class="card-head">
+                    <h2>Appearance</h2>
+                    <p>Choose a custom ring image used by the floating overlay.</p>
+                </div>
+
+                <div class="field">
+                    <label for="ringImage">Ring image</label>
+                    <select id="ringImage" @bind="_config.RingImageFileName">
+                        <option value="">Built-in default</option>
+                        @foreach (var image in _ringImages)
+                        {
+                            <option value="@image">@image</option>
+                        }
+                    </select>
+                    <span class="hint">Place images in <code>~/.floaty/ring</code> and click Reload.</span>
+                </div>
+
+                <div class="actions sub-actions">
+                    <button class="reload" @onclick="ReloadRingImages">Reload</button>
+                    <span class="hint">Found @_ringImages.Count image(s).</span>
                 </div>
             }
             else
@@ -89,11 +116,13 @@
     private enum SettingsSection
     {
         Behavior,
+        Appearance,
         ModelProvider,
     }
 
     private FloatyConfig _config = new();
     private string _systemPrompt = string.Empty;
+    private List<string> _ringImages = new();
     private bool _saved;
     private SettingsSection _activeSection = SettingsSection.Behavior;
 
@@ -107,9 +136,11 @@
             OpenAiApiKey = current.OpenAiApiKey,
             Model = current.Model,
             EmbeddingModel = current.EmbeddingModel,
+            RingImageFileName = current.RingImageFileName,
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
+        ReloadRingImages();
     }
 
     private void Save()
@@ -117,6 +148,18 @@
         ConfigService.Save(_config);
         ConfigService.SaveSystemPrompt(_systemPrompt);
         _saved = true;
+    }
+
+    private void ReloadRingImages()
+    {
+        _ringImages = ConfigService.GetAvailableRingImages().ToList();
+
+        if (!string.IsNullOrWhiteSpace(_config.RingImageFileName) && !_ringImages.Contains(_config.RingImageFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            _config.RingImageFileName = string.Empty;
+        }
+
+        _saved = false;
     }
 
     private void SelectSection(SettingsSection section)
@@ -288,6 +331,26 @@
 
     .save:hover {
         background: #1f6ae0;
+    }
+
+    .reload {
+        background: #f1f4ff;
+        color: #1749a3;
+        border: 1px solid #c9d8ff;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .reload:hover {
+        background: #e8efff;
+    }
+
+    .sub-actions {
+        margin-top: -2px;
+        margin-bottom: 12px;
     }
 
     .saved {

@@ -8,6 +8,16 @@ namespace Floaty.Services;
 /// </summary>
 public sealed class SettingsService
 {
+    private static readonly HashSet<string> RingImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif",
+        ".bmp",
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private readonly string _configPath;
@@ -79,5 +89,44 @@ public sealed class SettingsService
     {
         File.WriteAllText(_systemPromptPath, prompt ?? string.Empty);
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Returns ring image filenames from <c>~/.floaty/ring</c>.</summary>
+    public IReadOnlyList<string> GetAvailableRingImages()
+    {
+        try
+        {
+            return Directory
+                .EnumerateFiles(FloatyPaths.RingImages)
+                .Where(path => RingImageExtensions.Contains(Path.GetExtension(path)))
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Resolves a configured ring image filename to a full path in <c>~/.floaty/ring</c>, or null when invalid/missing.
+    /// </summary>
+    public string? GetRingImageFullPath(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return null;
+
+        var safeName = Path.GetFileName(fileName);
+        if (!string.Equals(fileName, safeName, StringComparison.Ordinal))
+            return null;
+
+        if (!RingImageExtensions.Contains(Path.GetExtension(safeName)))
+            return null;
+
+        var fullPath = Path.Combine(FloatyPaths.RingImages, safeName);
+        return File.Exists(fullPath) ? fullPath : null;
     }
 }
