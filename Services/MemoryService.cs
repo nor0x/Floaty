@@ -28,10 +28,18 @@ public sealed class MemoryService : IMemoryService
     private string? _embeddingsKey;
     private string? _embeddingsModel;
 
+    private IChatClient? _snapshot;
+    private string? _snapshotKey;
+    private string? _snapshotModel;
+
     public MemoryService(SettingsService settings)
     {
         _settings = settings;
-        _settings.Changed += (_, _) => _embeddings = null;
+        _settings.Changed += (_, _) =>
+        {
+            _embeddings = null;
+            _snapshot = null;
+        };
     }
 
     public async Task<bool> RememberCaptureAsync(CaptureResult capture, CancellationToken cancellationToken = default)
@@ -40,9 +48,25 @@ public sealed class MemoryService : IMemoryService
         if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(capture.Content))
             return false;
 
-        var text = $"{capture.WindowTitle}\n\n{capture.Content}";
+        // Ask the vision (snapshot) model to describe the screenshot, then store its words alongside
+        // the plain accessibility text. Best-effort: a null description just means text-only memory.
+        var description = await DescribeScreenshotAsync(capture.ImagePath, config, cancellationToken);
+
+        // Order: title -> screenshot description -> on-screen text, so the description survives the
+        // MaxEmbedChars truncation even when the accessibility text is long.
+        var builder = new System.Text.StringBuilder();
+        builder.Append(capture.WindowTitle);
+        if (!string.IsNullOrWhiteSpace(description))
+            builder.Append("\n\n[Screenshot description]\n").Append(description);
+        builder.Append("\n\n[On-screen text]\n").Append(capture.Content);
+
+        var text = builder.ToString();
         if (text.Length > MaxEmbedChars)
             text = text[..MaxEmbedChars];
+
+        // Append the description to the on-disk capture text file so it holds both representations.
+        if (!string.IsNullOrWhiteSpace(description))
+            AppendDescriptionToFile(capture.TextPath, description);
 
         var generator = GetOrCreateEmbeddings(config);
         var embeddings = await generator.GenerateAsync([text], cancellationToken: cancellationToken);
@@ -61,6 +85,7 @@ public sealed class MemoryService : IMemoryService
                 capture.ImagePath,
                 capture.TextPath,
                 capture.WindowTitle,
+                SnapshotDescription = description,
                 CapturedUtc = DateTime.UtcNow,
             },
             Vectors = new List<VectorMetadata>
@@ -79,6 +104,50 @@ public sealed class MemoryService : IMemoryService
 
         await client.Node.Create(node, cancellationToken);
         return true;
+    }
+
+    // Describes the screenshot using the configured vision (snapshot) model. Returns null when
+    // snapshotting is disabled, the image is missing, or the call fails — capture/embed still proceed.
+    private async Task<string?> DescribeScreenshotAsync(string imagePath, FloatyConfig config, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(config.SnapshotModel) || !File.Exists(imagePath))
+            return null;
+
+        try
+        {
+            var client = GetOrCreateSnapshot(config);
+            var imageBytes = await File.ReadAllBytesAsync(imagePath, cancellationToken);
+
+            var message = new ChatMessage(ChatRole.User, new List<AIContent>
+            {
+                new TextContent(
+                    "Describe this screenshot: the application shown, the visible UI, and any notable " +
+                    "on-screen content. Be factual and concise."),
+                new DataContent(imageBytes, "image/png"),
+            });
+
+            var response = await client.GetResponseAsync([message], cancellationToken: cancellationToken);
+            var text = response.Text?.Trim();
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+        catch
+        {
+            // Snapshot is best-effort; degrade to text-only memory rather than failing the capture.
+            return null;
+        }
+    }
+
+    private static void AppendDescriptionToFile(string textPath, string description)
+    {
+        try
+        {
+            if (File.Exists(textPath))
+                File.AppendAllText(textPath, $"\n\n## Screenshot description\n{description}\n");
+        }
+        catch
+        {
+            // The capture is already saved; failing to annotate the .txt is non-fatal.
+        }
     }
 
     public async Task<IReadOnlyList<CaptureSearchResult>> SearchCapturesAsync(
@@ -169,6 +238,19 @@ public sealed class MemoryService : IMemoryService
             .GetEmbeddingClient(config.EmbeddingModel)
             .AsIEmbeddingGenerator();
         return _embeddings;
+    }
+
+    private IChatClient GetOrCreateSnapshot(FloatyConfig config)
+    {
+        if (_snapshot is not null && _snapshotKey == config.OpenAiApiKey && _snapshotModel == config.SnapshotModel)
+            return _snapshot;
+
+        _snapshotKey = config.OpenAiApiKey;
+        _snapshotModel = config.SnapshotModel;
+        _snapshot = new OpenAIClient(config.OpenAiApiKey)
+            .GetChatClient(config.SnapshotModel)
+            .AsIChatClient();
+        return _snapshot;
     }
 
     private async Task<LiteGraphClient> GetClientAsync(CancellationToken cancellationToken)

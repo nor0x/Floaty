@@ -20,6 +20,11 @@ public sealed class FloatyConfig
     public string EmbeddingModel { get; set; } = "text-embedding-3-small";
 
     /// <summary>
+    /// Vision model id used to describe captured screenshots, e.g. "gpt-4o-mini". Blank disables snapshotting.
+    /// </summary>
+    public string SnapshotModel { get; set; } = "gpt-4o-mini";
+
+    /// <summary>
     /// Selected ring image filename from <c>~/.floaty/ring</c>. Empty uses the built-in default ring.
     /// </summary>
     public string RingImageFileName { get; set; } = string.Empty;

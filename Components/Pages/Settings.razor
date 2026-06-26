@@ -118,6 +118,14 @@
                             <span class="hint">Used to vectorize captures for search. e.g.
                                 <code>text-embedding-3-small</code>.</span>
                             </div>
+
+                        <div class="field">
+                            <label for="snapshotModel">Snapshot model</label>
+                            <input id="snapshotModel" type="text" autocomplete="off" spellcheck="false"
+                                   @bind="_config.SnapshotModel" @bind:event="oninput" />
+                            <span class="hint">Vision model used to describe captured screenshots. Leave
+                                blank to disable. e.g. <code>gpt-4o-mini</code>.</span>
+                            </div>
                         }
 
                         <div class="actions">
@@ -164,6 +172,7 @@
             OpenAiApiKey = current.OpenAiApiKey,
             Model = current.Model,
             EmbeddingModel = current.EmbeddingModel,
+            SnapshotModel = current.SnapshotModel,
             RingImageFileName = current.RingImageFileName,
         };
 
