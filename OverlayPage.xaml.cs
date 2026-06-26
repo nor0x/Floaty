@@ -54,6 +54,16 @@ public partial class OverlayPage : ContentPage
     private const int IdleSpinIntervalMs = 33; // ~30 fps
     private IDispatcherTimer? _idleSpinTimer;
 
+#if WINDOWS
+    // Mouse wheel tuning: each wheel delta unit rotates this many degrees, then idle spin
+    // resumes after a short period without wheel activity.
+    private const double WheelRotationPerDelta = 0.15;
+    private const int ManualWheelResumeDelayMs = 400;
+    private DateTime _manualWheelResumeAtUtc = DateTime.MinValue;
+    private Microsoft.UI.Xaml.FrameworkElement? _ringPlatformView;
+    private bool _ringPointerOver;
+#endif
+
     // True while a drag or summon spin is driving the ring, so the idle spin yields to it.
     private bool _ringBusy;
 
@@ -112,6 +122,7 @@ public partial class OverlayPage : ContentPage
         MessagesList.ItemsSource = Messages;
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
         ChatEntry.HandlerChanged += OnChatEntryHandlerChanged;
+        Ring.HandlerChanged += OnRingHandlerChanged;
 
         _settings.Changed += OnSettingsChanged;
         ApplyRingImage();
@@ -147,9 +158,20 @@ public partial class OverlayPage : ContentPage
         {
             if (_ringBusy)
                 return;
+            if (IsManualWheelRotationActive())
+                return;
             Ring.Rotation = (Ring.Rotation + IdleSpinDegPerSecond * IdleSpinIntervalMs / 1000.0) % 360;
         };
         _idleSpinTimer.Start();
+    }
+
+    private bool IsManualWheelRotationActive()
+    {
+#if WINDOWS
+        return DateTime.UtcNow < _manualWheelResumeAtUtc;
+#else
+        return false;
+#endif
     }
 
     private void OnRingPanUpdated(object? sender, PanUpdatedEventArgs e)
@@ -652,6 +674,53 @@ public partial class OverlayPage : ContentPage
             _chatEntryTextBox.KeyDown += OnChatEntryTextBoxKeyDown;
 #endif
     }
+
+    private void OnRingHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        if (_ringPlatformView is not null)
+        {
+            _ringPlatformView.PointerEntered -= OnRingPointerEntered;
+            _ringPlatformView.PointerExited -= OnRingPointerExited;
+            _ringPlatformView.PointerWheelChanged -= OnRingPointerWheelChanged;
+        }
+
+        _ringPlatformView = Ring.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement;
+        if (_ringPlatformView is not null)
+        {
+            _ringPlatformView.PointerEntered += OnRingPointerEntered;
+            _ringPlatformView.PointerExited += OnRingPointerExited;
+            _ringPlatformView.PointerWheelChanged += OnRingPointerWheelChanged;
+        }
+#endif
+    }
+
+#if WINDOWS
+    private void OnRingPointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) =>
+        _ringPointerOver = true;
+
+    private void OnRingPointerExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) =>
+        _ringPointerOver = false;
+
+    private void OnRingPointerWheelChanged(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_ringBusy || !_ringPointerOver || _ringPlatformView is null)
+            return;
+
+        var delta = e.GetCurrentPoint(_ringPlatformView).Properties.MouseWheelDelta;
+        if (delta == 0)
+            return;
+
+        _manualWheelResumeAtUtc = DateTime.UtcNow.AddMilliseconds(ManualWheelResumeDelayMs);
+
+        var rotation = (Ring.Rotation + delta * WheelRotationPerDelta) % 360;
+        if (rotation < 0)
+            rotation += 360;
+        Ring.Rotation = rotation;
+
+        e.Handled = true;
+    }
+#endif
 
 #if WINDOWS
     private void OnChatEntryTextBoxKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
