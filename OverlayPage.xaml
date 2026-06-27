@@ -89,76 +89,75 @@
                             </CollectionView.ItemTemplate>
                         </CollectionView>
                     </Border>
-                    <Border Grid.Row="2"
-                        Margin="-5,0,15,0"
-                        BackgroundColor="#22FFFFFF"
-                        Stroke="Transparent"
-                        StrokeShape="RoundRectangle 6">
-                        <Grid ColumnDefinitions="*,Auto">
-                            <Entry x:Name="ChatEntry"
-                                Grid.Column="0"
-                                Placeholder="Ask Floaty…"
-                                PlaceholderColor="#99FFFFFF"
-                                TextColor="White"
-                                BackgroundColor="Transparent"
-                                ReturnType="Send"
-                                TextChanged="OnChatEntryTextChanged"
-                                Completed="OnSendClicked" />
-                            <Button Grid.Column="1"
-                                Text="➤"
-                                Clicked="OnSendClicked"
-                                SemanticProperties.Description="Send message"
-                                WidthRequest="36"
-                                HeightRequest="36"
-                                Padding="0"
-                                CornerRadius="0"
-                                FontSize="15"
-                                BackgroundColor="#3A6DF0"
-                                TextColor="White" />
-                        </Grid>
-                    </Border>
+                    <Grid Grid.Row="2"
+                        ColumnDefinitions="Auto,*,Auto"
+                        HorizontalOptions="Fill"
+                        Margin="-6,0,-6,0">
+                        <!-- Chevron: collapse the chat panel entirely. -->
+                        <Button Text="["
+                            Clicked="OnCollapseChatClicked"
+                            Grid.Column="0"
+                            SemanticProperties.Description="Collapse chat"
+                            WidthRequest="10"
+                            HeightRequest="34"
+                            Padding="0"
+                            FontSize="14"
+                            HorizontalOptions="Start"
+                            VerticalOptions="End"
+                            BackgroundColor="#55FFFFFF"
+                            TextColor="White" />
+                        <Border
+                            Grid.Column="1"
+                            BackgroundColor="#22FFFFFF"
+                            Stroke="Transparent"
+                            StrokeShape="RoundRectangle 6">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <Entry x:Name="ChatEntry"
+                                    Grid.Column="0"
+                                    Placeholder="Ask Floaty…"
+                                    PlaceholderColor="#99FFFFFF"
+                                    TextColor="White"
+                                    BackgroundColor="Transparent"
+                                    ReturnType="Send"
+                                    TextChanged="OnChatEntryTextChanged"
+                                    Completed="OnSendClicked" />
+                                <Button Grid.Column="1"
+                                    Text="➤"
+                                    Clicked="OnSendClicked"
+                                    SemanticProperties.Description="Send message"
+                                    WidthRequest="36"
+                                    HeightRequest="36"
+                                    Padding="0"
+                                    CornerRadius="0"
+                                    FontSize="15"
+                                    BackgroundColor="#3A6DF0"
+                                    TextColor="White" />
+                            </Grid>
+                        </Border>
+                        <!-- Resize grip: drag to change the chat panel width. The transparent strip
+                        is
+the
+     hit area; the thin bar is the visible affordance. -->
+                        <Border WidthRequest="10"
+                            Margin="0,0,0,0"
+                            Grid.Column="2"
+                            HeightRequest="40"
+                            BackgroundColor="Transparent"
+                            Stroke="Transparent">
+                            <Border WidthRequest="4"
+                                HeightRequest="34"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center"
+                                BackgroundColor="#55FFFFFF"
+                                Stroke="Transparent"
+                                StrokeShape="RoundRectangle 2" />
+                            <Border.GestureRecognizers>
+                                <PanGestureRecognizer PanUpdated="OnResizeHandlePanUpdated" />
+                            </Border.GestureRecognizers>
+                        </Border>
+                    </Grid>
 
                 </Grid>
-
-                <!-- Right-edge controls: a chevron to fully collapse the panel and, below it, a
-                grip
-                     to drag the panel width. -->
-                <HorizontalStackLayout HorizontalOptions="End"
-                    VerticalOptions="End"
-                    Spacing="0"
-                    Margin="0,0,-10,0">
-
-                    <!-- Chevron: collapse the chat panel entirely. -->
-                    <Button Text="["
-                        Clicked="OnCollapseChatClicked"
-                        SemanticProperties.Description="Collapse chat"
-                        WidthRequest="10"
-                        HeightRequest="34"
-                        Padding="0"
-                        FontSize="14"
-                        BackgroundColor="#55FFFFFF"
-                        TextColor="White" />
-                    <!-- Resize grip: drag to change the chat panel width. The transparent strip is
-                    the
-                         hit area; the thin bar is the visible affordance. -->
-                    <Border WidthRequest="7"
-                        Margin="0,0,4,0"
-                        HeightRequest="40"
-                        BackgroundColor="Transparent"
-                        Stroke="Transparent">
-                        <Border WidthRequest="4"
-                            HeightRequest="34"
-                            HorizontalOptions="Center"
-                            VerticalOptions="Center"
-                            BackgroundColor="#55FFFFFF"
-                            Stroke="Transparent"
-                            StrokeShape="RoundRectangle 2" />
-                        <Border.GestureRecognizers>
-                            <PanGestureRecognizer PanUpdated="OnResizeHandlePanUpdated" />
-                        </Border.GestureRecognizers>
-                    </Border>
-
-                </HorizontalStackLayout>
             </Grid>
         </Border>
 
@@ -166,31 +165,31 @@
         <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="End">
 
             <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
-			<Image x:Name="Ring"
+            <Image x:Name="Ring"
                 Source="ring1.png"
                 Aspect="AspectFit"
                 HeightRequest="148"
                 WidthRequest="148"
                 HorizontalOptions="Fill"
                 VerticalOptions="Fill">
-				<FlyoutBase.ContextFlyout>
-					<MenuFlyout>
-						<MenuFlyoutItem Text="Float to taskbar"
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Float to taskbar"
                             Clicked="OnFloatToTaskbarClicked" />
-						<MenuFlyoutSeparator />
-						<MenuFlyoutItem Text="Settings"
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Settings"
                             Clicked="OnSettingsClicked" />
-						<MenuFlyoutSeparator />
-						<MenuFlyoutItem Text="Close Floaty"
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Close Floaty"
                             Clicked="OnCloseClicked" />
-					</MenuFlyout>
-				</FlyoutBase.ContextFlyout>
-				<Image.GestureRecognizers>
-					<PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
-					<TapGestureRecognizer Tapped="OnRingTapped" />
-				</Image.GestureRecognizers>
-			</Image>
-			<Label x:Name="CaptureToast"
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+                <Image.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
+                    <TapGestureRecognizer Tapped="OnRingTapped" />
+                </Image.GestureRecognizers>
+            </Image>
+            <Label x:Name="CaptureToast"
                 IsVisible="False"
                 Opacity="0"
                 Text=""
@@ -201,7 +200,7 @@
                 MaximumWidthRequest="180"
                 Padding="8,3"
                 BackgroundColor="#CC202020" />
-		</VerticalStackLayout>
+        </VerticalStackLayout>
 
     </Grid>
 
