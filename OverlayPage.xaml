@@ -4,7 +4,6 @@
     xmlns:local="clr-namespace:Floaty"
     x:Class="Floaty.OverlayPage"
     x:DataType="local:OverlayPage"
-			 InputTransparent="True"
     BackgroundColor="Transparent">
 
     <!-- Whole-window layout: chat panel (hidden until opened) on top, the ring and a minimal

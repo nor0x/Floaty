@@ -13,6 +13,10 @@ public sealed class SettingsService
         "ring1.png",
         "ring2.png",
         "ring3.png",
+        "ring4.png",
+        "ring5.png",
+        "ring6.png",
+        "ring7.png",
     ];
 
     private static readonly HashSet<string> RingImageExtensions = new(StringComparer.OrdinalIgnoreCase)
