@@ -28,4 +28,40 @@ public sealed class FloatyConfig
     /// Selected ring image filename from <c>~/.floaty/ring</c>. Empty uses the built-in default ring.
     /// </summary>
     public string RingImageFileName { get; set; } = string.Empty;
+
+    /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
+    public List<McpServerConfig> McpServers { get; set; } = new();
+}
+
+/// <summary>
+/// A single Model Context Protocol server. Either a local <c>stdio</c> process (Command + Args + Env)
+/// or a remote <c>http</c> endpoint (Url + Headers). <see cref="Name"/> is the slash-command slug.
+/// </summary>
+public sealed class McpServerConfig
+{
+    /// <summary>Unique slug used for the <c>/name</c> slash command (e.g. "github").</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Transport kind: <c>"stdio"</c> (local command) or <c>"http"</c> (remote URL).</summary>
+    public string Transport { get; set; } = "stdio";
+
+    /// <summary>Whether this server is active and exposed as a slash command.</summary>
+    public bool Enabled { get; set; } = true;
+
+    // --- stdio ---
+    /// <summary>Executable to launch for a stdio server, e.g. "npx".</summary>
+    public string Command { get; set; } = string.Empty;
+
+    /// <summary>Arguments passed to <see cref="Command"/>.</summary>
+    public List<string> Args { get; set; } = new();
+
+    /// <summary>Environment variables for the launched stdio process.</summary>
+    public Dictionary<string, string> Env { get; set; } = new();
+
+    // --- http ---
+    /// <summary>Endpoint URL for an http server (Streamable HTTP / SSE).</summary>
+    public string Url { get; set; } = string.Empty;
+
+    /// <summary>Additional HTTP headers (e.g. Authorization) for an http server.</summary>
+    public Dictionary<string, string> Headers { get; set; } = new();
 }

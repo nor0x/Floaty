@@ -8,16 +8,24 @@ namespace Floaty;
 
 public partial class OverlayPage : ContentPage
 {
+    private enum SlashKind
+    {
+        Action, // built-in commands executed immediately (e.g. /new, /settings)
+        Server, // an MCP server: selecting it fills the "/name " prefix to scope the next message
+    }
+
     private sealed class SlashCommand
     {
-        public SlashCommand(string name, string description)
+        public SlashCommand(string name, string description, SlashKind kind = SlashKind.Action)
         {
             Name = name;
             Description = description;
+            Kind = kind;
         }
 
         public string Name { get; }
         public string Description { get; }
+        public SlashKind Kind { get; }
         public string Token => $"/{Name}";
     }
 
@@ -73,13 +81,16 @@ public partial class OverlayPage : ContentPage
     // While waiting for the first model token, the ring does a "spin, pause, spin" loader loop.
     private CancellationTokenSource? _chatWaitingSpinCts;
 
-    private readonly IReadOnlyList<SlashCommand> _allSlashCommands =
+    private readonly IReadOnlyList<SlashCommand> _builtInSlashCommands =
     [
         new("new", "Clear the current conversation"),
         new("capture", "Capture and remember the current app"),
         new("settings", "Open Floaty settings"),
         new("config", "Open Floaty config folder"),
     ];
+
+    // Built-in commands plus one per enabled MCP server; rebuilt when settings change.
+    private readonly List<SlashCommand> _allSlashCommands = new();
     private readonly ObservableCollection<SlashCommand> _filteredSlashCommands = new();
     private bool _slashSuggestionsVisible;
     private int _slashSelectedIndex = -1;
@@ -126,6 +137,7 @@ public partial class OverlayPage : ContentPage
 
         _settings.Changed += OnSettingsChanged;
         ApplyRingImage();
+        RebuildSlashCommands();
 
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
         _windowController.SummonRequested += OnSummonRequested;
@@ -134,7 +146,25 @@ public partial class OverlayPage : ContentPage
     }
 
     private void OnSettingsChanged(object? sender, EventArgs e) =>
-        Dispatcher.Dispatch(ApplyRingImage);
+        Dispatcher.Dispatch(() =>
+        {
+            ApplyRingImage();
+            RebuildSlashCommands();
+        });
+
+    // Rebuild the slash-command list: built-in actions plus a /name command per enabled MCP server.
+    private void RebuildSlashCommands()
+    {
+        _allSlashCommands.Clear();
+        _allSlashCommands.AddRange(_builtInSlashCommands);
+
+        foreach (var server in _settings.Current.McpServers)
+        {
+            if (!server.Enabled || string.IsNullOrWhiteSpace(server.Name))
+                continue;
+            _allSlashCommands.Add(new SlashCommand(server.Name, "MCP server", SlashKind.Server));
+        }
+    }
 
     private void ApplyRingImage()
     {
@@ -568,6 +598,10 @@ public partial class OverlayPage : ContentPage
         if (command is null)
             return false;
 
+        // MCP server commands aren't actions: fill the "/name " prefix and let the user type the request.
+        if (command.Kind == SlashKind.Server)
+            return TryAutocompleteSelectedCommand();
+
         await ExecuteSlashCommandAsync(command);
         return true;
     }
@@ -599,6 +633,25 @@ public partial class OverlayPage : ContentPage
         ChatEntry.Text = string.Empty;
         _suppressEntryTextChanged = false;
         HideSlashSuggestions();
+    }
+
+    // If the text begins with "/server" matching an enabled MCP server, returns that server name and
+    // the remaining prompt; otherwise returns (null, original text). Empty prompt falls back to a default.
+    private (string? Server, string Prompt) TryParseMcpScope(string text)
+    {
+        if (!text.StartsWith('/'))
+            return (null, text);
+
+        var spaceIndex = text.IndexOf(' ');
+        var token = (spaceIndex < 0 ? text[1..] : text[1..spaceIndex]).Trim();
+
+        var server = _allSlashCommands.FirstOrDefault(c =>
+            c.Kind == SlashKind.Server && string.Equals(c.Name, token, StringComparison.OrdinalIgnoreCase));
+        if (server is null)
+            return (null, text);
+
+        var remainder = spaceIndex < 0 ? string.Empty : text[(spaceIndex + 1)..].Trim();
+        return (server.Name, remainder.Length == 0 ? "What can you do?" : remainder);
     }
 
     private async Task OpenConfigFolderAsync()
@@ -660,6 +713,14 @@ public partial class OverlayPage : ContentPage
             return;
 
         _slashSelectedIndex = _filteredSlashCommands.IndexOf(command);
+
+        // Tapping an MCP server fills its "/name " prefix; tapping an action runs it.
+        if (command.Kind == SlashKind.Server)
+        {
+            TryAutocompleteSelectedCommand();
+            return;
+        }
+
         _ = ExecuteSlashCommandAsync(command);
     }
 
@@ -746,11 +807,14 @@ public partial class OverlayPage : ContentPage
 
         ChatEntry.Text = string.Empty;
 
+        // A leading "/server" routes this turn to that MCP server's tools; the rest is the prompt.
+        var (mcpServer, prompt) = TryParseMcpScope(text);
+
         // Build the conversation to send before adding the pending placeholder.
         var history = Messages
             .Select(m => new ChatMessage(m.IsUser ? ChatRole.User : ChatRole.Assistant, m.Text))
             .ToList();
-        history.Add(new ChatMessage(ChatRole.User, text));
+        history.Add(new ChatMessage(ChatRole.User, prompt));
 
         Messages.Add(new ChatMessageVm(isUser: true, text));
         var pending = new ChatMessageVm(isUser: false, "…");
@@ -765,7 +829,7 @@ public partial class OverlayPage : ContentPage
             var repaint = Stopwatch.StartNew();
             var lastScrollMs = 0L;
 
-            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history))
+            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
                 if (string.IsNullOrEmpty(chunk))
@@ -811,22 +875,6 @@ public partial class OverlayPage : ContentPage
             MessagesList.ScrollTo(Messages[^1], position: ScrollToPosition.End, animate: true);
     }
 
-    private async void OnScreenshotClicked(object? sender, EventArgs e)
-    {
-        await CaptureAndRememberAsync(addSystemNote: false);
-    }
-
-    // Fade a short status message in above the action bar, hold briefly, then fade out.
-    private async Task ShowToastAsync(string message)
-    {
-        CaptureToast.Text = message;
-        CaptureToast.IsVisible = true;
-        await CaptureToast.FadeToAsync(1, 150);
-        await Task.Delay(1600);
-        await CaptureToast.FadeToAsync(0, 250);
-        CaptureToast.IsVisible = false;
-    }
-
     private void OnSettingsClicked(object? sender, EventArgs e)
     {
         var settingsPage = _services.GetRequiredService<SettingsPage>();
@@ -843,4 +891,20 @@ public partial class OverlayPage : ContentPage
 
     private void OnCloseClicked(object? sender, EventArgs e) =>
         Application.Current?.Quit();
+
+	private void OnRingTapped(object sender, TappedEventArgs e)
+	{
+		OnOpenChatClicked(sender, e);
+	}
+
+	// Fade a short status message in above the action bar, hold briefly, then fade out.
+	private async Task ShowToastAsync(string message)
+	{
+		CaptureToast.Text = message;
+		CaptureToast.IsVisible = true;
+		await CaptureToast.FadeToAsync(1, 150);
+		await Task.Delay(1600);
+		await CaptureToast.FadeToAsync(0, 250);
+		CaptureToast.IsVisible = false;
+	}
 }

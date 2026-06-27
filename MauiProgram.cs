@@ -25,6 +25,9 @@ public static class MauiProgram
 		// Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/litegraph.db).
 		builder.Services.AddSingleton<IMemoryService, MemoryService>();
 
+		// MCP servers: connected on demand, tools exposed to chat via /server slash commands.
+		builder.Services.AddSingleton<IMcpService, McpService>();
+
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
 		builder.Services.AddTransient<SettingsPage>();

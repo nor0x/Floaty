@@ -79,6 +79,9 @@
 
         <!-- Local vector + graph store for capture embeddings (~/.floaty/litegraph.db). -->
         <PackageReference Include="LiteGraph" Version="7.0.0" />
+        <!-- MCP client (Model Context Protocol). 2.0.0-preview.1 exposes McpClient.CreateAsync +
+             McpClientTool : AIFunction, so MCP tools plug into Microsoft.Extensions.AI ChatOptions.Tools. -->
+        <PackageReference Include="ModelContextProtocol" Version="2.0.0-preview.1" />
     </ItemGroup>
 
     <!-- Windows-only: transparent/borderless window support for the floating overlay, plus

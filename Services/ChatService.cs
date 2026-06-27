@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.AI;
 using OpenAI;
@@ -13,17 +12,20 @@ public interface IChatService
 {
     IAsyncEnumerable<string> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
+        string? mcpServer = null,
         CancellationToken cancellationToken = default);
 
     Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,
+        string? mcpServer = null,
         CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// Microsoft.Extensions.AI-backed chat service. Builds an <see cref="IChatClient"/> from the
 /// OpenAI settings on demand and rebuilds it whenever the configuration changes. Exposes a
-/// <c>search_captures</c> tool so the model can retrieve relevant captures from Floaty's memory.
+/// <c>search_captures</c> tool plus, when scoped via a <c>/server</c> slash command, that MCP
+/// server's tools.
 /// </summary>
 public sealed class ChatService : IChatService
 {
@@ -35,25 +37,27 @@ public sealed class ChatService : IChatService
 
     private readonly SettingsService _settings;
     private readonly IMemoryService _memory;
-    private readonly ChatOptions _chatOptions;
+    private readonly IMcpService _mcp;
+    private readonly AIFunction _searchTool;
 
     private IChatClient? _client;
     private string? _clientKey;
     private string? _clientModel;
 
-    public ChatService(SettingsService settings, IMemoryService memory)
+    public ChatService(SettingsService settings, IMemoryService memory, IMcpService mcp)
     {
         _settings = settings;
         _memory = memory;
+        _mcp = mcp;
         // Drop the cached client when settings change so the next call picks up the new key/model.
         _settings.Changed += (_, _) => _client = null;
 
-        var searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
-        _chatOptions = new ChatOptions { Tools = new List<AITool> { searchTool } };
+        _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
     }
 
     public async IAsyncEnumerable<string> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
+        string? mcpServer = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
@@ -65,14 +69,26 @@ public sealed class ChatService : IChatService
         }
 
         var client = GetOrCreateClient(config);
-        var systemPrompt = _settings.GetSystemPrompt(DefaultSystemPrompt);
-        var messages = new List<ChatMessage> { new(ChatRole.System, systemPrompt) };
+
+        var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
+
+        // Always expose capture search; add the scoped MCP server's tools when invoked via /server.
+        var tools = new List<AITool> { _searchTool };
+        if (!string.IsNullOrWhiteSpace(mcpServer))
+        {
+            var mcpTools = await _mcp.GetToolsAsync(mcpServer, cancellationToken);
+            tools.AddRange(mcpTools);
+            messages.Add(new ChatMessage(ChatRole.System,
+                $"The user invoked the '{mcpServer}' MCP server. Prefer its tools to fulfill the request."));
+        }
+
         messages.AddRange(history);
 
-        await foreach (var update in client.GetStreamingResponseAsync(messages, _chatOptions, cancellationToken)
+        var options = new ChatOptions { Tools = tools };
+
+        await foreach (var update in client.GetStreamingResponseAsync(messages, options, cancellationToken)
             .WithCancellation(cancellationToken))
         {
-            Debug.WriteLine("got: " + update.Text);
             if (!string.IsNullOrEmpty(update.Text))
                 yield return update.Text;
         }
@@ -80,10 +96,11 @@ public sealed class ChatService : IChatService
 
     public async Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,
+        string? mcpServer = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
-        await foreach (var chunk in GetStreamingResponseAsync(history, cancellationToken)
+        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, cancellationToken)
             .WithCancellation(cancellationToken))
         {
             sb.Append(chunk);
@@ -136,13 +153,13 @@ public sealed class ChatService : IChatService
         _clientKey = config.OpenAiApiKey;
         _clientModel = config.Model;
 #pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-		_client = new OpenAIClient(config.OpenAiApiKey)
+        _client = new OpenAIClient(config.OpenAiApiKey)
             .GetResponsesClient()
             .AsIChatClient(config.Model)
             .AsBuilder()
             .UseFunctionInvocation()
             .Build();
 #pragma warning restore OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-		return _client;
+        return _client;
     }
 }

@@ -20,6 +20,10 @@
                     @onclick="() => SelectSection(SettingsSection.ModelProvider)">
                 Model Provider
             </button>
+            <button class="tab @TabClass(SettingsSection.Mcp)"
+                    @onclick="() => SelectSection(SettingsSection.Mcp)">
+                MCP Servers
+            </button>
         </aside>
 
         <div class="card">
@@ -81,6 +85,92 @@
                         image(s).</span>
                     </div>
                 }
+            else if (_activeSection == SettingsSection.Mcp)
+            {
+                <div class="card-head">
+                    <h2>MCP Servers</h2>
+                    <p>Add Model Context Protocol servers. Each is callable in chat via <code>/name</code>.</p>
+                </div>
+
+                @if (_config.McpServers.Count == 0)
+                {
+                    <p class="hint">No servers configured yet.</p>
+                }
+                else
+                {
+                    <div class="mcp-list">
+                        @foreach (var server in _config.McpServers)
+                        {
+                            <div class="mcp-row">
+                                <input type="checkbox" @bind="server.Enabled" title="Enabled" />
+                                <div class="mcp-info">
+                                    <span class="mcp-name">/@server.Name</span>
+                                    <span class="mcp-meta">@server.Transport · @(server.Transport == "http" ? server.Url : server.Command)</span>
+                                </div>
+                                <button class="mcp-remove" @onclick="() => RemoveServer(server)">Remove</button>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="mcp-add">
+                    <h3>Add server</h3>
+
+                    <div class="field">
+                        <label for="mcpName">Name</label>
+                        <input id="mcpName" type="text" autocomplete="off" spellcheck="false" placeholder="github"
+                               @bind="_newServer.Name" @bind:event="oninput" />
+                        <span class="hint">Used as the <code>/name</code> slash command.</span>
+                    </div>
+
+                    <div class="field">
+                        <label for="mcpTransport">Transport</label>
+                        <select id="mcpTransport" @bind="_newServer.Transport">
+                            <option value="stdio">stdio (local command)</option>
+                            <option value="http">http (remote URL)</option>
+                        </select>
+                    </div>
+
+                    @if (_newServer.Transport == "http")
+                    {
+                        <div class="field">
+                            <label for="mcpUrl">URL</label>
+                            <input id="mcpUrl" type="text" autocomplete="off" spellcheck="false"
+                                   placeholder="https://example.com/mcp" @bind="_newServer.Url" @bind:event="oninput" />
+                        </div>
+                        <div class="field">
+                            <label for="mcpHeaders">Headers</label>
+                            <textarea id="mcpHeaders" rows="3" @bind="_newServerHeaders" @bind:event="oninput"></textarea>
+                            <span class="hint">One <code>KEY=VALUE</code> per line (e.g. <code>Authorization=Bearer …</code>).</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="field">
+                            <label for="mcpCommand">Command</label>
+                            <input id="mcpCommand" type="text" autocomplete="off" spellcheck="false" placeholder="npx"
+                                   @bind="_newServer.Command" @bind:event="oninput" />
+                        </div>
+                        <div class="field">
+                            <label for="mcpArgs">Arguments</label>
+                            <textarea id="mcpArgs" rows="3" @bind="_newServerArgs" @bind:event="oninput"></textarea>
+                            <span class="hint">One argument per line.</span>
+                        </div>
+                        <div class="field">
+                            <label for="mcpEnv">Environment</label>
+                            <textarea id="mcpEnv" rows="2" @bind="_newServerEnv" @bind:event="oninput"></textarea>
+                            <span class="hint">One <code>KEY=VALUE</code> per line.</span>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(_mcpError))
+                    {
+                        <p class="mcp-error">@_mcpError</p>
+                    }
+
+                    <button class="reload" @onclick="AddServer">Add server</button>
+                </div>
+            }
             else
                 {
                     <div class="card-head">
@@ -151,6 +241,7 @@
         Behavior,
         Appearance,
         ModelProvider,
+        Mcp,
     }
 
     private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
@@ -161,6 +252,13 @@
     private int _customRingCount;
     private bool _saved;
     private SettingsSection _activeSection = SettingsSection.Behavior;
+
+    // Add-MCP-server form state. Args/Env/Headers are edited as text and parsed on Add.
+    private McpServerConfig _newServer = new();
+    private string _newServerArgs = string.Empty;
+    private string _newServerEnv = string.Empty;
+    private string _newServerHeaders = string.Empty;
+    private string? _mcpError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -174,6 +272,7 @@
             EmbeddingModel = current.EmbeddingModel,
             SnapshotModel = current.SnapshotModel,
             RingImageFileName = current.RingImageFileName,
+            McpServers = current.McpServers.Select(CloneServer).ToList(),
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
@@ -185,6 +284,90 @@
         ConfigService.Save(_config);
         ConfigService.SaveSystemPrompt(_systemPrompt);
         _saved = true;
+    }
+
+    private void AddServer()
+    {
+        var name = _newServer.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            _mcpError = "Name is required.";
+            return;
+        }
+
+        if (_config.McpServers.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _mcpError = $"A server named '{name}' already exists.";
+            return;
+        }
+
+        var server = new McpServerConfig
+        {
+            Name = name,
+            Transport = _newServer.Transport,
+            Enabled = true,
+        };
+
+        if (string.Equals(server.Transport, "http", StringComparison.OrdinalIgnoreCase))
+        {
+            server.Url = _newServer.Url?.Trim() ?? string.Empty;
+            server.Headers = ParsePairs(_newServerHeaders);
+        }
+        else
+        {
+            server.Command = _newServer.Command?.Trim() ?? string.Empty;
+            server.Args = ParseLines(_newServerArgs);
+            server.Env = ParsePairs(_newServerEnv);
+        }
+
+        _config.McpServers.Add(server);
+
+        _newServer = new McpServerConfig();
+        _newServerArgs = _newServerEnv = _newServerHeaders = string.Empty;
+        _mcpError = null;
+        _saved = false;
+    }
+
+    private void RemoveServer(McpServerConfig server)
+    {
+        _config.McpServers.Remove(server);
+        _saved = false;
+    }
+
+    private static McpServerConfig CloneServer(McpServerConfig s) => new()
+    {
+        Name = s.Name,
+        Transport = s.Transport,
+        Enabled = s.Enabled,
+        Command = s.Command,
+        Args = new List<string>(s.Args),
+        Env = new Dictionary<string, string>(s.Env),
+        Url = s.Url,
+        Headers = new Dictionary<string, string>(s.Headers),
+    };
+
+    private static List<string> ParseLines(string? text) =>
+        string.IsNullOrWhiteSpace(text)
+            ? new List<string>()
+            : text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private static Dictionary<string, string> ParsePairs(string? text)
+    {
+        var result = new Dictionary<string, string>();
+        if (string.IsNullOrWhiteSpace(text))
+            return result;
+
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var index = line.IndexOf('=');
+            if (index <= 0)
+                continue;
+            var key = line[..index].Trim();
+            if (key.Length > 0)
+                result[key] = line[(index + 1)..].Trim();
+        }
+
+        return result;
     }
 
     private async Task ReloadRingImages()
@@ -512,6 +695,82 @@
         color: #1f9d55;
         font-size: 13px;
         font-weight: 600;
+    }
+
+    .mcp-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 18px;
+    }
+
+    .mcp-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid #e4e4e8;
+        border-radius: 8px;
+        padding: 8px 12px;
+        background: #fafafa;
+    }
+
+    .mcp-info {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .mcp-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1c1c1e;
+    }
+
+    .mcp-meta {
+        font-size: 12px;
+        color: #8a8a90;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .mcp-remove {
+        background: #fdeced;
+        color: #b3261e;
+        border: 1px solid #f3c6c4;
+        border-radius: 8px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .mcp-remove:hover {
+        background: #fbdedf;
+    }
+
+    .mcp-add {
+        border-top: 1px solid #ececf0;
+        padding-top: 16px;
+    }
+
+    .mcp-add h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 12px;
+    }
+
+    .mcp-add textarea {
+        min-height: 0;
+        font-family: Consolas, 'Courier New', monospace;
+        font-size: 13px;
+    }
+
+    .mcp-error {
+        color: #b3261e;
+        font-size: 12px;
+        margin: 0 0 10px;
     }
 
     @@media (max-width: 780px) {

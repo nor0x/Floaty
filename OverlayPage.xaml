@@ -24,13 +24,13 @@
             StrokeThickness="1"
             BackgroundColor="#E61C1C1E"
             Padding="14,8,8,8"
-            StrokeShape="RoundRectangle 14"
+            StrokeShape="RoundRectangle 10"
             SizeChanged="OnChatPanelSizeChanged">
             <!-- Content + a right-edge resize grip overlaid on top of it. -->
             <Grid>
                 <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
-                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="0">
 
                     <CollectionView x:Name="MessagesList"
                         Grid.Row="0"
@@ -41,7 +41,7 @@
                             <DataTemplate x:DataType="local:ChatMessageVm">
                                 <Grid Padding="0,3">
                                     <Border HorizontalOptions="{Binding Alignment}"
-                                        MaximumWidthRequest="280"
+                                        MaximumWidthRequest="420"
                                         BackgroundColor="{Binding BubbleColor}"
                                         Stroke="Transparent"
                                         Padding="10,7"
@@ -91,9 +91,9 @@
                     </Border>
                     <Border Grid.Row="2"
                         Margin="-5,0,15,0"
-                        BackgroundColor="#33FFFFFF"
+                        BackgroundColor="#22FFFFFF"
                         Stroke="Transparent"
-                        StrokeShape="RoundRectangle 18">
+                        StrokeShape="RoundRectangle 6">
                         <Grid ColumnDefinitions="*,Auto">
                             <Entry x:Name="ChatEntry"
                                 Grid.Column="0"
@@ -111,7 +111,7 @@
                                 WidthRequest="36"
                                 HeightRequest="36"
                                 Padding="0"
-                                CornerRadius="18"
+                                CornerRadius="0"
                                 FontSize="15"
                                 BackgroundColor="#3A6DF0"
                                 TextColor="White" />
@@ -129,7 +129,7 @@
                     Margin="0,0,-10,0">
 
                     <!-- Chevron: collapse the chat panel entirely. -->
-                    <Button Text="c"
+                    <Button Text="["
                         Clicked="OnCollapseChatClicked"
                         SemanticProperties.Description="Collapse chat"
                         WidthRequest="10"
@@ -141,12 +141,12 @@
                     <!-- Resize grip: drag to change the chat panel width. The transparent strip is
                     the
                          hit area; the thin bar is the visible affordance. -->
-                    <Border WidthRequest="5"
+                    <Border WidthRequest="7"
                         Margin="0,0,4,0"
                         HeightRequest="40"
                         BackgroundColor="Transparent"
                         Stroke="Transparent">
-                        <Border WidthRequest="3"
+                        <Border WidthRequest="4"
                             HeightRequest="34"
                             HorizontalOptions="Center"
                             VerticalOptions="Center"
@@ -166,42 +166,31 @@
         <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="End">
 
             <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
-            <Image x:Name="Ring"
+			<Image x:Name="Ring"
                 Source="ring1.png"
                 Aspect="AspectFit"
                 HeightRequest="148"
                 WidthRequest="148"
                 HorizontalOptions="Fill"
                 VerticalOptions="Fill">
-                <FlyoutBase.ContextFlyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem Text="Float to taskbar"
+				<FlyoutBase.ContextFlyout>
+					<MenuFlyout>
+						<MenuFlyoutItem Text="Float to taskbar"
                             Clicked="OnFloatToTaskbarClicked" />
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem Text="Settings"
+						<MenuFlyoutSeparator />
+						<MenuFlyoutItem Text="Settings"
                             Clicked="OnSettingsClicked" />
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem Text="Close Floaty"
+						<MenuFlyoutSeparator />
+						<MenuFlyoutItem Text="Close Floaty"
                             Clicked="OnCloseClicked" />
-                    </MenuFlyout>
-                </FlyoutBase.ContextFlyout>
-                <Image.GestureRecognizers>
-                    <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
-                </Image.GestureRecognizers>
-            </Image>
-            <HorizontalStackLayout Spacing="2"
-                Margin="0,-10,0,0"
-                HorizontalOptions="Center">
-                <Button Text="📷"
-                    Clicked="OnScreenshotClicked"
-                    SemanticProperties.Description="Capture screenshot"
-                    Style="{StaticResource OverlayButton}" />
-                <Button Text="💬"
-                    Clicked="OnOpenChatClicked"
-                    SemanticProperties.Description="Open chat"
-                    Style="{StaticResource OverlayButton}" />
-            </HorizontalStackLayout>
-            <Label x:Name="CaptureToast"
+					</MenuFlyout>
+				</FlyoutBase.ContextFlyout>
+				<Image.GestureRecognizers>
+					<PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
+					<TapGestureRecognizer Tapped="OnRingTapped" />
+				</Image.GestureRecognizers>
+			</Image>
+			<Label x:Name="CaptureToast"
                 IsVisible="False"
                 Opacity="0"
                 Text=""
@@ -212,8 +201,7 @@
                 MaximumWidthRequest="180"
                 Padding="8,3"
                 BackgroundColor="#CC202020" />
-
-        </VerticalStackLayout>
+		</VerticalStackLayout>
 
     </Grid>
 
