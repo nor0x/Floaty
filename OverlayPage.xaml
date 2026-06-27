@@ -4,6 +4,7 @@
     xmlns:local="clr-namespace:Floaty"
     x:Class="Floaty.OverlayPage"
     x:DataType="local:OverlayPage"
+			 InputTransparent="True"
     BackgroundColor="Transparent">
 
     <!-- Whole-window layout: chat panel (hidden until opened) on top, the ring and a minimal
@@ -99,11 +100,10 @@
                             Grid.Column="0"
                             SemanticProperties.Description="Collapse chat"
                             WidthRequest="10"
-                            HeightRequest="34"
                             Padding="0"
                             FontSize="14"
                             HorizontalOptions="Start"
-                            VerticalOptions="End"
+                            VerticalOptions="Fill"
                             BackgroundColor="#55FFFFFF"
                             TextColor="White" />
                         <Border
@@ -135,13 +135,11 @@
                             </Grid>
                         </Border>
                         <!-- Resize grip: drag to change the chat panel width. The transparent strip
-                        is
-the
-     hit area; the thin bar is the visible affordance. -->
-                        <Border WidthRequest="10"
+                        is the hit area; the thin bar is the visible affordance. -->
+                        <Border WidthRequest="12"
                             Margin="0,0,0,0"
                             Grid.Column="2"
-                            HeightRequest="40"
+								VerticalOptions="Fill"
                             BackgroundColor="Transparent"
                             Stroke="Transparent">
                             <Border WidthRequest="4"
