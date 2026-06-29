@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>🛟</title>
+	<style>
+		html,
+		body {
+			margin: 0;
+			width: 100%;
+			height: 100%;
+			overflow: hidden;
+		}
+
+		body {
+			position: relative;
+			background: url("bg.avif") center center / 112% 112% no-repeat;
+			animation: waterPan 10s ease-in-out infinite alternate;
+		}
+
+		body::before,
+		body::after {
+			content: "";
+			position: fixed;
+			inset: -20%;
+			pointer-events: none;
+			z-index: 1;
+		}
+
+		body::before {
+			background:
+				radial-gradient(circle at 18% 26%, rgba(255, 255, 255, 0.24) 0 6%, rgba(255, 255, 255, 0) 28%),
+				radial-gradient(circle at 78% 32%, rgba(255, 255, 255, 0.2) 0 7%, rgba(255, 255, 255, 0) 30%),
+				radial-gradient(circle at 36% 74%, rgba(255, 255, 255, 0.16) 0 8%, rgba(255, 255, 255, 0) 30%),
+				radial-gradient(circle at 74% 70%, rgba(255, 255, 255, 0.15) 0 9%, rgba(255, 255, 255, 0) 32%);
+			mix-blend-mode: screen;
+			opacity: 0.28;
+			animation: causticsDrift 4s ease-in-out infinite alternate, causticsPulse 2.6s ease-in-out infinite;
+		}
+
+		body::after {
+			background: linear-gradient(120deg,
+					rgba(130, 210, 235, 0.14) 0%,
+					rgba(255, 255, 255, 0.1) 35%,
+					rgba(90, 180, 215, 0.14) 70%,
+					rgba(255, 255, 255, 0.08) 100%);
+			mix-blend-mode: soft-light;
+			opacity: 0.4;
+			animation: lightSweep 9s linear infinite;
+		}
+
+		#ring {
+			position: fixed;
+			left: 0;
+			top: 0;
+			width: 222px;
+			height: 222px;
+			user-select: none;
+			pointer-events: none;
+			filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.22));
+			z-index: 2;
+			will-change: transform;
+		}
+
+		@keyframes waterPan {
+			0% {
+				background-position: 47% 52%;
+				background-size: 112% 112%;
+			}
+
+			50% {
+				background-position: 54% 47%;
+				background-size: 116% 116%;
+			}
+
+			100% {
+				background-position: 58% 44%;
+				background-size: 113% 113%;
+			}
+		}
+
+		@keyframes causticsDrift {
+			0% {
+				transform: translate3d(-3%, -2%, 0) rotate(-1deg) scale(1.02);
+			}
+
+			100% {
+				transform: translate3d(3%, 2%, 0) rotate(1.3deg) scale(1.07);
+			}
+		}
+
+		@keyframes causticsPulse {
+
+			0%,
+			100% {
+				opacity: 0.19;
+			}
+
+			50% {
+				opacity: 0.34;
+			}
+		}
+
+		@keyframes lightSweep {
+			0% {
+				transform: translate3d(-6%, 0, 0) rotate(0.4deg) scale(1.05);
+			}
+
+			50% {
+				transform: translate3d(2%, -2%, 0) rotate(-0.5deg) scale(1.08);
+			}
+
+			100% {
+				transform: translate3d(6%, 1%, 0) rotate(0.3deg) scale(1.05);
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<img id="ring" src="ring3.png" width="142" height="142" alt="Floating swim ring" />
+	<script>
+		const ring = document.getElementById("ring");
+
+		let x = 0;
+		let y = 0;
+		let vx = 0;
+		let vy = 0;
+		let angle = 0;
+		let spin = 0;
+		let ringWidth = 142;
+		let ringHeight = 142;
+
+		function randomRange(min, max) {
+			return Math.random() * (max - min) + min;
+		}
+
+		function randomDirectionSpeed(min, max) {
+			const speed = randomRange(min, max);
+			return Math.random() < 0.5 ? -speed : speed;
+		}
+
+		function randomFloatSpin() {
+			// Keep rotation gentle so it feels like a ring drifting on water,
+			// and explicitly allow both clockwise (+) and counterclockwise (-).
+			let value = randomRange(-42, 42);
+
+			while (Math.abs(value) < 16) {
+				value = randomRange(-42, 42);
+			}
+
+			return value;
+		}
+
+		function varyBounceSpeed(currentAbsSpeed, min, max) {
+			const multiplier = randomRange(0.9, 1.12);
+			return Math.min(max, Math.max(min, currentAbsSpeed * multiplier));
+		}
+
+		function initialize() {
+			ringWidth = ring.offsetWidth || 142;
+			ringHeight = ring.offsetHeight || 142;
+
+			const maxX = Math.max(0, window.innerWidth - ringWidth);
+			const maxY = Math.max(0, window.innerHeight - ringHeight);
+
+			x = randomRange(0, maxX);
+			y = randomRange(0, maxY);
+			vx = randomDirectionSpeed(90, 180);
+			vy = randomDirectionSpeed(70, 140);
+			angle = randomRange(0, 360);
+			spin = randomFloatSpin();
+		}
+
+		function keepInBounds() {
+			const maxX = Math.max(0, window.innerWidth - ringWidth);
+			const maxY = Math.max(0, window.innerHeight - ringHeight);
+
+			x = Math.min(Math.max(0, x), maxX);
+			y = Math.min(Math.max(0, y), maxY);
+		}
+
+		let lastTime = performance.now();
+
+		function animate(now) {
+			const dt = (now - lastTime) / 1000;
+			lastTime = now;
+
+			x += vx * dt;
+			y += vy * dt;
+			angle += spin * dt;
+
+			if (x <= 0) {
+				x = 0;
+				vx = varyBounceSpeed(Math.abs(vx), 90, 200);
+				spin = randomFloatSpin();
+			}
+
+			if (x + ringWidth >= window.innerWidth) {
+				x = window.innerWidth - ringWidth;
+				vx = -varyBounceSpeed(Math.abs(vx), 90, 200);
+				spin = randomFloatSpin();
+			}
+
+			if (y <= 0) {
+				y = 0;
+				vy = varyBounceSpeed(Math.abs(vy), 70, 160);
+				spin = randomFloatSpin();
+			}
+
+			if (y + ringHeight >= window.innerHeight) {
+				y = window.innerHeight - ringHeight;
+				vy = -varyBounceSpeed(Math.abs(vy), 70, 160);
+				spin = randomFloatSpin();
+			}
+
+			ring.style.transform = `translate(${x}px, ${y}px) rotate(${angle}deg)`;
+			requestAnimationFrame(animate);
+		}
+
+		window.addEventListener("resize", () => {
+			ringWidth = ring.offsetWidth || 142;
+			ringHeight = ring.offsetHeight || 142;
+			keepInBounds();
+		});
+
+		if (ring.complete) {
+			initialize();
+			requestAnimationFrame((now) => {
+				lastTime = now;
+				animate(now);
+			});
+		} else {
+			ring.addEventListener("load", () => {
+				initialize();
+				requestAnimationFrame((now) => {
+					lastTime = now;
+					animate(now);
+				});
+			}, { once: true });
+		}
+	</script>
+</body>
+
+</html>
