@@ -10,6 +10,12 @@ public sealed record CaptureSearchResult(
     string Content);
 
 /// <summary>
+/// A memory source used to produce an answer, surfaced as a clickable citation. <see cref="ImagePath"/>
+/// and <see cref="TextPath"/> point at the on-disk capture files (either may be null).
+/// </summary>
+public sealed record MemoryCitation(string Title, string? ImagePath, string? TextPath, DateTime? CapturedUtc);
+
+/// <summary>
 /// Floaty's local memory: turns a capture into a text embedding and stores it (with metadata) in the
 /// local LiteGraph vector+graph database under <c>~/.floaty/litegraph.db</c> for later semantic search.
 /// </summary>

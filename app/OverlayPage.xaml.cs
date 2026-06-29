@@ -705,7 +705,16 @@ public partial class OverlayPage : ContentPage
             try
             {
                 var results = await _memoryService.SearchCapturesAsync(argument);
-                Messages.Add(new ChatMessageVm(isUser: false, FormatMemoryResults(argument, results)));
+                var message = new ChatMessageVm(isUser: false, FormatMemoryResults(argument, results));
+
+                var cites = results
+                    .Where(r => !string.IsNullOrWhiteSpace(r.ImagePath) || !string.IsNullOrWhiteSpace(r.TextPath))
+                    .Select(r => ToCitationVm(new MemoryCitation(r.Title, r.ImagePath, r.TextPath, r.CapturedUtc)))
+                    .ToList();
+                if (cites.Count > 0)
+                    message.Citations = cites;
+
+                Messages.Add(message);
                 MessagesList.IsVisible = true;
                 ScrollToLatest();
             }
@@ -718,6 +727,40 @@ public partial class OverlayPage : ContentPage
         }
 
         return false;
+    }
+
+    // Maps a memory source to a citation with open-commands for whichever of its files exist.
+    private CitationVm ToCitationVm(MemoryCitation citation)
+    {
+        var openImage = string.IsNullOrWhiteSpace(citation.ImagePath)
+            ? null
+            : new Command(() => _ = OpenSourceAsync(citation.ImagePath!));
+        var openText = string.IsNullOrWhiteSpace(citation.TextPath)
+            ? null
+            : new Command(() => _ = OpenSourceAsync(citation.TextPath!));
+        return new CitationVm(citation.Title, openImage, openText);
+    }
+
+    // Opens a cited source file (screenshot or text) in the OS default application.
+    private async Task OpenSourceAsync(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                await ShowToastAsync("Source not found");
+                return;
+            }
+
+            await Launcher.Default.OpenAsync(new Microsoft.Maui.ApplicationModel.OpenFileRequest
+            {
+                File = new Microsoft.Maui.Storage.ReadOnlyFile(path),
+            });
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync($"⚠️ {ex.Message}");
+        }
     }
 
     private static string FormatMemoryResults(string query, IReadOnlyList<CaptureSearchResult> results)
@@ -925,13 +968,16 @@ public partial class OverlayPage : ContentPage
         ScrollToLatest();
         StartChatWaitingSpin();
 
+        // Sources the model retrieves this turn (filled by the search_captures tool), shown as citations.
+        var citations = new List<MemoryCitation>();
+
         try
         {
             var streamed = new StringBuilder();
             var repaint = Stopwatch.StartNew();
             var lastScrollMs = 0L;
 
-            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer))
+            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer, citations))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
                 if (string.IsNullOrEmpty(chunk))
@@ -967,6 +1013,9 @@ public partial class OverlayPage : ContentPage
             // Ensure the loader always stops (errors, empty streams, or very fast responses).
             StopChatWaitingSpin();
         }
+
+        if (citations.Count > 0)
+            pending.Citations = citations.Select(ToCitationVm).ToList();
 
         ScrollToLatest();
     }

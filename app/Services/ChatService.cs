@@ -13,11 +13,13 @@ public interface IChatService
     IAsyncEnumerable<string> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
+        ICollection<MemoryCitation>? citations = null,
         CancellationToken cancellationToken = default);
 
     Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
+        ICollection<MemoryCitation>? citations = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -35,6 +37,10 @@ public sealed class ChatService : IChatService
         "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
         "tool to retrieve it before answering, and ground your answer in what it returns. When the user " +
         "asks you to remember a durable fact, call the save_memory tool to persist it. Be concise.";
+
+    // Per-turn sink the search_captures tool writes its sources into; flows via the async call chain
+    // from GetStreamingResponseAsync into the function-invocation middleware.
+    private static readonly AsyncLocal<ICollection<MemoryCitation>?> _citationSink = new();
 
     private readonly SettingsService _settings;
     private readonly IMemoryService _memory;
@@ -61,6 +67,7 @@ public sealed class ChatService : IChatService
     public async IAsyncEnumerable<string> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
+        ICollection<MemoryCitation>? citations = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
@@ -70,6 +77,9 @@ public sealed class ChatService : IChatService
             yield return "Add your OpenAI API key in Settings (⚙) to start chatting.";
             yield break;
         }
+
+        // Expose the sink so the search_captures tool can record which sources it returned this turn.
+        _citationSink.Value = citations;
 
         var client = GetOrCreateClient(config);
 
@@ -100,10 +110,11 @@ public sealed class ChatService : IChatService
     public async Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
+        ICollection<MemoryCitation>? citations = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
-        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, cancellationToken)
+        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, citations, cancellationToken)
             .WithCancellation(cancellationToken))
         {
             sb.Append(chunk);
@@ -122,6 +133,8 @@ public sealed class ChatService : IChatService
         var results = await _memory.SearchCapturesAsync(query, topK);
         if (results.Count == 0)
             return "No matching captures found.";
+
+        RecordCitations(results);
 
         var sb = new StringBuilder();
         sb.AppendLine($"Found {results.Count} capture(s):");
@@ -149,6 +162,26 @@ public sealed class ChatService : IChatService
     {
         var saved = await _memory.RememberTextAsync(content);
         return saved ? "Saved to memory." : "Could not save to memory (no API key configured).";
+    }
+
+    // Records file-backed search hits into the current turn's citation sink (deduped by file path).
+    private static void RecordCitations(IReadOnlyList<CaptureSearchResult> results)
+    {
+        var sink = _citationSink.Value;
+        if (sink is null)
+            return;
+
+        foreach (var r in results)
+        {
+            if (string.IsNullOrWhiteSpace(r.ImagePath) && string.IsNullOrWhiteSpace(r.TextPath))
+                continue; // notes have no openable source
+
+            var key = r.ImagePath ?? r.TextPath;
+            if (sink.Any(c => (c.ImagePath ?? c.TextPath) == key))
+                continue;
+
+            sink.Add(new MemoryCitation(r.Title, r.ImagePath, r.TextPath, r.CapturedUtc));
+        }
     }
 
     private static string Snippet(string text, int max)

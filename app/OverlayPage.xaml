@@ -46,10 +46,55 @@
                                         Stroke="Transparent"
                                         Padding="10,7"
                                         StrokeShape="RoundRectangle 12">
-                                        <Label Text="{Binding Text}"
-                                            TextColor="White"
-                                            FontSize="13"
-                                            LineBreakMode="WordWrap" />
+                                        <VerticalStackLayout Spacing="6">
+                                            <Label Text="{Binding Text}"
+                                                TextColor="White"
+                                                FontSize="13"
+                                                LineBreakMode="WordWrap" />
+
+                                            <!-- Memory sources cited for this answer (RAG provenance). -->
+                                            <VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">
+                                                <Label Text="Sources"
+                                                    TextColor="#99FFFFFF"
+                                                    FontSize="10"
+                                                    FontAttributes="Bold" />
+                                                <VerticalStackLayout Spacing="3"
+                                                    BindableLayout.ItemsSource="{Binding Citations}">
+                                                    <BindableLayout.ItemTemplate>
+                                                        <DataTemplate x:DataType="local:CitationVm">
+                                                            <HorizontalStackLayout Spacing="4">
+                                                                <Label Text="{Binding Title}"
+                                                                    TextColor="#DDFFFFFF"
+                                                                    FontSize="11"
+                                                                    VerticalOptions="Center"
+                                                                    LineBreakMode="TailTruncation"
+                                                                    MaximumWidthRequest="150" />
+                                                                <Border IsVisible="{Binding HasImage}"
+                                                                    BackgroundColor="#55FFFFFF"
+                                                                    Stroke="Transparent"
+                                                                    Padding="6,1"
+                                                                    StrokeShape="RoundRectangle 7">
+                                                                    <Border.GestureRecognizers>
+                                                                        <TapGestureRecognizer Command="{Binding OpenImageCommand}" />
+                                                                    </Border.GestureRecognizers>
+                                                                    <Label Text="🖼 image" TextColor="White" FontSize="11" />
+                                                                </Border>
+                                                                <Border IsVisible="{Binding HasText}"
+                                                                    BackgroundColor="#55FFFFFF"
+                                                                    Stroke="Transparent"
+                                                                    Padding="6,1"
+                                                                    StrokeShape="RoundRectangle 7">
+                                                                    <Border.GestureRecognizers>
+                                                                        <TapGestureRecognizer Command="{Binding OpenTextCommand}" />
+                                                                    </Border.GestureRecognizers>
+                                                                    <Label Text="📄 text" TextColor="White" FontSize="11" />
+                                                                </Border>
+                                                            </HorizontalStackLayout>
+                                                        </DataTemplate>
+                                                    </BindableLayout.ItemTemplate>
+                                                </VerticalStackLayout>
+                                            </VerticalStackLayout>
+                                        </VerticalStackLayout>
                                     </Border>
                                 </Grid>
                             </DataTemplate>
