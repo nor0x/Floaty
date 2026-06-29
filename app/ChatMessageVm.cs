@@ -35,13 +35,18 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     private string _text;
     private IReadOnlyList<CitationVm> _citations = System.Array.Empty<CitationVm>();
 
-    public ChatMessageVm(bool isUser, string text)
+    public ChatMessageVm(bool isUser, string text, bool isSystemNote = false)
     {
         IsUser = isUser;
         _text = text;
+        IsSystemNote = isSystemNote;
     }
 
     public bool IsUser { get; }
+
+    /// <summary>True for Floaty's own non-conversational bubbles (save/recall/capture notices); these are
+    /// excluded when remembering the whole conversation.</summary>
+    public bool IsSystemNote { get; }
 
     public string Text
     {

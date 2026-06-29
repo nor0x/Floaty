@@ -669,19 +669,34 @@ public partial class OverlayPage : ContentPage
 
         if (string.Equals(token, "remember", StringComparison.OrdinalIgnoreCase))
         {
-            if (argument.Length == 0)
+            // With text: save it. Without text: save the whole conversation so far as one fact.
+            string toSave;
+            string confirmation;
+            if (argument.Length > 0)
             {
-                await ShowToastAsync("Nothing to remember");
-                return true;
+                toSave = argument;
+                confirmation = $"System: saved to memory — \"{Ellipsize(argument, 80)}\"";
+            }
+            else
+            {
+                toSave = BuildConversationTranscript();
+                if (string.IsNullOrWhiteSpace(toSave))
+                {
+                    await ShowToastAsync("Nothing to remember");
+                    return true;
+                }
+
+                var count = Messages.Count(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text));
+                confirmation = $"System: saved this conversation to memory ({count} message{(count == 1 ? "" : "s")}).";
             }
 
             try
             {
-                var saved = await _memoryService.RememberTextAsync(argument);
+                var saved = await _memoryService.RememberTextAsync(toSave);
                 Messages.Add(new ChatMessageVm(
                     isUser: false,
-                    saved ? $"System: saved to memory — \"{Ellipsize(argument, 80)}\""
-                          : "System: couldn't save (add your OpenAI API key in Settings)."));
+                    saved ? confirmation : "System: couldn't save (add your OpenAI API key in Settings).",
+                    isSystemNote: true));
                 MessagesList.IsVisible = true;
                 ScrollToLatest();
                 await ShowToastAsync(saved ? "Saved to memory" : "No API key");
@@ -705,7 +720,7 @@ public partial class OverlayPage : ContentPage
             try
             {
                 var results = await _memoryService.SearchCapturesAsync(argument);
-                var message = new ChatMessageVm(isUser: false, FormatMemoryResults(argument, results));
+                var message = new ChatMessageVm(isUser: false, FormatMemoryResults(argument, results), isSystemNote: true);
 
                 var cites = results
                     .Where(r => !string.IsNullOrWhiteSpace(r.ImagePath) || !string.IsNullOrWhiteSpace(r.TextPath))
@@ -728,6 +743,12 @@ public partial class OverlayPage : ContentPage
 
         return false;
     }
+
+    // Joins the real conversation (excluding Floaty's own notices) into a single transcript to remember.
+    private string BuildConversationTranscript() =>
+        string.Join("\n\n", Messages
+            .Where(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text))
+            .Select(m => $"{(m.IsUser ? "User" : "Floaty")}: {m.Text}"));
 
     // Maps a memory source to a citation with open-commands for whichever of its files exist.
     private CitationVm ToCitationVm(MemoryCitation citation)
@@ -831,7 +852,8 @@ public partial class OverlayPage : ContentPage
                     isUser: false,
                     stored
                         ? $"System: capture saved and embedded from {result.WindowTitle}."
-                        : $"System: capture saved from {result.WindowTitle} (not embedded; no API key)."));
+                        : $"System: capture saved from {result.WindowTitle} (not embedded; no API key).",
+                    isSystemNote: true));
                 MessagesList.IsVisible = true;
                 ScrollToLatest();
             }
