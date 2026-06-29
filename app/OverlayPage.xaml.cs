@@ -12,6 +12,7 @@ public partial class OverlayPage : ContentPage
     {
         Action, // built-in commands executed immediately (e.g. /new, /settings)
         Server, // an MCP server: selecting it fills the "/name " prefix to scope the next message
+        Memory, // memory commands taking free text (/remember, /recall): prefix-filled, handled on send
     }
 
     private sealed class SlashCommand
@@ -85,6 +86,8 @@ public partial class OverlayPage : ContentPage
     [
         new("new", "Clear the current conversation"),
         new("capture", "Capture and remember the current app"),
+        new("remember", "Save text to memory", SlashKind.Memory),
+        new("recall", "Search your memory", SlashKind.Memory),
         new("settings", "Open Floaty settings"),
         new("config", "Open Floaty config folder"),
     ];
@@ -598,8 +601,8 @@ public partial class OverlayPage : ContentPage
         if (command is null)
             return false;
 
-        // MCP server commands aren't actions: fill the "/name " prefix and let the user type the request.
-        if (command.Kind == SlashKind.Server)
+        // Server/memory commands take free text: fill the "/name " prefix and let the user type the rest.
+        if (command.Kind != SlashKind.Action)
             return TryAutocompleteSelectedCommand();
 
         await ExecuteSlashCommandAsync(command);
@@ -652,6 +655,98 @@ public partial class OverlayPage : ContentPage
 
         var remainder = spaceIndex < 0 ? string.Empty : text[(spaceIndex + 1)..].Trim();
         return (server.Name, remainder.Length == 0 ? "What can you do?" : remainder);
+    }
+
+    // Handles /remember and /recall directly (no LLM). Returns true when the text was a memory command.
+    private async Task<bool> TryHandleMemoryCommandAsync(string text)
+    {
+        if (!text.StartsWith('/'))
+            return false;
+
+        var spaceIndex = text.IndexOf(' ');
+        var token = (spaceIndex < 0 ? text[1..] : text[1..spaceIndex]).Trim();
+        var argument = spaceIndex < 0 ? string.Empty : text[(spaceIndex + 1)..].Trim();
+
+        if (string.Equals(token, "remember", StringComparison.OrdinalIgnoreCase))
+        {
+            if (argument.Length == 0)
+            {
+                await ShowToastAsync("Nothing to remember");
+                return true;
+            }
+
+            try
+            {
+                var saved = await _memoryService.RememberTextAsync(argument);
+                Messages.Add(new ChatMessageVm(
+                    isUser: false,
+                    saved ? $"System: saved to memory — \"{Ellipsize(argument, 80)}\""
+                          : "System: couldn't save (add your OpenAI API key in Settings)."));
+                MessagesList.IsVisible = true;
+                ScrollToLatest();
+                await ShowToastAsync(saved ? "Saved to memory" : "No API key");
+            }
+            catch (Exception ex)
+            {
+                await ShowToastAsync($"⚠️ {ex.Message}");
+            }
+
+            return true;
+        }
+
+        if (string.Equals(token, "recall", StringComparison.OrdinalIgnoreCase))
+        {
+            if (argument.Length == 0)
+            {
+                await ShowToastAsync("Type something to recall");
+                return true;
+            }
+
+            try
+            {
+                var results = await _memoryService.SearchCapturesAsync(argument);
+                Messages.Add(new ChatMessageVm(isUser: false, FormatMemoryResults(argument, results)));
+                MessagesList.IsVisible = true;
+                ScrollToLatest();
+            }
+            catch (Exception ex)
+            {
+                await ShowToastAsync($"⚠️ {ex.Message}");
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatMemoryResults(string query, IReadOnlyList<CaptureSearchResult> results)
+    {
+        if (results.Count == 0)
+            return $"No matching memories found for \"{query}\".";
+
+        var sb = new StringBuilder();
+        sb.Append("Memory results for \"").Append(query).Append("\":");
+
+        var index = 1;
+        foreach (var r in results)
+        {
+            var when = r.CapturedUtc is { } utc ? utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "unknown time";
+            sb.AppendLine();
+            sb.AppendLine();
+            sb.Append('[').Append(index).Append("] ").Append(r.Title).Append(" · ").Append(when);
+            sb.AppendLine();
+            sb.Append(Ellipsize(r.Content, 400));
+            index++;
+        }
+
+        return sb.ToString();
+    }
+
+    private static string Ellipsize(string text, int max)
+    {
+        text = text.Trim();
+        return text.Length <= max ? text : text[..max] + "…";
     }
 
     private async Task OpenConfigFolderAsync()
@@ -714,8 +809,8 @@ public partial class OverlayPage : ContentPage
 
         _slashSelectedIndex = _filteredSlashCommands.IndexOf(command);
 
-        // Tapping an MCP server fills its "/name " prefix; tapping an action runs it.
-        if (command.Kind == SlashKind.Server)
+        // Tapping a server/memory command fills its "/name " prefix; tapping an action runs it.
+        if (command.Kind != SlashKind.Action)
         {
             TryAutocompleteSelectedCommand();
             return;
@@ -804,6 +899,13 @@ public partial class OverlayPage : ContentPage
         var text = ChatEntry.Text?.Trim();
         if (string.IsNullOrEmpty(text))
             return;
+
+        // Direct memory commands (/remember, /recall) act on memory without calling the LLM.
+        if (await TryHandleMemoryCommandAsync(text))
+        {
+            ChatEntry.Text = string.Empty;
+            return;
+        }
 
         ChatEntry.Text = string.Empty;
 

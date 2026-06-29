@@ -68,8 +68,54 @@ public sealed class MemoryService : IMemoryService
         if (!string.IsNullOrWhiteSpace(description))
             AppendDescriptionToFile(capture.TextPath, description);
 
+        await StoreMemoryNodeAsync(
+            name: string.IsNullOrWhiteSpace(capture.WindowTitle) ? "Capture" : capture.WindowTitle,
+            labels: new List<string> { "Capture" },
+            data: new
+            {
+                capture.ImagePath,
+                capture.TextPath,
+                capture.WindowTitle,
+                SnapshotDescription = description,
+                CapturedUtc = DateTime.UtcNow,
+            },
+            content: text,
+            config: config,
+            cancellationToken: cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> RememberTextAsync(string text, CancellationToken cancellationToken = default)
+    {
+        var config = _settings.Current;
+        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(text))
+            return false;
+
+        text = text.Trim();
+        if (text.Length > MaxEmbedChars)
+            text = text[..MaxEmbedChars];
+
+        await StoreMemoryNodeAsync(
+            name: ShortTitle(text),
+            labels: new List<string> { "Note" },
+            data: new { Source = "note", CapturedUtc = DateTime.UtcNow },
+            content: text,
+            config: config,
+            cancellationToken: cancellationToken);
+        return true;
+    }
+
+    // Embeds <paramref name="content"/> and stores it as a single graph node with the given metadata.
+    private async Task StoreMemoryNodeAsync(
+        string name,
+        List<string> labels,
+        object data,
+        string content,
+        FloatyConfig config,
+        CancellationToken cancellationToken)
+    {
         var generator = GetOrCreateEmbeddings(config);
-        var embeddings = await generator.GenerateAsync([text], cancellationToken: cancellationToken);
+        var embeddings = await generator.GenerateAsync([content], cancellationToken: cancellationToken);
         var vector = embeddings[0].Vector.ToArray().ToList();
 
         var client = await GetClientAsync(cancellationToken);
@@ -78,16 +124,9 @@ public sealed class MemoryService : IMemoryService
         {
             TenantGUID = TenantGuid,
             GraphGUID = GraphGuid,
-            Name = string.IsNullOrWhiteSpace(capture.WindowTitle) ? "Capture" : capture.WindowTitle,
-            Labels = new List<string> { "Capture" },
-            Data = new
-            {
-                capture.ImagePath,
-                capture.TextPath,
-                capture.WindowTitle,
-                SnapshotDescription = description,
-                CapturedUtc = DateTime.UtcNow,
-            },
+            Name = name,
+            Labels = labels,
+            Data = data,
             Vectors = new List<VectorMetadata>
             {
                 new()
@@ -96,14 +135,19 @@ public sealed class MemoryService : IMemoryService
                     GraphGUID = GraphGuid,
                     Model = config.EmbeddingModel,
                     Dimensionality = vector.Count,
-                    Content = text,
+                    Content = content,
                     Vectors = vector,
                 },
             },
         };
 
         await client.Node.Create(node, cancellationToken);
-        return true;
+    }
+
+    private static string ShortTitle(string text)
+    {
+        var firstLine = text.ReplaceLineEndings(" ").Trim();
+        return firstLine.Length <= 60 ? firstLine : firstLine[..60] + "…";
     }
 
     // Describes the screenshot using the configured vision (snapshot) model. Returns null when

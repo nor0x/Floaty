@@ -33,12 +33,14 @@ public sealed class ChatService : IChatService
         "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
         "what's on their screen; each capture's on-screen text is stored in local memory. When the user " +
         "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
-        "tool to retrieve it before answering, and ground your answer in what it returns. Be concise.";
+        "tool to retrieve it before answering, and ground your answer in what it returns. When the user " +
+        "asks you to remember a durable fact, call the save_memory tool to persist it. Be concise.";
 
     private readonly SettingsService _settings;
     private readonly IMemoryService _memory;
     private readonly IMcpService _mcp;
     private readonly AIFunction _searchTool;
+    private readonly AIFunction _saveTool;
 
     private IChatClient? _client;
     private string? _clientKey;
@@ -53,6 +55,7 @@ public sealed class ChatService : IChatService
         _settings.Changed += (_, _) => _client = null;
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
+        _saveTool = AIFunctionFactory.Create(SaveMemory, name: "save_memory");
     }
 
     public async IAsyncEnumerable<string> GetStreamingResponseAsync(
@@ -72,8 +75,8 @@ public sealed class ChatService : IChatService
 
         var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
 
-        // Always expose capture search; add the scoped MCP server's tools when invoked via /server.
-        var tools = new List<AITool> { _searchTool };
+        // Always expose memory search + save; add the scoped MCP server's tools when invoked via /server.
+        var tools = new List<AITool> { _searchTool, _saveTool };
         if (!string.IsNullOrWhiteSpace(mcpServer))
         {
             var mcpTools = await _mcp.GetToolsAsync(mcpServer, cancellationToken);
@@ -137,6 +140,15 @@ public sealed class ChatService : IChatService
         }
 
         return sb.ToString();
+    }
+
+    [Description("Save a durable fact or note to the user's local memory so it can be recalled later. " +
+                 "Use when the user asks you to remember something.")]
+    private async Task<string> SaveMemory(
+        [Description("The text to store in memory.")] string content)
+    {
+        var saved = await _memory.RememberTextAsync(content);
+        return saved ? "Saved to memory." : "Could not save to memory (no API key configured).";
     }
 
     private static string Snippet(string text, int max)

@@ -30,4 +30,10 @@ public interface IMemoryService
         string query,
         int topK = 5,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Embeds and stores an arbitrary piece of user text as a "Note" memory. Returns <c>false</c> when
+    /// there's no API key or the text is blank; throws on hard failures so the caller can surface them.
+    /// </summary>
+    Task<bool> RememberTextAsync(string text, CancellationToken cancellationToken = default);
 }
