@@ -16,7 +16,7 @@
 
 		body {
 			position: relative;
-			background: url("bg.avif") center center / 112% 112% no-repeat;
+			background: url("bg.avif") center center / cover no-repeat;
 			animation: waterPan 10s ease-in-out infinite alternate;
 		}
 
@@ -67,17 +67,14 @@
 		@keyframes waterPan {
 			0% {
 				background-position: 47% 52%;
-				background-size: 112% 112%;
 			}
 
 			50% {
 				background-position: 54% 47%;
-				background-size: 116% 116%;
 			}
 
 			100% {
 				background-position: 58% 44%;
-				background-size: 113% 113%;
 			}
 		}
 
