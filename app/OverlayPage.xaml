@@ -249,7 +249,7 @@
                             <MenuFlyoutItem.IconImageSource>
                                 <FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.LayoutBottombar}"
-                                    Color="White" />
+                                    Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
                             </MenuFlyoutItem.IconImageSource>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
@@ -258,7 +258,7 @@
                             <MenuFlyoutItem.IconImageSource>
                                 <FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.Settings}"
-                                    Color="White" />
+                                    Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
                             </MenuFlyoutItem.IconImageSource>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
@@ -267,7 +267,7 @@
                             <MenuFlyoutItem.IconImageSource>
                                 <FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.CircleX}"
-                                    Color="White" />
+                                    Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
                             </MenuFlyoutItem.IconImageSource>
                         </MenuFlyoutItem>
                     </MenuFlyout>
