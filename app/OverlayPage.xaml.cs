@@ -13,6 +13,7 @@ public partial class OverlayPage : ContentPage
         Action, // built-in commands executed immediately (e.g. /new, /settings)
         Server, // an MCP server: selecting it fills the "/name " prefix to scope the next message
         Memory, // memory commands taking free text (/remember, /recall): prefix-filled, handled on send
+        Skill,  // an agent skill (SKILL.md): scopes the next message to that skill's instructions
     }
 
     private sealed class SlashCommand
@@ -38,6 +39,7 @@ public partial class OverlayPage : ContentPage
     private readonly IScreenCaptureService _captureService;
     private readonly IMemoryService _memoryService;
     private readonly ConversationService _conversationStore;
+    private readonly SkillService _skillService;
     private readonly IServiceProvider _services;
 
     // The conversation currently shown in Messages; created lazily on first chat open (resume most recent).
@@ -137,6 +139,7 @@ public partial class OverlayPage : ContentPage
         IScreenCaptureService captureService,
         IMemoryService memoryService,
         ConversationService conversationStore,
+        SkillService skillService,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -146,6 +149,7 @@ public partial class OverlayPage : ContentPage
         _captureService = captureService;
         _memoryService = memoryService;
         _conversationStore = conversationStore;
+        _skillService = skillService;
         _services = services;
         MessagesList.ItemsSource = Messages;
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
@@ -169,17 +173,30 @@ public partial class OverlayPage : ContentPage
             RebuildSlashCommands();
         });
 
-    // Rebuild the slash-command list: built-in actions plus a /name command per enabled MCP server.
+    // Rebuild the slash-command list: built-in actions, then a /name per enabled MCP server, then per
+    // enabled agent skill. Names already taken by an earlier command are skipped.
     private void RebuildSlashCommands()
     {
         _allSlashCommands.Clear();
         _allSlashCommands.AddRange(_builtInSlashCommands);
 
+        bool NameTaken(string name) =>
+            _allSlashCommands.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+
         foreach (var server in _settings.Current.McpServers)
         {
-            if (!server.Enabled || string.IsNullOrWhiteSpace(server.Name))
+            if (!server.Enabled || string.IsNullOrWhiteSpace(server.Name) || NameTaken(server.Name))
                 continue;
             _allSlashCommands.Add(new SlashCommand(server.Name, "MCP server", SlashKind.Server, IconFont.TablerLine.Database));
+        }
+
+        _skillService.Reload();
+        foreach (var skill in _skillService.Skills)
+        {
+            if (!skill.Enabled || string.IsNullOrWhiteSpace(skill.Name) || NameTaken(skill.Name))
+                continue;
+            var description = string.IsNullOrWhiteSpace(skill.Description) ? "Agent skill" : skill.Description;
+            _allSlashCommands.Add(new SlashCommand(skill.Name, description, SlashKind.Skill, IconFont.TablerLine.Bolt));
         }
     }
 
@@ -679,6 +696,29 @@ public partial class OverlayPage : ContentPage
         return (server.Name, remainder.Length == 0 ? "What can you do?" : remainder);
     }
 
+    // If the text begins with "/skill" matching an enabled agent skill, returns that skill and the
+    // remaining prompt; otherwise returns (null, original text).
+    private (FloatySkill? Skill, string Prompt) TryParseSkillScope(string text)
+    {
+        if (!text.StartsWith('/'))
+            return (null, text);
+
+        var spaceIndex = text.IndexOf(' ');
+        var token = (spaceIndex < 0 ? text[1..] : text[1..spaceIndex]).Trim();
+
+        var command = _allSlashCommands.FirstOrDefault(c =>
+            c.Kind == SlashKind.Skill && string.Equals(c.Name, token, StringComparison.OrdinalIgnoreCase));
+        if (command is null)
+            return (null, text);
+
+        var skill = _skillService.GetEnabled(command.Name);
+        if (skill is null)
+            return (null, text);
+
+        var remainder = spaceIndex < 0 ? string.Empty : text[(spaceIndex + 1)..].Trim();
+        return (skill, remainder.Length == 0 ? "What can you do with this skill?" : remainder);
+    }
+
     // Handles /remember and /recall directly (no LLM). Returns true when the text was a memory command.
     private async Task<bool> TryHandleMemoryCommandAsync(string text)
     {
@@ -1176,8 +1216,19 @@ public partial class OverlayPage : ContentPage
         if (_listMode)
             ExitListMode();
 
-        // A leading "/server" routes this turn to that MCP server's tools; the rest is the prompt.
+        // A leading "/server" routes this turn to that MCP server's tools; "/skill" injects a skill's
+        // instructions. The rest of the text is the prompt.
         var (mcpServer, prompt) = TryParseMcpScope(text);
+        string? skillInstructions = null;
+        if (mcpServer is null)
+        {
+            var (skill, skillPrompt) = TryParseSkillScope(text);
+            if (skill is not null)
+            {
+                skillInstructions = skill.Instructions;
+                prompt = skillPrompt;
+            }
+        }
 
         // Build the conversation to send before adding the pending placeholder.
         var history = Messages
@@ -1201,7 +1252,7 @@ public partial class OverlayPage : ContentPage
             var repaint = Stopwatch.StartNew();
             var lastScrollMs = 0L;
 
-            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer, citations))
+            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
                 if (string.IsNullOrEmpty(chunk))

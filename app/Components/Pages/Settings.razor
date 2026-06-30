@@ -1,4 +1,5 @@
 @inject SettingsService ConfigService
+@inject SkillService SkillService
 
 <div class="settings">
     <header class="settings-header">
@@ -27,6 +28,11 @@
                     @onclick="() => SelectSection(SettingsSection.Mcp)">
                 <i class="ti ti-server-2" aria-hidden="true"></i>
                 <span>MCP Servers</span>
+            </button>
+            <button class="tab @TabClass(SettingsSection.Skills)"
+                    @onclick="() => SelectSection(SettingsSection.Skills)">
+                <i class="ti ti-bolt" aria-hidden="true"></i>
+                <span>Skills</span>
             </button>
         </aside>
 
@@ -184,6 +190,48 @@
                     </button>
                 </div>
             }
+            else if (_activeSection == SettingsSection.Skills)
+            {
+                <div class="card-head">
+                    <h2>Skills</h2>
+                    <p>Agent skills (SKILL.md) from <code>~/.floaty/skills</code>, <code>~/.claude/skills</code> and
+                       <code>~/.agents/skills</code>. Each enabled skill is callable in chat via <code>/name</code>.</p>
+                </div>
+
+                <div class="actions sub-actions">
+                    <button class="reload" @onclick="ReloadSkills">
+                        <i class="ti ti-refresh" aria-hidden="true"></i>
+                        <span>Reload</span>
+                    </button>
+                    <button class="reload" @onclick="OpenSkillsFolder">
+                        <i class="ti ti-folder" aria-hidden="true"></i>
+                        <span>Open folder</span>
+                    </button>
+                    <span class="hint">Found @_skills.Count skill(s).</span>
+                </div>
+
+                @if (_skills.Count == 0)
+                {
+                    <p class="hint">No skills found. Drop a folder containing a <code>SKILL.md</code> into
+                        <code>~/.floaty/skills</code> and click Reload.</p>
+                }
+                else
+                {
+                    <div class="mcp-list">
+                        @foreach (var skill in _skills)
+                        {
+                            <div class="mcp-row">
+                                <input type="checkbox" checked="@IsSkillEnabled(skill.Name)"
+                                       @onchange="e => SetSkillEnabled(skill.Name, (bool)(e.Value ?? false))" title="Enabled" />
+                                <div class="mcp-info">
+                                    <span class="mcp-name"><i class="ti ti-bolt" aria-hidden="true"></i> /@skill.Name</span>
+                                    <span class="mcp-meta">@(string.IsNullOrWhiteSpace(skill.Description) ? skill.SourcePath : skill.Description)</span>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            }
             else
                 {
                     <div class="card-head">
@@ -258,6 +306,7 @@
         Appearance,
         ModelProvider,
         Mcp,
+        Skills,
     }
 
     private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
@@ -276,6 +325,9 @@
     private string _newServerHeaders = string.Empty;
     private string? _mcpError;
 
+    // Discovered agent skills (metadata); enable state is tracked via _config.DisabledSkills.
+    private List<FloatySkill> _skills = new();
+
     protected override async Task OnInitializedAsync()
     {
         // Work on a copy so edits aren't committed until the user clicks Save.
@@ -289,9 +341,11 @@
             SnapshotModel = current.SnapshotModel,
             RingImageFileName = current.RingImageFileName,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
+            DisabledSkills = new List<string>(current.DisabledSkills),
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
+        _skills = SkillService.Skills.ToList();
         await ReloadRingImages();
     }
 
@@ -300,6 +354,37 @@
         ConfigService.Save(_config);
         ConfigService.SaveSystemPrompt(_systemPrompt);
         _saved = true;
+    }
+
+    private bool IsSkillEnabled(string name) =>
+        !_config.DisabledSkills.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+    private void SetSkillEnabled(string name, bool enabled)
+    {
+        _config.DisabledSkills.RemoveAll(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+        if (!enabled)
+            _config.DisabledSkills.Add(name);
+        _saved = false;
+    }
+
+    private void ReloadSkills()
+    {
+        SkillService.Reload();
+        _skills = SkillService.Skills.ToList();
+        _saved = false;
+    }
+
+    private async Task OpenSkillsFolder()
+    {
+        try
+        {
+            var uri = new UriBuilder(Uri.UriSchemeFile, string.Empty) { Path = FloatyPaths.Skills }.Uri;
+            await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(uri);
+        }
+        catch
+        {
+            // Opening the folder is best-effort.
+        }
     }
 
     private void AddServer()

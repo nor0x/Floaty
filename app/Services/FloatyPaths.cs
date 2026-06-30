@@ -23,6 +23,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/conversations</c> — one JSON file per saved chat thread.</summary>
     public static string Conversations => EnsureDir(Path.Combine(Home, "conversations"));
 
+    /// <summary><c>~/.floaty/skills</c> — user-placed agent skills (each a folder with a SKILL.md).</summary>
+    public static string Skills => EnsureDir(Path.Combine(Home, "skills"));
+
     private static string EnsureDir(string path)
     {
         Directory.CreateDirectory(path);

@@ -31,6 +31,9 @@ public sealed class FloatyConfig
 
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
+
+    /// <summary>Names of discovered agent skills the user has turned off (excluded from slash commands).</summary>
+    public List<string> DisabledSkills { get; set; } = new();
 }
 
 /// <summary>

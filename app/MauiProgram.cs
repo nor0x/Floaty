@@ -32,6 +32,9 @@ public static class MauiProgram
 		// Persisted chat threads (~/.floaty/conversations), switchable via the /chats slash command.
 		builder.Services.AddSingleton<ConversationService>();
 
+		// Agent skills (SKILL.md) discovered from disk, invokable via /skill slash commands.
+		builder.Services.AddSingleton<SkillService>();
+
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
 		builder.Services.AddTransient<SettingsPage>();

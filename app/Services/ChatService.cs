@@ -14,12 +14,14 @@ public interface IChatService
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
+        string? skillInstructions = null,
         CancellationToken cancellationToken = default);
 
     Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
+        string? skillInstructions = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -68,6 +70,7 @@ public sealed class ChatService : IChatService
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
+        string? skillInstructions = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
@@ -84,6 +87,11 @@ public sealed class ChatService : IChatService
         var client = GetOrCreateClient(config);
 
         var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
+
+        // When invoked via /skill, inject that skill's instructions as additional system guidance.
+        if (!string.IsNullOrWhiteSpace(skillInstructions))
+            messages.Add(new ChatMessage(ChatRole.System,
+                $"You are using a Floaty skill. Follow its instructions:\n\n{skillInstructions}"));
 
         // Always expose memory search + save; add the scoped MCP server's tools when invoked via /server.
         var tools = new List<AITool> { _searchTool, _saveTool };
@@ -111,10 +119,11 @@ public sealed class ChatService : IChatService
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
+        string? skillInstructions = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
-        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, citations, cancellationToken)
+        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions, cancellationToken)
             .WithCancellation(cancellationToken))
         {
             sb.Append(chunk);
