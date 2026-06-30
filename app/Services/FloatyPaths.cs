@@ -20,6 +20,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/ring</c> — user-provided ring images available in Appearance settings.</summary>
     public static string RingImages => EnsureDir(Path.Combine(Home, "ring"));
 
+    /// <summary><c>~/.floaty/conversations</c> — one JSON file per saved chat thread.</summary>
+    public static string Conversations => EnsureDir(Path.Combine(Home, "conversations"));
+
     private static string EnsureDir(string path)
     {
         Directory.CreateDirectory(path);

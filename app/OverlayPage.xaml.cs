@@ -37,7 +37,16 @@ public partial class OverlayPage : ContentPage
     private readonly IChatService _chatService;
     private readonly IScreenCaptureService _captureService;
     private readonly IMemoryService _memoryService;
+    private readonly ConversationService _conversationStore;
     private readonly IServiceProvider _services;
+
+    // The conversation currently shown in Messages; created lazily on first chat open (resume most recent).
+    private Conversation? _currentConversation;
+    private bool _conversationLoaded;
+
+    // Conversation switcher (shown inside MessagesList under /chats).
+    private bool _listMode;
+    private readonly ObservableCollection<ConversationItemVm> _conversationItems = new();
 
     // Compact (chat closed) vs expanded (chat open) overlay window sizes, in device-independent units.
     private const double CompactWidth = 200;
@@ -86,7 +95,8 @@ public partial class OverlayPage : ContentPage
 
     private readonly IReadOnlyList<SlashCommand> _builtInSlashCommands =
     [
-        new("new", "Clear the current conversation", icon: IconFont.TablerLine.Sparkles),
+        new("new", "Start a new conversation", icon: IconFont.TablerLine.Sparkles),
+        new("chats", "Switch between conversations", icon: IconFont.TablerLine.Messages),
         new("capture", "Capture and remember the current app", icon: IconFont.TablerLine.Camera),
         new("remember", "Save text to memory", SlashKind.Memory, IconFont.TablerLine.Bulb),
         new("recall", "Search your memory", SlashKind.Memory, IconFont.TablerLine.Search),
@@ -126,6 +136,7 @@ public partial class OverlayPage : ContentPage
         IChatService chatService,
         IScreenCaptureService captureService,
         IMemoryService memoryService,
+        ConversationService conversationStore,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -134,6 +145,7 @@ public partial class OverlayPage : ContentPage
         _chatService = chatService;
         _captureService = captureService;
         _memoryService = memoryService;
+        _conversationStore = conversationStore;
         _services = services;
         MessagesList.ItemsSource = Messages;
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
@@ -379,6 +391,8 @@ public partial class OverlayPage : ContentPage
         if (_chatOpen)
             return;
 
+        EnsureConversationLoaded();
+
         _chatOpen = true;
         MessagesList.IsVisible = Messages.Count > 0;
         _lastChatWindowHeight = 0;
@@ -405,6 +419,9 @@ public partial class OverlayPage : ContentPage
             return;
 
         HideSlashSuggestions();
+        if (_listMode)
+            ExitListMode();
+        PersistCurrentConversation();
         _chatOpen = false;
         _chatAnimating = true;
         ChatEntry.Unfocus();
@@ -617,8 +634,11 @@ public partial class OverlayPage : ContentPage
         {
             case "new":
                 StopChatWaitingSpin();
-                Messages.Clear();
-                MessagesList.IsVisible = false;
+                NewConversation();
+                break;
+
+            case "chats":
+                ShowConversationList();
                 break;
 
             case "capture":
@@ -701,6 +721,7 @@ public partial class OverlayPage : ContentPage
                     isSystemNote: true));
                 MessagesList.IsVisible = true;
                 ScrollToLatest();
+                PersistCurrentConversation();
                 await ShowToastAsync(saved ? "Saved to memory" : "No API key");
             }
             catch (Exception ex)
@@ -724,16 +745,20 @@ public partial class OverlayPage : ContentPage
                 var results = await _memoryService.SearchCapturesAsync(argument);
                 var message = new ChatMessageVm(isUser: false, FormatMemoryResults(argument, results), isSystemNote: true);
 
-                var cites = results
+                var sources = results
                     .Where(r => !string.IsNullOrWhiteSpace(r.ImagePath) || !string.IsNullOrWhiteSpace(r.TextPath))
-                    .Select(r => ToCitationVm(new MemoryCitation(r.Title, r.ImagePath, r.TextPath, r.CapturedUtc)))
+                    .Select(r => new MemoryCitation(r.Title, r.ImagePath, r.TextPath, r.CapturedUtc))
                     .ToList();
-                if (cites.Count > 0)
-                    message.Citations = cites;
+                if (sources.Count > 0)
+                {
+                    message.Citations = sources.Select(ToCitationVm).ToList();
+                    message.CitationSources = sources;
+                }
 
                 Messages.Add(message);
                 MessagesList.IsVisible = true;
                 ScrollToLatest();
+                PersistCurrentConversation();
             }
             catch (Exception ex)
             {
@@ -751,6 +776,176 @@ public partial class OverlayPage : ContentPage
         string.Join("\n\n", Messages
             .Where(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text))
             .Select(m => $"{(m.IsUser ? "User" : "Floaty")}: {m.Text}"));
+
+    // --- Conversations (persisted threads, switchable via /chats) ---
+
+    // On first chat open, resume the most recently updated conversation (or begin a fresh one).
+    private void EnsureConversationLoaded()
+    {
+        if (_conversationLoaded)
+            return;
+        _conversationLoaded = true;
+
+        var recent = _conversationStore.LoadAll().FirstOrDefault();
+        if (recent is not null)
+        {
+            _currentConversation = recent;
+            LoadMessagesFrom(recent);
+        }
+        else
+        {
+            _currentConversation = new Conversation();
+        }
+    }
+
+    // Saves the current thread to disk. Skips empty threads (no real user/assistant messages).
+    private void PersistCurrentConversation()
+    {
+        if (_currentConversation is null)
+            return;
+
+        var stored = Messages.Select(m => new StoredMessage
+        {
+            IsUser = m.IsUser,
+            Text = m.Text,
+            IsSystemNote = m.IsSystemNote,
+            Citations = m.CitationSources.Count > 0 ? m.CitationSources.ToList() : null,
+        }).ToList();
+
+        if (!stored.Any(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text)))
+            return;
+
+        if (string.IsNullOrWhiteSpace(_currentConversation.Title))
+        {
+            var firstUser = Messages.FirstOrDefault(m => m.IsUser && !string.IsNullOrWhiteSpace(m.Text));
+            _currentConversation.Title = firstUser is not null ? Ellipsize(firstUser.Text, 40) : "Conversation";
+        }
+
+        _currentConversation.Messages = stored;
+        _currentConversation.UpdatedUtc = DateTime.UtcNow;
+        try
+        {
+            _conversationStore.Save(_currentConversation);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Conversations] save failed: {ex.Message}");
+        }
+    }
+
+    private void LoadMessagesFrom(Conversation conversation)
+    {
+        Messages.Clear();
+        foreach (var stored in conversation.Messages)
+        {
+            var vm = new ChatMessageVm(stored.IsUser, stored.Text, stored.IsSystemNote);
+            if (stored.Citations is { Count: > 0 } sources)
+            {
+                vm.Citations = sources.Select(ToCitationVm).ToList();
+                vm.CitationSources = sources;
+            }
+            Messages.Add(vm);
+        }
+    }
+
+    // Persist the current thread, then start a fresh empty one.
+    private void NewConversation()
+    {
+        StopChatWaitingSpin();
+        PersistCurrentConversation();
+        _currentConversation = new Conversation();
+        Messages.Clear();
+        ExitListMode();
+        MessagesList.IsVisible = false;
+    }
+
+    // Show the conversation switcher inside the message list.
+    private void ShowConversationList()
+    {
+        EnsureConversationLoaded();
+        PersistCurrentConversation();
+        BuildConversationItems();
+        _listMode = true;
+        MessagesList.ItemsSource = _conversationItems;
+        MessagesList.IsVisible = true;
+        if (_conversationItems.Count > 0)
+            MessagesList.ScrollTo(_conversationItems[0], position: ScrollToPosition.Start, animate: false);
+    }
+
+    private void BuildConversationItems()
+    {
+        _conversationItems.Clear();
+        _conversationItems.Add(new ConversationItemVm(
+            title: "New conversation",
+            subtitle: "Start a fresh thread",
+            isCurrent: false,
+            isNewAction: true,
+            openCommand: new Command(NewConversation),
+            deleteCommand: null));
+
+        foreach (var c in _conversationStore.LoadAll())
+        {
+            var id = c.Id;
+            var count = c.Messages.Count(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text));
+            var isCurrent = id == _currentConversation?.Id;
+            var subtitle = $"{count} message{(count == 1 ? "" : "s")} · {RelativeTime(c.UpdatedUtc)}{(isCurrent ? " · current" : "")}";
+
+            _conversationItems.Add(new ConversationItemVm(
+                title: string.IsNullOrWhiteSpace(c.Title) ? "Conversation" : c.Title,
+                subtitle: subtitle,
+                isCurrent: isCurrent,
+                isNewAction: false,
+                openCommand: new Command(() => OpenConversation(id)),
+                deleteCommand: new Command(() => DeleteConversation(id))));
+        }
+    }
+
+    private void OpenConversation(string id)
+    {
+        if (id == _currentConversation?.Id)
+        {
+            ExitListMode();
+            return;
+        }
+
+        PersistCurrentConversation();
+        var conversation = _conversationStore.Load(id);
+        if (conversation is null)
+            return;
+
+        _currentConversation = conversation;
+        LoadMessagesFrom(conversation);
+        ExitListMode();
+    }
+
+    private void DeleteConversation(string id)
+    {
+        _conversationStore.Delete(id);
+        if (id == _currentConversation?.Id)
+        {
+            _currentConversation = new Conversation();
+            Messages.Clear();
+        }
+
+        BuildConversationItems(); // refresh the visible list
+    }
+
+    private void ExitListMode()
+    {
+        _listMode = false;
+        MessagesList.ItemsSource = Messages;
+        MessagesList.IsVisible = Messages.Count > 0;
+    }
+
+    private static string RelativeTime(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        return utc.ToLocalTime().ToString("yyyy-MM-dd");
+    }
 
     // Maps a memory source to a citation with open-commands for whichever of its files exist.
     private CitationVm ToCitationVm(MemoryCitation citation)
@@ -858,6 +1053,7 @@ public partial class OverlayPage : ContentPage
                     isSystemNote: true));
                 MessagesList.IsVisible = true;
                 ScrollToLatest();
+                PersistCurrentConversation();
             }
         }
         catch (Exception ex)
@@ -976,6 +1172,10 @@ public partial class OverlayPage : ContentPage
 
         ChatEntry.Text = string.Empty;
 
+        // Sending while the conversation switcher is shown returns to the active thread.
+        if (_listMode)
+            ExitListMode();
+
         // A leading "/server" routes this turn to that MCP server's tools; the rest is the prompt.
         var (mcpServer, prompt) = TryParseMcpScope(text);
 
@@ -1039,9 +1239,13 @@ public partial class OverlayPage : ContentPage
         }
 
         if (citations.Count > 0)
+        {
             pending.Citations = citations.Select(ToCitationVm).ToList();
+            pending.CitationSources = citations.ToList();
+        }
 
         ScrollToLatest();
+        PersistCurrentConversation();
     }
 
     private void ScrollToLatest()

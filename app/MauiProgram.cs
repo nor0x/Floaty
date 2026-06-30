@@ -29,6 +29,9 @@ public static class MauiProgram
 		// MCP servers: connected on demand, tools exposed to chat via /server slash commands.
 		builder.Services.AddSingleton<IMcpService, McpService>();
 
+		// Persisted chat threads (~/.floaty/conversations), switchable via the /chats slash command.
+		builder.Services.AddSingleton<ConversationService>();
+
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
 		builder.Services.AddTransient<SettingsPage>();

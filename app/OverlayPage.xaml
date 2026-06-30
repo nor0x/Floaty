@@ -37,86 +37,8 @@
                         Grid.Row="0"
                         VerticalScrollBarVisibility="Never"
                         IsVisible="False"
-                        MaximumHeightRequest="240">
-                        <CollectionView.ItemTemplate>
-                            <DataTemplate x:DataType="local:ChatMessageVm">
-                                <Grid Padding="0,3">
-                                    <Border HorizontalOptions="{Binding Alignment}"
-                                        MaximumWidthRequest="420"
-                                        BackgroundColor="{Binding BubbleColor}"
-                                        Stroke="Transparent"
-                                        Padding="10,7"
-                                        StrokeShape="RoundRectangle 12">
-                                        <VerticalStackLayout Spacing="6">
-                                            <Label Text="{Binding Text}"
-                                                TextColor="White"
-                                                FontSize="13"
-                                                LineBreakMode="WordWrap" />
-
-                                            <!-- Memory sources cited for this answer (RAG provenance). -->
-                                            <VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">
-                                                <Label Text="Sources"
-                                                    TextColor="#99FFFFFF"
-                                                    FontSize="10"
-                                                    FontAttributes="Bold" />
-                                                <VerticalStackLayout Spacing="3"
-                                                    BindableLayout.ItemsSource="{Binding Citations}">
-                                                    <BindableLayout.ItemTemplate>
-                                                        <DataTemplate x:DataType="local:CitationVm">
-                                                            <HorizontalStackLayout Spacing="4">
-                                                                <Label Text="{Binding Title}"
-                                                                    TextColor="#DDFFFFFF"
-                                                                    FontSize="11"
-                                                                    VerticalOptions="Center"
-                                                                    LineBreakMode="TailTruncation"
-                                                                    MaximumWidthRequest="150" />
-                                                                <Border IsVisible="{Binding HasImage}"
-                                                                    BackgroundColor="#55FFFFFF"
-                                                                    Stroke="Transparent"
-                                                                    Padding="6,1"
-                                                                    StrokeShape="RoundRectangle 7">
-                                                                    <Border.GestureRecognizers>
-                                                                        <TapGestureRecognizer Command="{Binding OpenImageCommand}" />
-                                                                    </Border.GestureRecognizers>
-                                                                    <Label TextColor="White" FontSize="11">
-                                                                        <Label.FormattedText>
-                                                                            <FormattedString>
-                                                                                <Span Text="{x:Static icons:TablerLine.Photo}"
-                                                                                    FontFamily="TablerIconsLine" />
-                                                                                <Span Text=" image" />
-                                                                            </FormattedString>
-                                                                        </Label.FormattedText>
-                                                                    </Label>
-                                                                </Border>
-                                                                <Border IsVisible="{Binding HasText}"
-                                                                    BackgroundColor="#55FFFFFF"
-                                                                    Stroke="Transparent"
-                                                                    Padding="6,1"
-                                                                    StrokeShape="RoundRectangle 7">
-                                                                    <Border.GestureRecognizers>
-                                                                        <TapGestureRecognizer Command="{Binding OpenTextCommand}" />
-                                                                    </Border.GestureRecognizers>
-                                                                    <Label TextColor="White" FontSize="11">
-                                                                        <Label.FormattedText>
-                                                                            <FormattedString>
-                                                                                <Span Text="{x:Static icons:TablerLine.FileText}"
-                                                                                    FontFamily="TablerIconsLine" />
-                                                                                <Span Text=" text" />
-                                                                            </FormattedString>
-                                                                        </Label.FormattedText>
-                                                                    </Label>
-                                                                </Border>
-                                                            </HorizontalStackLayout>
-                                                        </DataTemplate>
-                                                    </BindableLayout.ItemTemplate>
-                                                </VerticalStackLayout>
-                                            </VerticalStackLayout>
-                                        </VerticalStackLayout>
-                                    </Border>
-                                </Grid>
-                            </DataTemplate>
-                        </CollectionView.ItemTemplate>
-                    </CollectionView>
+                        MaximumHeightRequest="240"
+                        ItemTemplate="{StaticResource ChatListSelector}" />
                     <Border x:Name="SlashSuggestionsPanel"
                         Grid.Row="1"
                         Margin="-5,0,15,0"
@@ -302,6 +224,125 @@
             <Setter Property="BackgroundColor" Value="#CC202020" />
             <Setter Property="TextColor" Value="White" />
         </Style>
+
+        <!-- Chat message bubble (also used by the message list). -->
+        <DataTemplate x:Key="MessageTemplate" x:DataType="local:ChatMessageVm">
+            <Grid Padding="0,3">
+                <Border HorizontalOptions="{Binding Alignment}"
+                    MaximumWidthRequest="420"
+                    BackgroundColor="{Binding BubbleColor}"
+                    Stroke="Transparent"
+                    Padding="10,7"
+                    StrokeShape="RoundRectangle 12">
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="{Binding Text}"
+                            TextColor="White"
+                            FontSize="13"
+                            LineBreakMode="WordWrap" />
+
+                        <!-- Memory sources cited for this answer (RAG provenance). -->
+                        <VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">
+                            <Label Text="Sources"
+                                TextColor="#99FFFFFF"
+                                FontSize="10"
+                                FontAttributes="Bold" />
+                            <VerticalStackLayout Spacing="3"
+                                BindableLayout.ItemsSource="{Binding Citations}">
+                                <BindableLayout.ItemTemplate>
+                                    <DataTemplate x:DataType="local:CitationVm">
+                                        <HorizontalStackLayout Spacing="4">
+                                            <Label Text="{Binding Title}"
+                                                TextColor="#DDFFFFFF"
+                                                FontSize="11"
+                                                VerticalOptions="Center"
+                                                LineBreakMode="TailTruncation"
+                                                MaximumWidthRequest="150" />
+                                            <Border IsVisible="{Binding HasImage}"
+                                                BackgroundColor="#55FFFFFF"
+                                                Stroke="Transparent"
+                                                Padding="6,1"
+                                                StrokeShape="RoundRectangle 7">
+                                                <Border.GestureRecognizers>
+                                                    <TapGestureRecognizer Command="{Binding OpenImageCommand}" />
+                                                </Border.GestureRecognizers>
+                                                <Label TextColor="White" FontSize="11">
+                                                    <Label.FormattedText>
+                                                        <FormattedString>
+                                                            <Span Text="{x:Static icons:TablerLine.Photo}"
+                                                                FontFamily="TablerIconsLine" />
+                                                            <Span Text=" image" />
+                                                        </FormattedString>
+                                                    </Label.FormattedText>
+                                                </Label>
+                                            </Border>
+                                            <Border IsVisible="{Binding HasText}"
+                                                BackgroundColor="#55FFFFFF"
+                                                Stroke="Transparent"
+                                                Padding="6,1"
+                                                StrokeShape="RoundRectangle 7">
+                                                <Border.GestureRecognizers>
+                                                    <TapGestureRecognizer Command="{Binding OpenTextCommand}" />
+                                                </Border.GestureRecognizers>
+                                                <Label TextColor="White" FontSize="11">
+                                                    <Label.FormattedText>
+                                                        <FormattedString>
+                                                            <Span Text="{x:Static icons:TablerLine.FileText}"
+                                                                FontFamily="TablerIconsLine" />
+                                                            <Span Text=" text" />
+                                                        </FormattedString>
+                                                    </Label.FormattedText>
+                                                </Label>
+                                            </Border>
+                                        </HorizontalStackLayout>
+                                    </DataTemplate>
+                                </BindableLayout.ItemTemplate>
+                            </VerticalStackLayout>
+                        </VerticalStackLayout>
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Conversation switcher row (shown in the message list under /chats). -->
+        <DataTemplate x:Key="ConversationTemplate" x:DataType="local:ConversationItemVm">
+            <Grid Padding="0,3" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                <Border Grid.Column="0"
+                    BackgroundColor="#2EFFFFFF"
+                    Stroke="Transparent"
+                    Padding="10,7"
+                    StrokeShape="RoundRectangle 10">
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding OpenCommand}" />
+                    </Border.GestureRecognizers>
+                    <VerticalStackLayout Spacing="1">
+                        <Label Text="{Binding Title}"
+                            TextColor="White"
+                            FontSize="13"
+                            LineBreakMode="TailTruncation" />
+                        <Label Text="{Binding Subtitle}"
+                            TextColor="#99FFFFFF"
+                            FontSize="11"
+                            LineBreakMode="TailTruncation" />
+                    </VerticalStackLayout>
+                </Border>
+                <Button Grid.Column="1"
+                    IsVisible="{Binding HasDelete}"
+                    Command="{Binding DeleteCommand}"
+                    Text="✕"
+                    WidthRequest="30"
+                    HeightRequest="30"
+                    Padding="0"
+                    CornerRadius="15"
+                    FontSize="12"
+                    VerticalOptions="Center"
+                    BackgroundColor="#33FFFFFF"
+                    TextColor="White" />
+            </Grid>
+        </DataTemplate>
+
+        <local:ChatListTemplateSelector x:Key="ChatListSelector"
+            MessageTemplate="{StaticResource MessageTemplate}"
+            ConversationTemplate="{StaticResource ConversationTemplate}" />
     </ContentPage.Resources>
 
 </ContentPage>

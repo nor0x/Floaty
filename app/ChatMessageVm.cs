@@ -2,8 +2,36 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Floaty.Services;
 
 namespace Floaty;
+
+/// <summary>
+/// A row in the conversation switcher shown inside the message list (toggled by /chats). Either a saved
+/// thread (with open + delete commands) or the "New conversation" action row.
+/// </summary>
+public sealed class ConversationItemVm
+{
+    public ConversationItemVm(string title, string subtitle, bool isCurrent, bool isNewAction,
+        ICommand openCommand, ICommand? deleteCommand)
+    {
+        Title = title;
+        Subtitle = subtitle;
+        IsCurrent = isCurrent;
+        IsNewAction = isNewAction;
+        OpenCommand = openCommand;
+        DeleteCommand = deleteCommand;
+    }
+
+    public string Title { get; }
+    public string Subtitle { get; }
+    public bool IsCurrent { get; }
+    public bool IsNewAction { get; }
+    public ICommand OpenCommand { get; }
+    public ICommand? DeleteCommand { get; }
+
+    public bool HasDelete => DeleteCommand is not null;
+}
 
 /// <summary>
 /// A memory source shown beneath an assistant answer. Offers up to two openable chips — the capture's
@@ -73,6 +101,9 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     }
 
     public bool HasCitations => _citations.Count > 0;
+
+    /// <summary>Raw citation data backing <see cref="Citations"/>, kept so threads round-trip through persistence.</summary>
+    public IReadOnlyList<MemoryCitation> CitationSources { get; set; } = System.Array.Empty<MemoryCitation>();
 
     /// <summary>User bubbles hug the right edge, assistant bubbles the left.</summary>
     public LayoutOptions Alignment => IsUser ? LayoutOptions.End : LayoutOptions.Start;
