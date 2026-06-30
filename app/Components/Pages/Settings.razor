@@ -2,7 +2,7 @@
 
 <div class="settings">
     <header class="settings-header">
-        <h1>Settings</h1>
+        <h1><i class="ti ti-settings" aria-hidden="true"></i> Settings</h1>
         <p class="subtitle">Configure Floaty behavior and AI provider options.</p>
     </header>
 
@@ -10,19 +10,23 @@
         <aside class="tabs" aria-label="Settings sections">
             <button class="tab @TabClass(SettingsSection.Behavior)"
                     @onclick="() => SelectSection(SettingsSection.Behavior)">
-                Behavior
+                <i class="ti ti-message-chatbot" aria-hidden="true"></i>
+                <span>Behavior</span>
             </button>
             <button class="tab @TabClass(SettingsSection.Appearance)"
                     @onclick="() => SelectSection(SettingsSection.Appearance)">
-                Appearance
+                <i class="ti ti-palette" aria-hidden="true"></i>
+                <span>Appearance</span>
             </button>
             <button class="tab @TabClass(SettingsSection.ModelProvider)"
                     @onclick="() => SelectSection(SettingsSection.ModelProvider)">
-                Model Provider
+                <i class="ti ti-cpu" aria-hidden="true"></i>
+                <span>Model Provider</span>
             </button>
             <button class="tab @TabClass(SettingsSection.Mcp)"
                     @onclick="() => SelectSection(SettingsSection.Mcp)">
-                MCP Servers
+                <i class="ti ti-server-2" aria-hidden="true"></i>
+                <span>MCP Servers</span>
             </button>
         </aside>
 
@@ -80,7 +84,10 @@
                 </div>
 
                 <div class="actions sub-actions">
-                    <button class="reload" @onclick="ReloadRingImages">Reload</button>
+                    <button class="reload" @onclick="ReloadRingImages">
+                        <i class="ti ti-refresh" aria-hidden="true"></i>
+                        <span>Reload</span>
+                    </button>
                     <span class="hint">Loaded @_ringOptions.Count option(s), including @_customRingCount custom
                         image(s).</span>
                     </div>
@@ -104,10 +111,13 @@
                             <div class="mcp-row">
                                 <input type="checkbox" @bind="server.Enabled" title="Enabled" />
                                 <div class="mcp-info">
-                                    <span class="mcp-name">/@server.Name</span>
+                                    <span class="mcp-name"><i class="ti ti-server-2" aria-hidden="true"></i> /@server.Name</span>
                                     <span class="mcp-meta">@server.Transport · @(server.Transport == "http" ? server.Url : server.Command)</span>
                                 </div>
-                                <button class="mcp-remove" @onclick="() => RemoveServer(server)">Remove</button>
+                                <button class="mcp-remove" @onclick="() => RemoveServer(server)">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                    <span>Remove</span>
+                                </button>
                             </div>
                         }
                     </div>
@@ -168,7 +178,10 @@
                         <p class="mcp-error">@_mcpError</p>
                     }
 
-                    <button class="reload" @onclick="AddServer">Add server</button>
+                    <button class="reload" @onclick="AddServer">
+                        <i class="ti ti-plus" aria-hidden="true"></i>
+                        <span>Add server</span>
+                    </button>
                 </div>
             }
             else
@@ -219,7 +232,10 @@
                         }
 
                         <div class="actions">
-                            <button class="save" @onclick="Save">Save</button>
+                            <button class="save" @onclick="Save">
+                                <i class="ti ti-device-floppy" aria-hidden="true"></i>
+                                <span>Save</span>
+                            </button>
                             @if (_saved)
                             {
                                 <span class="saved">Saved</span>
@@ -448,6 +464,15 @@
         font-size: 24px;
         font-weight: 600;
         margin: 0 0 4px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .settings-header h1 .ti {
+        font-size: 26px;
+        line-height: 1;
+        color: #2b7fff;
     }
 
     .settings-header .subtitle {
@@ -484,7 +509,21 @@
         padding: 10px 12px;
         text-align: left;
         cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 9px;
         transition: background .15s, border-color .15s, color .15s;
+    }
+
+    .tab .ti {
+        font-size: 18px;
+        line-height: 1;
+        color: #8a8a90;
+        transition: color .15s;
+    }
+
+    .tab.active .ti {
+        color: #0f53bd;
     }
 
     .tab:hover {
@@ -590,7 +629,17 @@
         font-size: 14px;
         font-weight: 600;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
         transition: background .15s;
+    }
+
+    .save .ti,
+    .reload .ti,
+    .mcp-remove .ti {
+        font-size: 16px;
+        line-height: 1;
     }
 
     .save:hover {
@@ -606,6 +655,9 @@
         font-size: 13px;
         font-weight: 600;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
     }
 
     .reload:hover {
@@ -727,6 +779,12 @@
         color: #1c1c1e;
     }
 
+    .mcp-name .ti {
+        font-size: 14px;
+        color: #6b6b70;
+        margin-right: 2px;
+    }
+
     .mcp-meta {
         font-size: 12px;
         color: #8a8a90;
@@ -744,6 +802,9 @@
         font-size: 12px;
         font-weight: 600;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .mcp-remove:hover {

@@ -17,16 +17,18 @@ public partial class OverlayPage : ContentPage
 
     private sealed class SlashCommand
     {
-        public SlashCommand(string name, string description, SlashKind kind = SlashKind.Action)
+        public SlashCommand(string name, string description, SlashKind kind = SlashKind.Action, string? icon = null)
         {
             Name = name;
             Description = description;
             Kind = kind;
+            Icon = icon ?? IconFont.TablerLine.Bolt;
         }
 
         public string Name { get; }
         public string Description { get; }
         public SlashKind Kind { get; }
+        public string Icon { get; }
         public string Token => $"/{Name}";
     }
 
@@ -84,12 +86,12 @@ public partial class OverlayPage : ContentPage
 
     private readonly IReadOnlyList<SlashCommand> _builtInSlashCommands =
     [
-        new("new", "Clear the current conversation"),
-        new("capture", "Capture and remember the current app"),
-        new("remember", "Save text to memory", SlashKind.Memory),
-        new("recall", "Search your memory", SlashKind.Memory),
-        new("settings", "Open Floaty settings"),
-        new("config", "Open Floaty config folder"),
+        new("new", "Clear the current conversation", icon: IconFont.TablerLine.Sparkles),
+        new("capture", "Capture and remember the current app", icon: IconFont.TablerLine.Camera),
+        new("remember", "Save text to memory", SlashKind.Memory, IconFont.TablerLine.Bulb),
+        new("recall", "Search your memory", SlashKind.Memory, IconFont.TablerLine.Search),
+        new("settings", "Open Floaty settings", icon: IconFont.TablerLine.Settings),
+        new("config", "Open Floaty config folder", icon: IconFont.TablerLine.Folder),
     ];
 
     // Built-in commands plus one per enabled MCP server; rebuilt when settings change.
@@ -165,7 +167,7 @@ public partial class OverlayPage : ContentPage
         {
             if (!server.Enabled || string.IsNullOrWhiteSpace(server.Name))
                 continue;
-            _allSlashCommands.Add(new SlashCommand(server.Name, "MCP server", SlashKind.Server));
+            _allSlashCommands.Add(new SlashCommand(server.Name, "MCP server", SlashKind.Server, IconFont.TablerLine.Database));
         }
     }
 
