@@ -13,7 +13,8 @@ public static class MauiProgram
 			.UseMauiApp<App>()
 			.ConfigureFonts(fonts =>
 			{
-				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
+				fonts.AddFont("tabler-icons.ttf", "TablerIconsLine");
+				fonts.AddFont("tabler-icons-filled.ttf", "TablerIconsFilled");
 			});
 
 		builder.Services.AddMauiBlazorWebView();
