@@ -1,5 +1,7 @@
 @inject SettingsService ConfigService
 @inject SkillService SkillService
+@inject UpdateService UpdateService
+@using Floaty.Services
 
 <div class="settings">
     <header class="settings-header">
@@ -33,6 +35,11 @@
                     @onclick="() => SelectSection(SettingsSection.Skills)">
                 <i class="ti ti-bolt" aria-hidden="true"></i>
                 <span>Skills</span>
+            </button>
+            <button class="tab @TabClass(SettingsSection.Updates)"
+                    @onclick="() => SelectSection(SettingsSection.Updates)">
+                <i class="ti ti-cloud-download" aria-hidden="true"></i>
+                <span>Updates</span>
             </button>
         </aside>
 
@@ -232,6 +239,64 @@
                     </div>
                 }
             }
+            else if (_activeSection == SettingsSection.Updates)
+            {
+                <div class="card-head">
+                    <h2>Updates</h2>
+                    <p>Keep Floaty up to date. New versions are published on GitHub.</p>
+                </div>
+
+                <div class="field">
+                    <label>Current version</label>
+                    <span class="hint">You are running <code>@UpdateService.CurrentVersion</code>.</span>
+                </div>
+
+                @if (!UpdateService.IsSupported)
+                {
+                    <p class="hint">
+                        Automatic updates are only available in installed builds. Download the latest
+                        release from the
+                        <a href="#" @onclick="OpenReleasesPage" @onclick:preventDefault="true">releases page</a>.
+                    </p>
+                }
+                else if (_updatePending)
+                {
+                    <p class="hint">An update to <code>@_latestVersion</code> has been downloaded and is
+                        ready to install.</p>
+
+                    <div class="actions">
+                        <button class="save" @onclick="RestartAndUpdate">
+                            <i class="ti ti-refresh" aria-hidden="true"></i>
+                            <span>Restart &amp; update</span>
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="actions sub-actions">
+                        <button class="reload" @onclick="CheckForUpdates" disabled="@(_checking || _downloading)">
+                            <i class="ti ti-cloud-download" aria-hidden="true"></i>
+                            <span>@(_checking ? "Checking…" : "Check for updates")</span>
+                        </button>
+                        @if (!string.IsNullOrEmpty(_updateStatus))
+                        {
+                            <span class="hint">@_updateStatus</span>
+                        }
+                    </div>
+
+                    @if (_updateAvailable)
+                    {
+                        <p class="hint">Version <code>@_latestVersion</code> is available.</p>
+
+                        <div class="actions">
+                            <button class="save" @onclick="DownloadUpdate" disabled="@_downloading">
+                                <i class="ti ti-download" aria-hidden="true"></i>
+                                <span>@(_downloading ? $"Downloading… {_downloadProgress}%" : "Download & install")</span>
+                            </button>
+                        </div>
+                    }
+                }
+            }
             else
                 {
                     <div class="card-head">
@@ -307,6 +372,7 @@
         ModelProvider,
         Mcp,
         Skills,
+        Updates,
     }
 
     private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
@@ -328,6 +394,15 @@
     // Discovered agent skills (metadata); enable state is tracked via _config.DisabledSkills.
     private List<FloatySkill> _skills = new();
 
+    // Update section state.
+    private bool _checking;
+    private bool _downloading;
+    private bool _updateAvailable;
+    private bool _updatePending;
+    private int _downloadProgress;
+    private string? _latestVersion;
+    private string? _updateStatus;
+
     protected override async Task OnInitializedAsync()
     {
         // Work on a copy so edits aren't committed until the user clicks Save.
@@ -346,7 +421,79 @@
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
         _skills = SkillService.Skills.ToList();
+
+        // A background startup check may have already downloaded an update.
+        _updatePending = UpdateService.IsUpdatePending;
+
         await ReloadRingImages();
+    }
+
+    private async Task CheckForUpdates()
+    {
+        _checking = true;
+        _updateStatus = null;
+        _updateAvailable = false;
+        StateHasChanged();
+
+        var result = await UpdateService.CheckAsync();
+
+        _checking = false;
+        if (result.Error is not null)
+        {
+            _updateStatus = result.Error;
+        }
+        else if (result.UpdateAvailable)
+        {
+            _updateAvailable = true;
+            _latestVersion = result.TargetVersion;
+        }
+        else
+        {
+            _updateStatus = "You're up to date.";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task DownloadUpdate()
+    {
+        _downloading = true;
+        _downloadProgress = 0;
+        StateHasChanged();
+
+        var progress = new Progress<int>(p =>
+        {
+            _downloadProgress = p;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await UpdateService.DownloadAsync(progress);
+            _updatePending = UpdateService.IsUpdatePending;
+        }
+        catch (Exception ex)
+        {
+            _updateStatus = ex.Message;
+        }
+
+        _downloading = false;
+        _updateAvailable = false;
+        StateHasChanged();
+    }
+
+    private void RestartAndUpdate() => UpdateService.ApplyAndRestart();
+
+    private async Task OpenReleasesPage()
+    {
+        try
+        {
+            await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(UpdateService.ReleasesUrl);
+        }
+        catch
+        {
+            // Opening the browser is best-effort.
+        }
     }
 
     private void Save()

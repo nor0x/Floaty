@@ -1,0 +1,84 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semantic version to release (without leading v), e.g. 1.2.3'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install MAUI Windows workload
+        run: dotnet workload install maui-windows
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing version $VERSION"
+
+      - name: Publish (self-contained win-x64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish app/Floaty.csproj \
+            -c Release \
+            -f net10.0-windows10.0.19041.0 \
+            -r win-x64 \
+            --self-contained true \
+            -p:WindowsPackageType=None \
+            -p:ApplicationDisplayVersion=${{ steps.version.outputs.version }} \
+            -o publish
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk
+
+      - name: Package with Velopack
+        shell: bash
+        run: |
+          set -euo pipefail
+          vpk pack \
+            --packId Floaty \
+            --packVersion ${{ steps.version.outputs.version }} \
+            --packDir publish \
+            --mainExe Floaty.exe \
+            --packTitle Floaty \
+            --outputDir Releases
+
+      - name: Upload to GitHub Releases
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          vpk upload github \
+            --repoUrl https://github.com/nor0x/Floaty \
+            --publish \
+            --releaseName "Floaty ${{ steps.version.outputs.version }}" \
+            --tag v${{ steps.version.outputs.version }} \
+            --token "$GITHUB_TOKEN"

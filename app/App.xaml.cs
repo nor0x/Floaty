@@ -1,3 +1,5 @@
+using Floaty.Services;
+
 namespace Floaty;
 
 public partial class App : Application
@@ -8,6 +10,30 @@ public partial class App : Application
     {
         InitializeComponent();
         _services = services;
+
+        // Fire-and-forget: on installed builds, check GitHub for a newer release and download it
+        // in the background. It never restarts on its own — the Updates settings tab surfaces a
+        // "Restart & update" button once a download is pending.
+        StartBackgroundUpdateCheck();
+    }
+
+    private void StartBackgroundUpdateCheck()
+    {
+        var updateService = _services.GetService<UpdateService>();
+        if (updateService is null || !updateService.IsSupported)
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await updateService.AutoUpdateAsync();
+            }
+            catch
+            {
+                // Startup update checks are best-effort and must never crash the app.
+            }
+        });
     }
 
     protected override Window CreateWindow(IActivationState? activationState)

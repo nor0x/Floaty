@@ -35,6 +35,9 @@ public static class MauiProgram
 		// Agent skills (SKILL.md) discovered from disk, invokable via /skill slash commands.
 		builder.Services.AddSingleton<SkillService>();
 
+		// In-app auto-update (Velopack) checking the GitHub Releases of nor0x/Floaty.
+		builder.Services.AddSingleton<UpdateService>();
+
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
 		builder.Services.AddTransient<SettingsPage>();
