@@ -296,6 +296,14 @@
                         </div>
                     }
                 }
+
+                @if (!string.IsNullOrWhiteSpace(_notesHtml))
+                {
+                    <div class="whats-new">
+                        <h3>What's new@(string.IsNullOrEmpty(_latestVersion) ? string.Empty : $" in {_latestVersion}")</h3>
+                        <div class="notes">@((MarkupString)_notesHtml)</div>
+                    </div>
+                }
             }
             else
                 {
@@ -402,6 +410,7 @@
     private int _downloadProgress;
     private string? _latestVersion;
     private string? _updateStatus;
+    private string? _notesHtml;
 
     protected override async Task OnInitializedAsync()
     {
@@ -422,8 +431,13 @@
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
         _skills = SkillService.Skills.ToList();
 
-        // A background startup check may have already downloaded an update.
+        // A background startup check may have already downloaded an update; surface its notes.
         _updatePending = UpdateService.IsUpdatePending;
+        if (_updatePending)
+        {
+            _latestVersion = UpdateService.PendingVersion;
+            _notesHtml = UpdateService.PendingNotesHtml;
+        }
 
         await ReloadRingImages();
     }
@@ -433,6 +447,7 @@
         _checking = true;
         _updateStatus = null;
         _updateAvailable = false;
+        _notesHtml = null;
         StateHasChanged();
 
         var result = await UpdateService.CheckAsync();
@@ -446,6 +461,7 @@
         {
             _updateAvailable = true;
             _latestVersion = result.TargetVersion;
+            _notesHtml = result.NotesHtml;
         }
         else
         {
@@ -979,6 +995,54 @@
         color: #1f9d55;
         font-size: 13px;
         font-weight: 600;
+    }
+
+    .whats-new {
+        margin-top: 18px;
+        border-top: 1px solid #ececf0;
+        padding-top: 16px;
+    }
+
+    .whats-new h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 10px;
+    }
+
+    .whats-new .notes {
+        font-size: 13px;
+        line-height: 1.5;
+        color: #3a3a40;
+        max-height: 320px;
+        overflow-y: auto;
+    }
+
+    .whats-new .notes h1,
+    .whats-new .notes h2,
+    .whats-new .notes h3 {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 14px 0 6px;
+    }
+
+    .whats-new .notes ul {
+        margin: 6px 0;
+        padding-left: 20px;
+    }
+
+    .whats-new .notes li {
+        margin: 3px 0;
+    }
+
+    .whats-new .notes code {
+        background: #f1f1f4;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+
+    .whats-new .notes a {
+        color: #1f6ae0;
     }
 
     .mcp-list {

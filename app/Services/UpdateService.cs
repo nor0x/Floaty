@@ -9,7 +9,14 @@ namespace Floaty.Services;
 /// <param name="UpdateAvailable">True when a newer release than the running build exists.</param>
 /// <param name="TargetVersion">The available (or current, when up to date) version string.</param>
 /// <param name="Error">Non-null when the check could not complete.</param>
-public sealed record UpdateCheckResult(bool UpdateAvailable, string? TargetVersion, string? Error = null);
+/// <param name="NotesHtml">Pre-rendered "what's new" HTML for the available release, when present.</param>
+/// <param name="NotesMarkdown">Raw markdown "what's new" for the available release, when present.</param>
+public sealed record UpdateCheckResult(
+    bool UpdateAvailable,
+    string? TargetVersion,
+    string? Error = null,
+    string? NotesHtml = null,
+    string? NotesMarkdown = null);
 
 /// <summary>
 /// Wraps Velopack's <c>UpdateManager</c> against the GitHub Releases of <c>nor0x/Floaty</c>.
@@ -64,6 +71,22 @@ public sealed class UpdateService
         false;
 #endif
 
+    /// <summary>Version of the pending/available update (from the last check), or null.</summary>
+    public string? PendingVersion =>
+#if WINDOWS
+        _pendingUpdate?.TargetFullRelease?.Version.ToString();
+#else
+        null;
+#endif
+
+    /// <summary>Pre-rendered "what's new" HTML for the pending/available update, or null.</summary>
+    public string? PendingNotesHtml =>
+#if WINDOWS
+        _pendingUpdate?.TargetFullRelease?.NotesHTML;
+#else
+        null;
+#endif
+
     /// <summary>Checks GitHub Releases for a newer version, caching the result for download.</summary>
     public async Task<UpdateCheckResult> CheckAsync()
     {
@@ -79,7 +102,12 @@ public sealed class UpdateService
 
             _pendingUpdate = info;
             _downloaded = false;
-            return new UpdateCheckResult(true, info.TargetFullRelease.Version.ToString());
+            var asset = info.TargetFullRelease;
+            return new UpdateCheckResult(
+                true,
+                asset.Version.ToString(),
+                NotesHtml: asset.NotesHTML,
+                NotesMarkdown: asset.NotesMarkdown);
         }
         catch (Exception ex)
         {

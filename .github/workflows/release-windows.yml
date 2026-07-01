@@ -3,11 +3,11 @@ name: Release Windows
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Semantic version to release (without leading v), e.g. 1.2.3'
+        description: "Semantic version to release (without leading v), e.g. 1.2.3"
         required: true
         type: string
 
@@ -20,11 +20,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags so DiffLog can resolve the previous tag (git describe HEAD^).
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: "10.0.x"
 
       - name: Install MAUI Windows workload
         run: dotnet workload install maui-windows
@@ -41,6 +44,13 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing version $VERSION"
+
+      - name: Install DiffLog
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet tool install -g DiffLog
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
       - name: Publish (self-contained win-x64)
         shell: bash
@@ -62,8 +72,31 @@ jobs:
       - name: Install Velopack CLI
         run: dotnet tool install -g vpk
 
+      - name: Generate release notes
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          CURRENT_REF=HEAD
+
+          if [[ -n "$PREV_TAG" ]]; then
+            difflog generate --from "$PREV_TAG" --to "$CURRENT_REF" --format Markdown -o release-notes.md --system-prompt "Generate developer friendly release notes based on this git history information. Include SHA hashes and structure the changelog in bullet points. don't make it too long and don't overcomplicate it. keep it clean (subtle emoji usage is allowed)."
+          else
+            difflog generate --to "$CURRENT_REF" --format Markdown -o release-notes.md --system-prompt "Generate developer friendly release notes based on this git history information. Include SHA hashes and structure the changelog in bullet points. don't make it too long and don't overcomplicate it. keep it clean (subtle emoji usage is allowed)."
+          fi
+
+          if [[ ! -s release-notes.md ]]; then
+            echo "Generated release-notes.md is missing or empty." >&2
+            exit 1
+          fi
+
       - name: Package with Velopack
         shell: bash
+        # --releaseNotes embeds release-notes.md into the package + feed (releases.win.json), so the
+        # GitHub Release body (via vpk upload) and the in-app "What's new" section both use it.
         run: |
           set -euo pipefail
           vpk pack \
@@ -72,6 +105,7 @@ jobs:
             --packDir publish \
             --mainExe Floaty.exe \
             --packTitle Floaty \
+            --releaseNotes release-notes.md \
             --outputDir Releases
 
       - name: Upload to GitHub Releases
