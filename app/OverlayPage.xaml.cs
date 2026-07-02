@@ -50,13 +50,22 @@ public partial class OverlayPage : ContentPage
     private bool _listMode;
     private readonly ObservableCollection<ConversationItemVm> _conversationItems = new();
 
+    // Ring image width (matches the Ring's WidthRequest in XAML). The compact window hugs the ring
+    // so it sits flush against both window edges, letting the chat panel open to either side with
+    // the ring staying visually put.
+    private const double RingWidthDip = 148;
+
     // Compact (chat closed) vs expanded (chat open) overlay window sizes, in device-independent units.
-    private const double CompactWidth = 200;
+    private const double CompactWidth = 150;
     private const double CompactHeight = 250;
     private const double ChatWidth = 360;
 
+    // Which side of the ring the chat panel currently occupies. Chosen from available screen space
+    // when the chat opens, and re-evaluated after the ring is dragged or summoned (see ApplyChatSide).
+    private bool _chatOnLeft;
+
     // User-adjustable chat panel width (dragged via the panel's right edge), clamped to this range.
-    private const double MinChatWidth = 280;
+    private const double MinChatWidth = 300;
     private const double MaxChatWidth = 680;
     private double _chatWidth = ChatWidth;
     private double _resizeStartWidth;
@@ -266,6 +275,8 @@ public partial class OverlayPage : ContentPage
                 _ = Ring.RotateToAsync(Random.Shared.Next(0, 360), 350, Easing.SinOut);
                 // Resume the idle spin from the ring's current angle.
                 _ringBusy = false;
+                // The ring (and any open panel) just moved; flip sides if the panel no longer fits.
+                ReevaluateChatSide();
                 break;
         }
     }
@@ -312,6 +323,8 @@ public partial class OverlayPage : ContentPage
     {
         await Task.Delay(SummonRevealDelayMs);
         await ShowChatAsync();
+        // If the chat was already open when summoned, the window moved — flip sides if needed.
+        ReevaluateChatSide();
     }
 
     private async Task SpinRingAsync()
@@ -402,7 +415,8 @@ public partial class OverlayPage : ContentPage
 
     // Open the chat panel (idempotent — a no-op if already open). Only the input row shows until
     // messages exist; the panel's SizeChanged grows the window from here as the messages area expands.
-    // The window grows from its left edge (anchorLeft) so the ring on the left stays put.
+    // The side (left/right of the ring) is chosen from available screen space; the window then grows
+    // away from the ring (ChatAnchor keeps the ring's edge fixed) so the ring stays put.
     private async Task ShowChatAsync()
     {
         if (_chatOpen)
@@ -410,10 +424,13 @@ public partial class OverlayPage : ContentPage
 
         EnsureConversationLoaded();
 
+        // Decide the side while still compact (the window hugs the ring, so its rect is the ring's).
+        ApplyChatSide(ShouldOpenOnLeft());
+
         _chatOpen = true;
         MessagesList.IsVisible = Messages.Count > 0;
         _lastChatWindowHeight = 0;
-        _windowController.Resize(_chatWidth, ChatBaseHeight + 80, anchorLeft: true);
+        _windowController.Resize(_chatWidth, ChatBaseHeight + 80, ChatAnchor);
         ChatPanel.IsVisible = true;
 
         // Slide the panel up into view.
@@ -446,11 +463,13 @@ public partial class OverlayPage : ContentPage
         var startWidth = _chatWidth;
         var startHeight = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
 
+        // Collapse toward the ring: anchor the ring's current edge so the panel slides shut into it.
+        var anchor = ChatAnchor;
         _ = ChatPanel.FadeToAsync(0, 180);
         new Animation(t => _windowController.Resize(
                 startWidth + (CompactWidth - startWidth) * t,
                 startHeight + (CompactHeight - startHeight) * t,
-                anchorLeft: true),
+                anchor),
             0, 1, Easing.CubicIn)
             .Commit(this, "ChatCollapse", length: 220, finished: (_, _) =>
             {
@@ -459,7 +478,7 @@ public partial class OverlayPage : ContentPage
                 ChatPanel.TranslationY = 0;
                 _lastChatWindowHeight = 0;
                 _chatAnimating = false;
-                _windowController.Resize(CompactWidth, CompactHeight, anchorLeft: true);
+                _windowController.Resize(CompactWidth, CompactHeight, anchor);
             });
     }
 
@@ -476,13 +495,14 @@ public partial class OverlayPage : ContentPage
             return;
 
         _lastChatWindowHeight = target;
-        // Anchor the left edge so the ring stays put as the panel height changes.
-        _windowController.Resize(_chatWidth, target, anchorLeft: true);
+        // Anchor the ring's current edge so it stays put as the panel height changes.
+        _windowController.Resize(_chatWidth, target, ChatAnchor);
     }
 
-    // Drag the chat panel's right edge to widen/narrow it. The window grows from the left edge so the
-    // ring stays put; the bottom edge stays anchored. Height re-tracks via OnChatPanelSizeChanged as
-    // the message bubbles re-wrap to the new width.
+    // Drag the chat panel's outer edge to widen/narrow it. The window grows away from the ring
+    // (ChatAnchor keeps the ring's edge fixed) so the ring stays put; the bottom edge stays anchored.
+    // On the left side the grip is on the panel's left, so dragging left (negative X) widens it.
+    // Width is clamped to the space available on the current side so the panel can't run off-screen.
     private void OnResizeHandlePanUpdated(object? sender, PanUpdatedEventArgs e)
     {
         switch (e.StatusType)
@@ -492,11 +512,132 @@ public partial class OverlayPage : ContentPage
                 break;
 
             case GestureStatus.Running:
-                _chatWidth = Math.Clamp(_resizeStartWidth + e.TotalX, MinChatWidth, MaxChatWidth);
+                var delta = _chatOnLeft ? -e.TotalX : e.TotalX;
+                _chatWidth = Math.Clamp(_resizeStartWidth + delta, MinChatWidth, AvailableChatWidthDip());
                 var height = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
-                _windowController.Resize(_chatWidth, height, anchorLeft: true);
+                _windowController.Resize(_chatWidth, height, ChatAnchor);
                 break;
         }
+    }
+
+    // --- Dynamic chat-panel side (left/right of the ring) ---
+
+    // Horizontal anchor that keeps the ring's current edge fixed while the window resizes: when the
+    // panel is on the left the ring is flush right (anchor right); otherwise flush left (anchor left).
+    private WindowAnchor ChatAnchor => _chatOnLeft ? WindowAnchor.Right : WindowAnchor.Left;
+
+    // Scale for converting MAUI device-independent units to physical screen pixels.
+    private static double DisplayScale => DeviceDisplay.Current.MainDisplayInfo.Density;
+
+    // The ring's left/right edges in physical screen pixels. While the chat is open the window spans
+    // ring+panel and the ring is flush against the anchored edge; while compact it hugs the ring.
+    private (double Left, double Right) RingScreenEdgesPx()
+    {
+        var (winX, _) = _windowController.GetPosition();
+        var (winW, _) = _windowController.GetSize();
+        if (!_chatOpen)
+            return (winX, winX + winW);
+
+        var ringWidthPx = RingWidthDip * DisplayScale;
+        return _chatOnLeft
+            ? (winX + winW - ringWidthPx, winX + winW) // ring flush right
+            : (winX, winX + ringWidthPx);              // ring flush left
+    }
+
+    // True when the chat panel should sit on the ring's left: it doesn't fit on the right and the
+    // left has more room. Falls back to the right when the work area is unknown.
+    private bool ShouldOpenOnLeft() => PreferLeft(RingScreenEdgesPx());
+
+    private bool PreferLeft((double Left, double Right) ring)
+    {
+        var wa = _windowController.GetWorkArea();
+        if (wa.Width <= 0)
+            return false;
+
+        var chatPx = _chatWidth * DisplayScale;
+        var rightSpace = (wa.X + wa.Width) - ring.Right;
+        var leftSpace = ring.Left - wa.X;
+
+        if (rightSpace >= chatPx)
+            return false;
+        return leftSpace > rightSpace;
+    }
+
+    // The widest the panel may grow on its current side without crossing the screen edge, clamped to
+    // the [Min, Max] range. Returns MaxChatWidth when the work area is unknown.
+    private double AvailableChatWidthDip()
+    {
+        var wa = _windowController.GetWorkArea();
+        if (wa.Width <= 0)
+            return MaxChatWidth;
+
+        var (ringLeft, ringRight) = RingScreenEdgesPx();
+        var spacePx = _chatOnLeft ? ringLeft - wa.X : (wa.X + wa.Width) - ringRight;
+        return Math.Clamp(spacePx / DisplayScale, MinChatWidth, MaxChatWidth);
+    }
+
+    // Place the chat panel on the given side of the ring: swap the star/zero side columns, the
+    // panel's column and overlap margin, and mirror the collapse chevron + resize grip.
+    private void ApplyChatSide(bool onLeft)
+    {
+        _chatOnLeft = onLeft;
+        if (onLeft)
+        {
+            LeftSpace.Width = new GridLength(1, GridUnitType.Star);
+            RightSpace.Width = new GridLength(0);
+            Grid.SetColumn(ChatPanel, 0);
+            ChatPanel.Margin = new Thickness(0, 10, -30, 0);
+            CollapseButton.Text = IconFont.TablerLine.CaretRight;
+            Grid.SetColumn(CollapseButton, 2);
+            Grid.SetColumn(ResizeGrip, 0);
+        }
+        else
+        {
+            LeftSpace.Width = new GridLength(0);
+            RightSpace.Width = new GridLength(1, GridUnitType.Star);
+            Grid.SetColumn(ChatPanel, 2);
+            ChatPanel.Margin = new Thickness(-30, 10, 0, 0);
+            CollapseButton.Text = IconFont.TablerLine.CaretLeft;
+            Grid.SetColumn(CollapseButton, 0);
+            Grid.SetColumn(ResizeGrip, 2);
+        }
+    }
+
+    // After the ring moves with the chat open, flip the panel to the other side only if the current
+    // side now overflows the screen and the other side has more room. Staying put unless we must
+    // avoids twitchy flips when the ring hovers near the boundary. The window is shifted horizontally
+    // so the ring stays visually put through the flip.
+    private void ReevaluateChatSide()
+    {
+        if (!_chatOpen || _chatAnimating)
+            return;
+
+        var wa = _windowController.GetWorkArea();
+        if (wa.Width <= 0)
+            return;
+
+        var ring = RingScreenEdgesPx();
+        var chatPx = _chatWidth * DisplayScale;
+        var rightSpace = (wa.X + wa.Width) - ring.Right;
+        var leftSpace = ring.Left - wa.X;
+
+        var currentSpace = _chatOnLeft ? leftSpace : rightSpace;
+        var otherSpace = _chatOnLeft ? rightSpace : leftSpace;
+        if (currentSpace >= chatPx || otherSpace <= currentSpace)
+            return; // current side still fits, or flipping wouldn't help
+
+        var (_, winY) = _windowController.GetPosition();
+        var (winW, _) = _windowController.GetSize();
+
+        var wantLeft = !_chatOnLeft;
+        ApplyChatSide(wantLeft);
+
+        // Keep the ring's screen rect fixed: same-width window, shifted so the ring lands on its new
+        // (flush) edge exactly where it already was.
+        var newWinX = wantLeft
+            ? ring.Right - winW // ring becomes flush-right: window right edge = old ring right
+            : ring.Left;        // ring becomes flush-left:  window left edge  = old ring left
+        _windowController.MoveTo((int)Math.Round(newWinX), winY);
     }
 
     private void OnChatEntryTextChanged(object? sender, TextChangedEventArgs e)

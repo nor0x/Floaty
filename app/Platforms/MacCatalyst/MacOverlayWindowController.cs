@@ -68,7 +68,7 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
         _nsWindow.SetValueForKey(NSValue.FromCGRect(moved), new NSString("frame"));
     }
 
-    public void Resize(double widthDip, double heightDip, bool anchorLeft = false)
+    public void Resize(double widthDip, double heightDip, WindowAnchor anchor = WindowAnchor.Center)
     {
         if (_nsWindow is null)
             return;
@@ -79,8 +79,13 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
         var frame = frameValue.CGRectValue;
 
         // AppKit origin is bottom-left, so keep the bottom edge (frame.Y) fixed and grow upward.
-        // Horizontally anchor the left edge (frame.X) or the center depending on the caller.
-        var newX = anchorLeft ? frame.X : frame.X + (frame.Width / 2) - (widthDip / 2);
+        // Horizontally anchor the left edge, the right edge, or the center depending on the caller.
+        var newX = anchor switch
+        {
+            WindowAnchor.Left => frame.X,
+            WindowAnchor.Right => frame.X + frame.Width - widthDip,
+            _ => frame.X + (frame.Width / 2) - (widthDip / 2),
+        };
         var resized = new CGRect(newX, frame.Y, widthDip, heightDip);
         _nsWindow.SetValueForKey(NSValue.FromCGRect(resized), new NSString("frame"));
     }
@@ -93,6 +98,15 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
     public (int X, int Y) GetPosition() => (0, 0);
 
     public (int Width, int Height) GetSize() => (0, 0);
+
+    public (int X, int Y, int Width, int Height) GetWorkArea()
+    {
+        // Best-effort: the main screen's bounds in physical pixels. macOS is a secondary target for
+        // the dynamic panel-side logic; a zero-size rect would just keep the panel on the right.
+        var bounds = UIScreen.MainScreen.Bounds;
+        var scale = (double)UIScreen.MainScreen.Scale;
+        return (0, 0, (int)((double)bounds.Width * scale), (int)((double)bounds.Height * scale));
+    }
 
     public void MoveTo(int x, int y)
     {

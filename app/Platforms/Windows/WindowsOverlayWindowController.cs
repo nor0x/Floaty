@@ -130,7 +130,7 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
             current.Y + (int)Math.Round(dyDip * scale)));
     }
 
-    public void Resize(double widthDip, double heightDip, bool anchorLeft = false)
+    public void Resize(double widthDip, double heightDip, WindowAnchor anchor = WindowAnchor.Center)
     {
         if (_appWindow is null)
             return;
@@ -144,15 +144,30 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         var size = _appWindow.Size;
 
         // Anchor the bottom edge so the window grows upward; horizontally anchor the left edge
-        // (ring side) or the center depending on the caller.
+        // (ring on the left stays put), the right edge (ring on the right stays put), or the center.
         var bottom = pos.Y + size.Height;
-        var newX = anchorLeft ? pos.X : pos.X + (size.Width / 2) - (newWidth / 2);
+        var newX = anchor switch
+        {
+            WindowAnchor.Left => pos.X,
+            WindowAnchor.Right => pos.X + size.Width - newWidth,
+            _ => pos.X + (size.Width / 2) - (newWidth / 2),
+        };
 
         _appWindow.MoveAndResize(new RectInt32(
             newX,
             bottom - newHeight,
             newWidth,
             newHeight));
+    }
+
+    public (int X, int Y, int Width, int Height) GetWorkArea()
+    {
+        if (_appWindow is null)
+            return (0, 0, 0, 0);
+
+        var area = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest);
+        var work = area.WorkArea;
+        return (work.X, work.Y, work.Width, work.Height);
     }
 
     public (int X, int Y) GetPosition()

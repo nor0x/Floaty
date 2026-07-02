@@ -7,17 +7,24 @@
     x:DataType="local:OverlayPage"
     BackgroundColor="Transparent">
 
-    <!-- Whole-window layout: chat panel (hidden until opened) on top, the ring and a minimal
-         action bar anchored at the bottom. Everything outside the drawn pixels is transparent so
-         the desktop shows through. The window grows upward when the chat panel slides out. -->
+    <!-- Whole-window layout: chat panel (hidden until opened) beside the ring, which sits in the
+         center column. The panel opens into the left or right side column depending on available
+         screen space (see OverlayPage.ApplyChatSide); the unused side column is collapsed to 0 so
+         the ring stays flush against the window edge that the resize anchors. Everything outside the
+         drawn pixels is transparent so the desktop shows through. -->
     <Grid RowDefinitions="Auto"
-        ColumnDefinitions="Auto,*"
         BackgroundColor="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="LeftSpace" Width="0" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition x:Name="RightSpace" Width="*" />
+        </Grid.ColumnDefinitions>
 
         <!-- Slide-out chat panel: scrollable message list above, input box at the bottom.
-             Collapsed by default; toggled by the 💬 button. -->
+             Collapsed by default; toggled by tapping the ring. Grid.Column and Margin are set at
+             runtime to place it on the correct side of the ring. -->
         <Border x:Name="ChatPanel"
-            Grid.Column="1"
+            Grid.Column="2"
             IsVisible="False"
             VerticalOptions="Start"
             Margin="-30,10,0,0"
@@ -86,8 +93,10 @@
                         ColumnDefinitions="Auto,*,Auto"
                         HorizontalOptions="Fill"
                         Margin="-6,0,-6,0">
-                        <!-- Chevron: collapse the chat panel entirely. -->
-                        <Button Text="{x:Static icons:TablerLine.CaretLeft}"
+                        <!-- Chevron: collapse the chat panel entirely. Column + glyph are set at
+                             runtime so it points toward the ring on whichever side the panel opened. -->
+                        <Button x:Name="CollapseButton"
+                            Text="{x:Static icons:TablerLine.CaretLeft}"
                             FontFamily="TablerIconsLine"
                             Clicked="OnCollapseChatClicked"
                             Grid.Column="0"
@@ -129,8 +138,10 @@
                             </Grid>
                         </Border>
                         <!-- Resize grip: drag to change the chat panel width. The transparent strip
-                        is the hit area; the thin bar is the visible affordance. -->
-                        <Border WidthRequest="12"
+                        is the hit area; the thin bar is the visible affordance. Sits on the panel's
+                        outer edge — its column is set at runtime to match the panel's side. -->
+                        <Border x:Name="ResizeGrip"
+                            WidthRequest="12"
                             Margin="0,0,0,0"
                             Grid.Column="2"
 								VerticalOptions="Fill"
@@ -153,8 +164,9 @@
             </Grid>
         </Border>
 
-        <!-- Action bar + transient capture toast, stacked so the toast sits just above the buttons. -->
-        <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="End">
+        <!-- Ring + transient capture toast, stacked so the toast sits just below the ring. The ring
+             lives in the center column; the chat panel opens into the left or right side column. -->
+        <VerticalStackLayout Grid.Column="1" HorizontalOptions="Center" VerticalOptions="End">
 
             <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
             <Image x:Name="Ring"
@@ -207,7 +219,7 @@
                 TextColor="White"
                 HorizontalTextAlignment="Center"
                 LineBreakMode="TailTruncation"
-                MaximumWidthRequest="180"
+                MaximumWidthRequest="148"
                 Padding="8,3"
                 BackgroundColor="#CC202020" />
         </VerticalStackLayout>

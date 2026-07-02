@@ -11,7 +11,7 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
         // Intentionally no-op: the floating overlay is a desktop-only surface.
     }
 
-    public void Resize(double widthDip, double heightDip, bool anchorLeft = false)
+    public void Resize(double widthDip, double heightDip, WindowAnchor anchor = WindowAnchor.Center)
     {
         // Intentionally no-op: the floating overlay is a desktop-only surface.
     }
@@ -24,6 +24,8 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
     public (int X, int Y) GetPosition() => (0, 0);
 
     public (int Width, int Height) GetSize() => (0, 0);
+
+    public (int X, int Y, int Width, int Height) GetWorkArea() => (0, 0, 0, 0);
 
     public void MoveTo(int x, int y)
     {
