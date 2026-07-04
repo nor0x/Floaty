@@ -46,6 +46,14 @@
                         IsVisible="False"
                         MaximumHeightRequest="240"
                         ItemTemplate="{StaticResource ChatListSelector}" />
+                    <CollectionView x:Name="ConversationList"
+                        Grid.Row="0"
+                        SelectionMode="Single"
+                        SelectionChanged="OnConversationSelectionChanged"
+                        VerticalScrollBarVisibility="Never"
+                        IsVisible="False"
+                        MaximumHeightRequest="240"
+                        ItemTemplate="{StaticResource ConversationTemplate}" />
                     <Border x:Name="SlashSuggestionsPanel"
                         Grid.Row="1"
                         Margin="-5,0,15,0"

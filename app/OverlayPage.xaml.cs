@@ -123,6 +123,8 @@ public partial class OverlayPage : ContentPage
     private string _activeSlashToken = string.Empty;
     private bool _suppressEntryTextChanged;
     private bool _updatingSlashSelection;
+    private int _conversationSelectedIndex = -1;
+    private bool _updatingConversationSelection;
 
 #if WINDOWS
     private Microsoft.UI.Xaml.Controls.TextBox? _chatEntryTextBox;
@@ -737,6 +739,71 @@ public partial class OverlayPage : ContentPage
         }
     }
 
+    private void MoveSlashSelection(int delta)
+    {
+        var count = _filteredSlashCommands.Count;
+        if (count == 0)
+            return;
+
+        var start = _slashSelectedIndex < 0 ? 0 : _slashSelectedIndex;
+        var next = ((start + delta) % count + count) % count; // wrap-around
+        SetSlashSelection(next);
+    }
+
+    private void SetConversationSelection(int index)
+    {
+        if (_conversationItems.Count == 0)
+        {
+            _conversationSelectedIndex = -1;
+            return;
+        }
+
+        _conversationSelectedIndex = Math.Clamp(index, 0, _conversationItems.Count - 1);
+        _updatingConversationSelection = true;
+        try
+        {
+            var selected = _conversationItems[_conversationSelectedIndex];
+            ConversationList.SelectedItem = selected;
+            ConversationList.ScrollTo(selected, position: ScrollToPosition.MakeVisible, animate: true);
+        }
+        finally
+        {
+            _updatingConversationSelection = false;
+        }
+    }
+
+    private void MoveConversationSelection(int delta)
+    {
+        var count = _conversationItems.Count;
+        if (count == 0)
+            return;
+
+        var start = _conversationSelectedIndex < 0 ? 0 : _conversationSelectedIndex;
+        var next = ((start + delta) % count + count) % count; // wrap-around
+        SetConversationSelection(next);
+    }
+
+    private void OpenSelectedConversation()
+    {
+        if (_conversationSelectedIndex < 0 || _conversationSelectedIndex >= _conversationItems.Count)
+            return;
+
+        // Reuse each row's existing OpenCommand (NewConversation or OpenConversation(id)),
+        // both of which call ExitListMode() themselves.
+        _conversationItems[_conversationSelectedIndex].OpenCommand.Execute(null);
+    }
+
+    private void OnConversationSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingConversationSelection)
+            return;
+
+        if (e.CurrentSelection.FirstOrDefault() is not ConversationItemVm item)
+            return;
+
+        _conversationSelectedIndex = _conversationItems.IndexOf(item);
+    }
+
     private SlashCommand? GetSelectedSlashCommand()
     {
         if (_slashSelectedIndex < 0 || _slashSelectedIndex >= _filteredSlashCommands.Count)
@@ -1047,10 +1114,11 @@ public partial class OverlayPage : ContentPage
         PersistCurrentConversation();
         BuildConversationItems();
         _listMode = true;
-        MessagesList.ItemsSource = _conversationItems;
-        MessagesList.IsVisible = true;
-        if (_conversationItems.Count > 0)
-            MessagesList.ScrollTo(_conversationItems[0], position: ScrollToPosition.Start, animate: false);
+        ConversationList.ItemsSource = _conversationItems;
+        MessagesList.IsVisible = false;
+        ConversationList.IsVisible = true;
+        SetConversationSelection(0);   // "New conversation" row is index 0
+        ChatEntry.Focus();             // ensure Up/Down/Enter reach OnChatEntryTextBoxKeyDown
     }
 
     private void BuildConversationItems()
@@ -1114,7 +1182,17 @@ public partial class OverlayPage : ContentPage
     private void ExitListMode()
     {
         _listMode = false;
-        MessagesList.ItemsSource = Messages;
+        ConversationList.IsVisible = false;
+        _conversationSelectedIndex = -1;
+        _updatingConversationSelection = true;
+        try
+        {
+            ConversationList.SelectedItem = null;
+        }
+        finally
+        {
+            _updatingConversationSelection = false;
+        }
         MessagesList.IsVisible = Messages.Count > 0;
     }
 
@@ -1325,13 +1403,60 @@ public partial class OverlayPage : ContentPage
 #if WINDOWS
     private void OnChatEntryTextBoxKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
-        if (e.Key != Windows.System.VirtualKey.Tab)
-            return;
+        switch (e.Key)
+        {
+            case Windows.System.VirtualKey.Tab:
+                if (TryAutocompleteSelectedCommand())
+                    e.Handled = true;
+                return;
 
-        if (!TryAutocompleteSelectedCommand())
-            return;
+            case Windows.System.VirtualKey.Down:
+                if (_slashSuggestionsVisible)
+                {
+                    MoveSlashSelection(1);
+                    e.Handled = true;
+                }
+                else if (_listMode)
+                {
+                    MoveConversationSelection(1);
+                    e.Handled = true;
+                }
+                return;
 
-        e.Handled = true;
+            case Windows.System.VirtualKey.Up:
+                if (_slashSuggestionsVisible)
+                {
+                    MoveSlashSelection(-1);
+                    e.Handled = true;
+                }
+                else if (_listMode)
+                {
+                    MoveConversationSelection(-1);
+                    e.Handled = true;
+                }
+                return;
+
+            case Windows.System.VirtualKey.Enter:
+                if (_listMode)
+                {
+                    OpenSelectedConversation();
+                    e.Handled = true;
+                }
+                return;
+
+            case Windows.System.VirtualKey.Escape:
+                if (_slashSuggestionsVisible)
+                {
+                    HideSlashSuggestions();
+                    e.Handled = true;
+                }
+                else if (_listMode)
+                {
+                    ExitListMode();
+                    e.Handled = true;
+                }
+                return;
+        }
     }
 #endif
 
