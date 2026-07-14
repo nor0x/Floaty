@@ -2,6 +2,7 @@
 @inject SkillService SkillService
 @inject UpdateService UpdateService
 @using Floaty.Services
+@implements IDisposable
 
 <div class="settings">
     <header class="settings-header">
@@ -94,6 +95,19 @@
                         Built-ins come from app resources. Add your own images to <code>~/.floaty/ring</code> and click
                         Reload.
                     </span>
+                </div>
+
+                <div class="field">
+                    <label for="ringSize">Ring size</label>
+                    <div class="ring-size-row">
+                        <input id="ringSize" type="range"
+                               min="@SettingsService.RingMinSize" max="@SettingsService.RingMaxSize" step="1"
+                               value="@((int)_config.RingSize)"
+                               @oninput="OnRingSizeInput" />
+                        <span class="ring-size-value">@((int)_config.RingSize) px</span>
+                    </div>
+                    <span class="hint">Drag to resize the overlay ring — it updates live. You can also hold
+                        <code>Ctrl</code> and scroll over the ring.</span>
                 </div>
 
                 <div class="actions sub-actions">
@@ -424,6 +438,7 @@
             EmbeddingModel = current.EmbeddingModel,
             SnapshotModel = current.SnapshotModel,
             RingImageFileName = current.RingImageFileName,
+            RingSize = current.RingSize,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
         };
@@ -682,6 +697,23 @@
         _saved = false;
     }
 
+    // Live-preview the ring size on the overlay as the slider moves; committed only on Save.
+    private void OnRingSizeInput(ChangeEventArgs e)
+    {
+        var raw = Convert.ToString(e.Value, System.Globalization.CultureInfo.InvariantCulture);
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var size))
+            return;
+
+        _config.RingSize = SettingsService.ClampRingSize(size);
+        _saved = false;
+        ConfigService.PreviewRingSize(_config.RingSize);
+    }
+
+    // If the settings window closes without saving, revert any live ring-size preview to the
+    // persisted value so the overlay doesn't keep an uncommitted size.
+    public void Dispose() => ConfigService.PreviewRingSize(ConfigService.Current.RingSize);
+
     private bool IsSelectedRing(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -923,6 +955,34 @@
         overflow-x: auto;
         padding: 4px 2px 6px;
         scrollbar-width: thin;
+    }
+
+    .ring-size-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .ring-size-row input[type="range"] {
+        flex: 1;
+        padding: 0;
+        border: none;
+        background: transparent;
+        accent-color: #2b7fff;
+        cursor: pointer;
+    }
+
+    .ring-size-row input[type="range"]:focus {
+        box-shadow: none;
+    }
+
+    .ring-size-value {
+        min-width: 52px;
+        text-align: right;
+        font-size: 13px;
+        font-weight: 600;
+        color: #2d2d31;
+        font-variant-numeric: tabular-nums;
     }
 
     .ring-option {

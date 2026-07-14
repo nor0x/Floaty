@@ -31,12 +31,34 @@ public sealed class SettingsService
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <summary>Smallest allowed ring diameter (device-independent units).</summary>
+    public const double RingMinSize = 96;
+
+    /// <summary>Largest allowed ring diameter (device-independent units).</summary>
+    public const double RingMaxSize = 288;
+
+    /// <summary>Default ring diameter used when unset or out of range.</summary>
+    public const double RingDefaultSize = 148;
+
     private readonly string _configPath;
     private readonly string _systemPromptPath;
     private FloatyConfig? _current;
 
     /// <summary>Raised after <see cref="Save"/> writes new config, so dependents (e.g. ChatService) can refresh.</summary>
     public event EventHandler? Changed;
+
+    /// <summary>
+    /// Raised while the user drags the ring-size slider so the live overlay can preview the size
+    /// without persisting. The argument is the requested (unclamped) diameter in device-independent units.
+    /// </summary>
+    public event EventHandler<double>? RingSizePreviewRequested;
+
+    /// <summary>Requests a transient ring-size preview on the live overlay (see <see cref="RingSizePreviewRequested"/>).</summary>
+    public void PreviewRingSize(double size) => RingSizePreviewRequested?.Invoke(this, size);
+
+    /// <summary>Clamps a ring diameter into the supported range, falling back to the default when unset/invalid.</summary>
+    public static double ClampRingSize(double size) =>
+        size <= 0 ? RingDefaultSize : Math.Clamp(size, RingMinSize, RingMaxSize);
 
     public SettingsService()
     {

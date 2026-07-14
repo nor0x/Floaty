@@ -50,15 +50,31 @@ public partial class OverlayPage : ContentPage
     private bool _listMode;
     private readonly ObservableCollection<ConversationItemVm> _conversationItems = new();
 
-    // Ring image width (matches the Ring's WidthRequest in XAML). The compact window hugs the ring
-    // so it sits flush against both window edges, letting the chat panel open to either side with
-    // the ring staying visually put.
-    private const double RingWidthDip = 148;
+    // Current ring diameter in device-independent units, driven by the user's setting (Appearance
+    // slider / Ctrl+scroll). All window dimensions below are derived from it so the window keeps
+    // hugging the ring as its size changes.
+    private double _ringSize = SettingsService.RingDefaultSize;
 
-    // Compact (chat closed) vs expanded (chat open) overlay window sizes, in device-independent units.
-    private const double CompactWidth = 150;
-    private const double CompactHeight = 250;
+    // Extras layered on top of the ring diameter to derive window dimensions. Chosen so the historical
+    // 148-dip ring reproduces the original 150×250 compact window and 196-dip chat base height.
+    private const double CompactWidthPadding = 2;  // 150 - 148
+    private const double CompactHeightExtra = 102; // 250 - 148
+    private const double ChatBaseExtra = 48;       // 196 - 148
+
+    // Ring image width (matches the Ring's WidthRequest). The compact window hugs the ring so it sits
+    // flush against both window edges, letting the chat panel open to either side with the ring
+    // staying visually put.
+    private double RingWidthDip => _ringSize;
+
+    // Compact (chat closed) overlay window size, in device-independent units; grows with the ring.
+    private double CompactWidth => _ringSize + CompactWidthPadding;
+    private double CompactHeight => _ringSize + CompactHeightExtra;
     private const double ChatWidth = 360;
+
+    // Compact window size for a given ring diameter, so the initial window (App.CreateWindow) can be
+    // sized from the persisted setting before the page exists.
+    public static (double Width, double Height) CompactWindowSizeFor(double ringSize) =>
+        (ringSize + CompactWidthPadding, ringSize + CompactHeightExtra);
 
     // Which side of the ring the chat panel currently occupies. Chosen from available screen space
     // when the chat opens, and re-evaluated after the ring is dragged or summoned (see ApplyChatSide).
@@ -72,7 +88,8 @@ public partial class OverlayPage : ContentPage
 
     // Height reserved for the ring + action bar (everything below the chat panel). The chat window
     // height is this plus the chat panel's own measured height, so the window grows with the panel.
-    private const double ChatBaseHeight = 196;
+    // Grows with the ring so a larger ring still gets the room it needs at the window's base.
+    private double ChatBaseHeight => _ringSize + ChatBaseExtra;
 
     // Last window height we requested from the panel's SizeChanged, to avoid redundant resizes / oscillation.
     private double _lastChatWindowHeight;
@@ -85,10 +102,16 @@ public partial class OverlayPage : ContentPage
     private const int IdleSpinIntervalMs = 33; // ~30 fps
     private IDispatcherTimer? _idleSpinTimer;
 
+    // Debounces persisting the ring size to config while the user drags/scrolls, so we write once
+    // the gesture settles rather than on every wheel notch.
+    private IDispatcherTimer? _ringSizePersistTimer;
+
 #if WINDOWS
     // Mouse wheel tuning: each wheel delta unit rotates this many degrees, then idle spin
     // resumes after a short period without wheel activity.
     private const double WheelRotationPerDelta = 0.15;
+    // Ctrl+scroll resizes instead of spinning: this many device-independent units per wheel notch.
+    private const double RingSizeWheelStep = 10;
     private const int ManualWheelResumeDelayMs = 400;
     private DateTime _manualWheelResumeAtUtc = DateTime.MinValue;
     private Microsoft.UI.Xaml.FrameworkElement? _ringPlatformView;
@@ -168,7 +191,9 @@ public partial class OverlayPage : ContentPage
         Ring.HandlerChanged += OnRingHandlerChanged;
 
         _settings.Changed += OnSettingsChanged;
+        _settings.RingSizePreviewRequested += OnRingSizePreviewRequested;
         ApplyRingImage();
+        ApplyRingSize(_settings.Current.RingSize);
         RebuildSlashCommands();
 
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
@@ -181,6 +206,7 @@ public partial class OverlayPage : ContentPage
         Dispatcher.Dispatch(() =>
         {
             ApplyRingImage();
+            ApplyRingSize(_settings.Current.RingSize);
             RebuildSlashCommands();
         });
 
@@ -222,6 +248,69 @@ public partial class OverlayPage : ContentPage
 
         var selectedPath = _settings.GetRingImageFullPath(selected);
         Ring.Source = selectedPath is null ? "ring1.png" : ImageSource.FromFile(selectedPath);
+    }
+
+    // Apply a ring diameter (clamped): resize the ring image and the overlay window to match, so the
+    // window keeps hugging the ring. Used for the initial size, saved changes, live slider preview,
+    // and Ctrl+scroll.
+    private void ApplyRingSize(double size)
+    {
+        _ringSize = SettingsService.ClampRingSize(size);
+        Ring.WidthRequest = _ringSize;
+        Ring.HeightRequest = _ringSize;
+        ResizeWindowToRing();
+    }
+
+    // Live preview from the Appearance slider: apply the size without persisting (the settings page
+    // reverts to the saved value when it closes without a Save).
+    private void OnRingSizePreviewRequested(object? sender, double size) =>
+        Dispatcher.Dispatch(() => ApplyRingSize(size));
+
+    // Resize the overlay window to fit the current ring. While compact the window hugs the ring
+    // (grown from its bottom-center so the ring stays put); while the chat is open the ring's base
+    // region grows with ChatBaseHeight, keeping the ring's flush edge anchored.
+    private void ResizeWindowToRing()
+    {
+        if (_chatAnimating)
+            return;
+
+        if (_chatOpen)
+        {
+            var panelHeight = ChatPanel.Height > 0 ? ChatPanel.Height : 80;
+            var target = ChatBaseHeight + panelHeight;
+            _lastChatWindowHeight = target;
+            _windowController.Resize(_chatWidth, target, ChatAnchor);
+        }
+        else
+        {
+            _windowController.Resize(CompactWidth, CompactHeight, WindowAnchor.Center);
+        }
+    }
+
+    // Persist the current ring size to config, debounced so a drag/scroll gesture writes once it
+    // settles rather than on every wheel notch.
+    private void SchedulePersistRingSize()
+    {
+        _ringSizePersistTimer ??= CreateRingSizePersistTimer();
+        _ringSizePersistTimer.Stop();
+        _ringSizePersistTimer.Start();
+    }
+
+    private IDispatcherTimer CreateRingSizePersistTimer()
+    {
+        var timer = Dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(500);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            var config = _settings.Current;
+            if (Math.Abs(config.RingSize - _ringSize) < 0.5)
+                return;
+            config.RingSize = _ringSize;
+            _settings.Save(config);
+        };
+        return timer;
     }
 
     // Continuously rotate the ring by a small amount each tick, unless a drag/summon is in control.
@@ -1382,11 +1471,24 @@ public partial class OverlayPage : ContentPage
 
     private void OnRingPointerWheelChanged(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
-        if (_ringBusy || !_ringPointerOver || _ringPlatformView is null)
+        if (!_ringPointerOver || _ringPlatformView is null)
             return;
 
         var delta = e.GetCurrentPoint(_ringPlatformView).Properties.MouseWheelDelta;
         if (delta == 0)
+            return;
+
+        // Ctrl+scroll resizes the ring (persisted, debounced); plain scroll spins it.
+        var ctrlDown = (e.KeyModifiers & Windows.System.VirtualKeyModifiers.Control) != 0;
+        if (ctrlDown)
+        {
+            ApplyRingSize(_ringSize + (delta / 120.0) * RingSizeWheelStep);
+            SchedulePersistRingSize();
+            e.Handled = true;
+            return;
+        }
+
+        if (_ringBusy)
             return;
 
         _manualWheelResumeAtUtc = DateTime.UtcNow.AddMilliseconds(ManualWheelResumeDelayMs);

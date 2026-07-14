@@ -29,6 +29,12 @@ public sealed class FloatyConfig
     /// </summary>
     public string RingImageFileName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Ring diameter in device-independent units. Defaults to <see cref="SettingsService.RingDefaultSize"/>;
+    /// adjustable via the Appearance slider or Ctrl+scroll over the ring. Clamped on load.
+    /// </summary>
+    public double RingSize { get; set; } = 148;
+
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
 
