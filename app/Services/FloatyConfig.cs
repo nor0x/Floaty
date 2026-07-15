@@ -35,6 +35,12 @@ public sealed class FloatyConfig
     /// </summary>
     public double RingSize { get; set; } = 148;
 
+    /// <summary>
+    /// Accent hex color ("#rrggbb") used for buttons, chat bubbles, and highlights.
+    /// Invalid values fall back to <see cref="AccentPalette.DefaultHex"/> on use.
+    /// </summary>
+    public string AccentColor { get; set; } = AccentPalette.DefaultHex;
+
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
 

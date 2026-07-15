@@ -75,7 +75,7 @@
                                         <Label Grid.Column="0"
                                             Text="{Binding Icon}"
                                             FontFamily="TablerIconsLine"
-                                            TextColor="#9FC5FF"
+                                            TextColor="{DynamicResource AccentIconOnDarkColor}"
                                             FontSize="15"
                                             VerticalOptions="Center"
                                             WidthRequest="18"
@@ -141,7 +141,7 @@
                                     Padding="0"
                                     CornerRadius="0"
                                     FontSize="16"
-                                    BackgroundColor="#3A6DF0"
+                                    BackgroundColor="{DynamicResource AccentColor}"
                                     TextColor="White" />
                             </Grid>
                         </Border>
@@ -235,6 +235,10 @@
     </Grid>
 
     <ContentPage.Resources>
+        <!-- Accent colors; replaced at runtime from the configured accent (see ApplyAccentColor). -->
+        <Color x:Key="AccentColor">#2b7fff</Color>
+        <Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
+
         <Style x:Key="OverlayButton" TargetType="Button">
             <Setter Property="WidthRequest" Value="36" />
             <Setter Property="HeightRequest" Value="36" />

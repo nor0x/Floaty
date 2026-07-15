@@ -108,8 +108,14 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     /// <summary>User bubbles hug the right edge, assistant bubbles the left.</summary>
     public LayoutOptions Alignment => IsUser ? LayoutOptions.End : LayoutOptions.Start;
 
-    /// <summary>Blue for the user, neutral gray for the assistant.</summary>
-    public Color BubbleColor => IsUser ? Color.FromArgb("#3A6DF0") : Color.FromArgb("#3A3A3F");
+    /// <summary>Current accent for user bubbles; set by OverlayPage from settings/preview.</summary>
+    public static Color UserBubbleColor { get; set; } = Color.FromArgb(Floaty.Services.AccentPalette.DefaultHex);
+
+    /// <summary>Accent for the user, neutral gray for the assistant.</summary>
+    public Color BubbleColor => IsUser ? UserBubbleColor : Color.FromArgb("#3A3A3F");
+
+    /// <summary>Re-raises <see cref="BubbleColor"/> after the accent changes so bound bubbles repaint.</summary>
+    public void RefreshBubbleColor() => OnPropertyChanged(nameof(BubbleColor));
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

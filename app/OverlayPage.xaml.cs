@@ -192,8 +192,10 @@ public partial class OverlayPage : ContentPage
 
         _settings.Changed += OnSettingsChanged;
         _settings.RingSizePreviewRequested += OnRingSizePreviewRequested;
+        _settings.AccentColorPreviewRequested += OnAccentColorPreviewRequested;
         ApplyRingImage();
         ApplyRingSize(_settings.Current.RingSize);
+        ApplyAccentColor(_settings.Current.AccentColor);
         RebuildSlashCommands();
 
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
@@ -207,6 +209,7 @@ public partial class OverlayPage : ContentPage
         {
             ApplyRingImage();
             ApplyRingSize(_settings.Current.RingSize);
+            ApplyAccentColor(_settings.Current.AccentColor);
             RebuildSlashCommands();
         });
 
@@ -265,6 +268,23 @@ public partial class OverlayPage : ContentPage
     // reverts to the saved value when it closes without a Save).
     private void OnRingSizePreviewRequested(object? sender, double size) =>
         Dispatcher.Dispatch(() => ApplyRingSize(size));
+
+    // Live preview from the Appearance accent picker: apply without persisting (the settings page
+    // reverts to the saved value when it closes without a Save).
+    private void OnAccentColorPreviewRequested(object? sender, string hex) =>
+        Dispatcher.Dispatch(() => ApplyAccentColor(hex));
+
+    // Recolor accent surfaces: the send button and slash-menu icon resolve via DynamicResource,
+    // user chat bubbles via the shared static + per-message property refresh.
+    private void ApplyAccentColor(string? hex)
+    {
+        var palette = AccentPalette.From(hex);
+        Resources["AccentColor"] = Color.FromArgb(palette.Base);
+        Resources["AccentIconOnDarkColor"] = Color.FromArgb(palette.IconOnDark);
+        ChatMessageVm.UserBubbleColor = Color.FromArgb(palette.Base);
+        foreach (var message in Messages)
+            message.RefreshBubbleColor();
+    }
 
     // Resize the overlay window to fit the current ring. While compact the window hugs the ring
     // (grown from its bottom-center so the ring stays put); while the chat is open the ring's base

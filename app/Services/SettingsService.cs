@@ -56,6 +56,18 @@ public sealed class SettingsService
     /// <summary>Requests a transient ring-size preview on the live overlay (see <see cref="RingSizePreviewRequested"/>).</summary>
     public void PreviewRingSize(double size) => RingSizePreviewRequested?.Invoke(this, size);
 
+    /// <summary>
+    /// Raised while the user picks an accent color so the live overlay can preview it
+    /// without persisting. The argument is the requested hex color.
+    /// </summary>
+    public event EventHandler<string>? AccentColorPreviewRequested;
+
+    /// <summary>Requests a transient accent-color preview on the live overlay (see <see cref="AccentColorPreviewRequested"/>).</summary>
+    public void PreviewAccentColor(string hex) => AccentColorPreviewRequested?.Invoke(this, hex);
+
+    /// <summary>Normalizes an accent hex color, falling back to the default when unset/invalid.</summary>
+    public static string NormalizeAccentColor(string? hex) => AccentPalette.Normalize(hex);
+
     /// <summary>Clamps a ring diameter into the supported range, falling back to the default when unset/invalid.</summary>
     public static double ClampRingSize(double size) =>
         size <= 0 ? RingDefaultSize : Math.Clamp(size, RingMinSize, RingMaxSize);

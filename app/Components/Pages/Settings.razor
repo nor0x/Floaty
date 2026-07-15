@@ -4,7 +4,7 @@
 @using Floaty.Services
 @implements IDisposable
 
-<div class="settings">
+<div class="settings" style="@AccentPalette.From(_config.AccentColor).ToCssVariables()">
     <header class="settings-header">
         <h1><i class="ti ti-settings" aria-hidden="true"></i> Settings</h1>
         <p class="subtitle">Configure Floaty behavior and AI provider options.</p>
@@ -108,6 +108,23 @@
                     </div>
                     <span class="hint">Drag to resize the overlay ring — it updates live. You can also hold
                         <code>Ctrl</code> and scroll over the ring.</span>
+                </div>
+
+                <div class="field">
+                    <label>Accent color</label>
+                    <div class="accent-row" role="list" aria-label="Accent color options">
+                        @foreach (var preset in AccentPresets)
+                        {
+                            <button type="button" role="listitem"
+                                    class="accent-swatch @(IsSelectedAccent(preset.Value) ? "selected" : string.Empty)"
+                                    style="background:@preset.Value" title="@preset.Label"
+                                    @onclick="() => SelectAccent(preset.Value)"></button>
+                        }
+                        <input type="color" class="accent-custom" value="@_config.AccentColor"
+                               @oninput="OnAccentColorInput" title="Custom color" />
+                    </div>
+                    <span class="hint">Used for buttons, chat bubbles and highlights. Previews live; committed on
+                        Save.</span>
                 </div>
 
                 <div class="actions sub-actions">
@@ -399,6 +416,18 @@
 
     private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
 
+    private static readonly (string Label, string Value)[] AccentPresets =
+    [
+        ("Blue", "#2b7fff"),
+        ("Indigo", "#6366f1"),
+        ("Violet", "#8b5cf6"),
+        ("Pink", "#ec4899"),
+        ("Red", "#ef4444"),
+        ("Orange", "#f97316"),
+        ("Green", "#22c55e"),
+        ("Teal", "#14b8a6"),
+    ];
+
     private FloatyConfig _config = new();
     private string _systemPrompt = string.Empty;
     private List<RingImageOption> _ringOptions = new();
@@ -439,6 +468,7 @@
             SnapshotModel = current.SnapshotModel,
             RingImageFileName = current.RingImageFileName,
             RingSize = current.RingSize,
+            AccentColor = current.AccentColor,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
         };
@@ -710,9 +740,27 @@
         ConfigService.PreviewRingSize(_config.RingSize);
     }
 
-    // If the settings window closes without saving, revert any live ring-size preview to the
-    // persisted value so the overlay doesn't keep an uncommitted size.
-    public void Dispose() => ConfigService.PreviewRingSize(ConfigService.Current.RingSize);
+    private bool IsSelectedAccent(string value) =>
+        string.Equals(_config.AccentColor, value, StringComparison.OrdinalIgnoreCase);
+
+    // Live-preview the accent on the overlay as the user picks; committed only on Save.
+    private void SelectAccent(string value)
+    {
+        _config.AccentColor = SettingsService.NormalizeAccentColor(value);
+        _saved = false;
+        ConfigService.PreviewAccentColor(_config.AccentColor);
+    }
+
+    private void OnAccentColorInput(ChangeEventArgs e) =>
+        SelectAccent(Convert.ToString(e.Value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+
+    // If the settings window closes without saving, revert any live previews (ring size, accent)
+    // to the persisted values so the overlay doesn't keep uncommitted state.
+    public void Dispose()
+    {
+        ConfigService.PreviewRingSize(ConfigService.Current.RingSize);
+        ConfigService.PreviewAccentColor(ConfigService.Current.AccentColor);
+    }
 
     private bool IsSelectedRing(string value)
     {
@@ -733,6 +781,14 @@
 
 <style>
     .settings {
+        /* Fallback accent palette; overridden by the inline style computed from the configured accent. */
+        --accent: #2b7fff;
+        --accent-hover: #2670e0;
+        --accent-deep: #1e59b2;
+        --accent-tint: #eef5ff;
+        --accent-tint-faint: #f6faff;
+        --accent-border: #bfd8ff;
+        --accent-glow: rgba(43, 127, 255, 0.15);
         max-width: 980px;
         margin: 0 auto;
         padding: 24px 28px 40px;
@@ -752,7 +808,7 @@
     .settings-header h1 .ti {
         font-size: 26px;
         line-height: 1;
-        color: #2b7fff;
+        color: var(--accent);
     }
 
     .settings-header .subtitle {
@@ -803,7 +859,7 @@
     }
 
     .tab.active .ti {
-        color: #0f53bd;
+        color: var(--accent-deep);
     }
 
     .tab:hover {
@@ -811,9 +867,9 @@
     }
 
     .tab.active {
-        background: #edf4ff;
-        border-color: #bfd6ff;
-        color: #0f53bd;
+        background: var(--accent-tint);
+        border-color: var(--accent-border);
+        color: var(--accent-deep);
     }
 
     .card {
@@ -875,8 +931,8 @@
 
     .field input:focus,
     .field textarea:focus {
-        border-color: #2b7fff;
-        box-shadow: 0 0 0 3px rgba(43, 127, 255, 0.15);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-glow);
         background: #fff;
     }
 
@@ -901,7 +957,7 @@
     }
 
     .save {
-        background: #2b7fff;
+        background: var(--accent);
         color: #fff;
         border: none;
         border-radius: 8px;
@@ -923,13 +979,13 @@
     }
 
     .save:hover {
-        background: #1f6ae0;
+        background: var(--accent-hover);
     }
 
     .reload {
-        background: #f1f4ff;
-        color: #1749a3;
-        border: 1px solid #c9d8ff;
+        background: var(--accent-tint-faint);
+        color: var(--accent-deep);
+        border: 1px solid var(--accent-border);
         border-radius: 8px;
         padding: 8px 14px;
         font-size: 13px;
@@ -941,7 +997,7 @@
     }
 
     .reload:hover {
-        background: #e8efff;
+        background: var(--accent-tint);
     }
 
     .sub-actions {
@@ -968,7 +1024,7 @@
         padding: 0;
         border: none;
         background: transparent;
-        accent-color: #2b7fff;
+        accent-color: var(--accent);
         cursor: pointer;
     }
 
@@ -1002,14 +1058,14 @@
     }
 
     .ring-option:hover {
-        border-color: #9bbcf6;
-        background: #f4f8ff;
+        border-color: var(--accent-border);
+        background: var(--accent-tint-faint);
     }
 
     .ring-option.selected {
-        border-color: #2b7fff;
-        background: #edf4ff;
-        box-shadow: 0 0 0 2px rgba(43, 127, 255, 0.16);
+        border-color: var(--accent);
+        background: var(--accent-tint);
+        box-shadow: 0 0 0 2px var(--accent-glow);
     }
 
     .ring-preview {
@@ -1049,6 +1105,38 @@
     .ring-kind {
         font-size: 11px;
         color: #6f6f76;
+    }
+
+    .accent-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .accent-swatch {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        padding: 0;
+    }
+
+    /* Neutral white gap + accent outline so the selection ring is visible on any hue. */
+    .accent-swatch.selected {
+        border-color: #fff;
+        box-shadow: 0 0 0 2px var(--accent);
+    }
+
+    .accent-custom {
+        width: 32px;
+        height: 30px;
+        border: 1px solid #d7dbe2;
+        border-radius: 6px;
+        padding: 2px;
+        background: #fff;
+        cursor: pointer;
     }
 
     .saved {
@@ -1102,7 +1190,7 @@
     }
 
     .whats-new .notes a {
-        color: #1f6ae0;
+        color: var(--accent-hover);
     }
 
     .mcp-list {
