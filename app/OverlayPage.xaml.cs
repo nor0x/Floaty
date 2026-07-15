@@ -151,6 +151,10 @@ public partial class OverlayPage : ContentPage
 
 #if WINDOWS
     private Microsoft.UI.Xaml.Controls.TextBox? _chatEntryTextBox;
+
+    // Shared brush behind the WinUI theme overrides (Entry focus underline, list selection
+    // indicators); mutated in ApplyAccentColor so already-rendered controls recolor live.
+    private readonly Microsoft.UI.Xaml.Media.SolidColorBrush _winAccentBrush = new();
 #endif
 
     // Cumulative pan offset reported on the previous PanUpdated event, used to derive per-frame deltas.
@@ -189,6 +193,8 @@ public partial class OverlayPage : ContentPage
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
         ChatEntry.HandlerChanged += OnChatEntryHandlerChanged;
         Ring.HandlerChanged += OnRingHandlerChanged;
+        MessagesList.HandlerChanged += OnListHandlerChanged;
+        SlashSuggestionsList.HandlerChanged += OnListHandlerChanged;
 
         _settings.Changed += OnSettingsChanged;
         _settings.RingSizePreviewRequested += OnRingSizePreviewRequested;
@@ -284,6 +290,10 @@ public partial class OverlayPage : ContentPage
         ChatMessageVm.UserBubbleColor = Color.FromArgb(palette.Base);
         foreach (var message in Messages)
             message.RefreshBubbleColor();
+
+#if WINDOWS
+        _winAccentBrush.Color = Microsoft.Maui.Platform.ColorExtensions.ToWindowsColor(Color.FromArgb(palette.Base));
+#endif
     }
 
     // Resize the overlay window to fit the current ring. While compact the window hugs the ring
@@ -1458,7 +1468,24 @@ public partial class OverlayPage : ContentPage
 
         _chatEntryTextBox = ChatEntry.Handler?.PlatformView as Microsoft.UI.Xaml.Controls.TextBox;
         if (_chatEntryTextBox is not null)
+        {
             _chatEntryTextBox.KeyDown += OnChatEntryTextBoxKeyDown;
+
+            // WinUI's focused underline and text-selection highlight come from theme resources
+            // (system accent); repoint them at the configured accent (lightweight styling).
+            _chatEntryTextBox.Resources["TextControlBorderBrushFocused"] = _winAccentBrush;
+            _chatEntryTextBox.Resources["TextControlSelectionHighlightColor"] = _winAccentBrush;
+        }
+#endif
+    }
+
+    // WinUI draws a system-accent selection pill on ListView items (slash-command list, /chats
+    // conversation list); repoint that theme brush at the configured accent.
+    private void OnListHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        if ((sender as VisualElement)?.Handler?.PlatformView is Microsoft.UI.Xaml.FrameworkElement fe)
+            fe.Resources["ListViewItemSelectionIndicatorBrush"] = _winAccentBrush;
 #endif
     }
 
