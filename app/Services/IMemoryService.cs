@@ -21,12 +21,32 @@ public sealed record MemoryCitation(string Title, string? ImagePath, string? Tex
 /// </summary>
 public interface IMemoryService
 {
+    /// <summary>Source tag for captures the user took explicitly (📷 button, /capture).</summary>
+    const string ManualCaptureSource = "manual";
+
+    /// <summary>Source tag for captures recorded automatically by screen history.</summary>
+    const string AutoCaptureSource = "auto";
+
     /// <summary>
     /// Embeds the capture's content and stores it as a graph node. Returns <c>false</c> when there's
     /// nothing to do (no API key configured or empty content); throws on hard failures so the caller
-    /// can surface the error.
+    /// can surface the error. <paramref name="source"/> tags who recorded the memory
+    /// (<see cref="ManualCaptureSource"/> or <see cref="AutoCaptureSource"/>) so screen history can
+    /// be cleared without touching manual captures.
     /// </summary>
-    Task<bool> RememberCaptureAsync(CaptureResult capture, CancellationToken cancellationToken = default);
+    Task<bool> RememberCaptureAsync(
+        CaptureResult capture,
+        string source = ManualCaptureSource,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Counts stored auto-captures (screen history entries).</summary>
+    Task<int> CountAutoCapturesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes all auto-captures (nodes plus their on-disk capture files) and returns how many were
+    /// removed. Manual captures and notes are untouched.
+    /// </summary>
+    Task<int> DeleteAutoCapturesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Embeds <paramref name="query"/> and returns the most semantically similar stored captures.

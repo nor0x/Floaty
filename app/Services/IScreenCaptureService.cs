@@ -17,4 +17,15 @@ public interface IScreenCaptureService
     /// no suitable window (e.g. only the desktop is visible) or the platform doesn't support capture.
     /// </summary>
     Task<CaptureResult?> CaptureUnderlyingWindowAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Captures a specific top-level window (used by automatic screen history). When
+    /// <paramref name="includeScreenshot"/> is false only the accessibility text is written and
+    /// <see cref="CaptureResult.ImagePath"/> is empty. Returns <c>null</c> when the window is no
+    /// longer a valid capture target or the platform doesn't support capture.
+    /// </summary>
+    Task<CaptureResult?> CaptureWindowAsync(
+        nint hwnd,
+        bool includeScreenshot,
+        CancellationToken cancellationToken = default);
 }

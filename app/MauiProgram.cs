@@ -45,12 +45,16 @@ public static class MauiProgram
 #if WINDOWS
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.Windows.WindowsOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, Floaty.Platforms.Windows.WindowsScreenCaptureService>();
+		// Automatic screen history: captures the foreground window into memory on window/tab switches.
+		builder.Services.AddSingleton<IScreenHistoryService, Floaty.Platforms.Windows.WindowsScreenHistoryService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
+		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
+		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
 #endif
 
 		ConfigureOverlayWindow(builder);
@@ -74,6 +78,16 @@ public static class MauiProgram
 					is Floaty.Platforms.Windows.WindowsOverlayWindowController controller)
 				{
 					controller.Initialize(nativeWindow);
+				}
+
+				// Screen history hooks live on the overlay window's dispatcher (it pumps messages).
+				// Initialize only takes effect on the first window (the overlay); teardown is tied to
+				// that window alone so closing Settings doesn't unhook a running history.
+				if (IPlatformApplication.Current?.Services.GetService<IScreenHistoryService>()
+						is Floaty.Platforms.Windows.WindowsScreenHistoryService screenHistory
+					&& screenHistory.Initialize(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()))
+				{
+					nativeWindow.Closed += (_, _) => screenHistory.Shutdown();
 				}
 			}));
 #elif MACCATALYST

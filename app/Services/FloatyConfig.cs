@@ -1,4 +1,21 @@
+using System.Text.Json.Serialization;
+
 namespace Floaty.Services;
+
+/// <summary>
+/// What Floaty records into memory when the foreground window (or its title) changes.
+/// </summary>
+public enum ScreenHistoryMode
+{
+    /// <summary>Nothing is recorded.</summary>
+    Disabled,
+
+    /// <summary>Only the window's accessibility text is captured and embedded.</summary>
+    TextOnly,
+
+    /// <summary>Accessibility text plus a PNG of the window (described by the snapshot model, if set).</summary>
+    TextAndScreenshot,
+}
 
 /// <summary>
 /// User-editable configuration for Floaty, persisted as JSON in <c>~/.floaty/config.json</c>.
@@ -40,6 +57,13 @@ public sealed class FloatyConfig
     /// Invalid values fall back to <see cref="AccentPalette.DefaultHex"/> on use.
     /// </summary>
     public string AccentColor { get; set; } = AccentPalette.DefaultHex;
+
+    /// <summary>
+    /// What gets auto-captured into memory when the user switches windows (or tabs, via title
+    /// changes). Stored as a string ("TextOnly") so config.json stays hand-editable.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ScreenHistoryMode ScreenHistoryMode { get; set; } = ScreenHistoryMode.TextOnly;
 
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();

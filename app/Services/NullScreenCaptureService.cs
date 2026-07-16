@@ -8,4 +8,10 @@ public sealed class NullScreenCaptureService : IScreenCaptureService
 {
     public Task<CaptureResult?> CaptureUnderlyingWindowAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<CaptureResult?>(null);
+
+    public Task<CaptureResult?> CaptureWindowAsync(
+        nint hwnd,
+        bool includeScreenshot,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<CaptureResult?>(null);
 }

@@ -42,7 +42,10 @@ public sealed class MemoryService : IMemoryService
         };
     }
 
-    public async Task<bool> RememberCaptureAsync(CaptureResult capture, CancellationToken cancellationToken = default)
+    public async Task<bool> RememberCaptureAsync(
+        CaptureResult capture,
+        string source = IMemoryService.ManualCaptureSource,
+        CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
         if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(capture.Content))
@@ -50,6 +53,7 @@ public sealed class MemoryService : IMemoryService
 
         // Ask the vision (snapshot) model to describe the screenshot, then store its words alongside
         // the plain accessibility text. Best-effort: a null description just means text-only memory.
+        // Text-only history captures arrive with an empty ImagePath, which skips the vision call.
         var description = await DescribeScreenshotAsync(capture.ImagePath, config, cancellationToken);
 
         // Order: title -> screenshot description -> on-screen text, so the description survives the
@@ -78,6 +82,7 @@ public sealed class MemoryService : IMemoryService
                 capture.WindowTitle,
                 SnapshotDescription = description,
                 CapturedUtc = DateTime.UtcNow,
+                Source = source,
             },
             content: text,
             config: config,
@@ -231,7 +236,7 @@ public sealed class MemoryService : IMemoryService
                 includeData: true, includeSubordinates: true, cancellationToken);
 
             var content = node?.Vectors?.FirstOrDefault()?.Content ?? string.Empty;
-            var (imagePath, textPath, capturedUtc) = ParseCaptureData(node?.Data);
+            var (imagePath, textPath, capturedUtc, _) = ParseCaptureData(node?.Data);
 
             results.Add(new CaptureSearchResult(
                 Title: node?.Name ?? hit.Node.Name ?? "Capture",
@@ -247,10 +252,10 @@ public sealed class MemoryService : IMemoryService
 
     // Best-effort extraction of the metadata we stored in Node.Data. Survives whatever concrete type
     // LiteGraph rehydrates Data into by round-tripping through JSON.
-    private static (string? ImagePath, string? TextPath, DateTime? CapturedUtc) ParseCaptureData(object? data)
+    private static (string? ImagePath, string? TextPath, DateTime? CapturedUtc, string? Source) ParseCaptureData(object? data)
     {
         if (data is null)
-            return (null, null, null);
+            return (null, null, null, null);
 
         try
         {
@@ -263,11 +268,75 @@ public sealed class MemoryService : IMemoryService
                 ? dt
                 : null;
 
-            return (Str("ImagePath"), Str("TextPath"), capturedUtc);
+            return (Str("ImagePath"), Str("TextPath"), capturedUtc, Str("Source"));
         }
         catch
         {
-            return (null, null, null);
+            return (null, null, null, null);
+        }
+    }
+
+    public async Task<int> CountAutoCapturesAsync(CancellationToken cancellationToken = default)
+    {
+        var count = 0;
+        await foreach (var _ in EnumerateAutoCapturesAsync(cancellationToken))
+            count++;
+        return count;
+    }
+
+    public async Task<int> DeleteAutoCapturesAsync(CancellationToken cancellationToken = default)
+    {
+        var client = await GetClientAsync(cancellationToken);
+
+        // Materialize first: deleting while enumerating the same SQLite-backed cursor is asking for trouble.
+        var doomed = new List<Node>();
+        await foreach (var node in EnumerateAutoCapturesAsync(cancellationToken))
+            doomed.Add(node);
+
+        foreach (var node in doomed)
+        {
+            await client.Node.DeleteByGuid(TenantGuid, GraphGuid, node.GUID, cancellationToken);
+
+            // Best-effort file cleanup; a missing or locked file must not abort the sweep.
+            var (imagePath, textPath, _, _) = ParseCaptureData(node.Data);
+            TryDeleteFile(imagePath);
+            TryDeleteFile(textPath);
+        }
+
+        return doomed.Count;
+    }
+
+    private async IAsyncEnumerable<Node> EnumerateAutoCapturesAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var client = await GetClientAsync(cancellationToken);
+
+        // Filter Source in-process via the same JSON round-trip used elsewhere; auto-capture volume
+        // is modest and this avoids depending on LiteGraph's Data-path filter semantics.
+        await foreach (var node in client.Node.ReadMany(
+            TenantGuid, GraphGuid,
+            labels: new List<string> { "Capture" },
+            includeData: true,
+            token: cancellationToken))
+        {
+            var (_, _, _, source) = ParseCaptureData(node.Data);
+            if (source == IMemoryService.AutoCaptureSource)
+                yield return node;
+        }
+    }
+
+    private static void TryDeleteFile(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return;
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch
+        {
+            // Leaving an orphaned capture file behind is acceptable; failing the cleanup is not.
         }
     }
 

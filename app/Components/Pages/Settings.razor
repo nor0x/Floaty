@@ -1,6 +1,7 @@
 @inject SettingsService ConfigService
 @inject SkillService SkillService
 @inject UpdateService UpdateService
+@inject IMemoryService MemoryService
 @using Floaty.Services
 @implements IDisposable
 
@@ -26,6 +27,11 @@
                     @onclick="() => SelectSection(SettingsSection.ModelProvider)">
                 <i class="ti ti-cpu" aria-hidden="true"></i>
                 <span>Model Provider</span>
+            </button>
+            <button class="tab @TabClass(SettingsSection.ScreenHistory)"
+                    @onclick="() => SelectSection(SettingsSection.ScreenHistory)">
+                <i class="ti ti-history" aria-hidden="true"></i>
+                <span>Screen History</span>
             </button>
             <button class="tab @TabClass(SettingsSection.Mcp)"
                     @onclick="() => SelectSection(SettingsSection.Mcp)">
@@ -136,6 +142,58 @@
                         image(s).</span>
                     </div>
                 }
+            else if (_activeSection == SettingsSection.ScreenHistory)
+            {
+                <div class="card-head">
+                    <h2>Screen History</h2>
+                    <p>Automatically remember what's on your screen when you switch windows or tabs.</p>
+                </div>
+
+                <div class="field">
+                    <label for="screenHistoryMode">Capture mode</label>
+                    <select id="screenHistoryMode" @bind="_config.ScreenHistoryMode">
+                        <option value="@ScreenHistoryMode.Disabled">Disabled</option>
+                        <option value="@ScreenHistoryMode.TextOnly">Text only</option>
+                        <option value="@ScreenHistoryMode.TextAndScreenshot">Text + screenshot</option>
+                    </select>
+                    <span class="hint">@ScreenHistoryModeHint(_config.ScreenHistoryMode)</span>
+                </div>
+
+                <div class="field">
+                    <label>Privacy</label>
+                    <span class="hint">Everything stays on this machine: capture files in
+                        <code>~/.floaty/captures</code>, the searchable index in <code>~/.floaty/floaty.db</code>.
+                        Capture text (and screenshots, in that mode) is sent to your configured OpenAI models to
+                        be embedded/described. Ask Floaty things like “what was I reading about X earlier?” to
+                        search it.</span>
+                </div>
+
+                <div class="field">
+                    <label>Stored history</label>
+                    <div class="actions sub-actions">
+                        @if (!_confirmClearHistory)
+                        {
+                            <button class="reload" @onclick="() => _confirmClearHistory = true" disabled="@_clearingHistory">
+                                <i class="ti ti-trash" aria-hidden="true"></i>
+                                <span>Clear screen history</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="reload" @onclick="ClearScreenHistory" disabled="@_clearingHistory">
+                                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                                <span>@(_clearingHistory ? "Clearing…" : "Yes, delete it all")</span>
+                            </button>
+                            <button class="reload" @onclick="() => _confirmClearHistory = false" disabled="@_clearingHistory">
+                                <span>Cancel</span>
+                            </button>
+                        }
+                        <span class="hint">@(_autoCaptureCount is int n ? $"{n} snapshot(s) stored." : "Counting…")</span>
+                    </div>
+                    <span class="hint">Deletes all automatic snapshots and their files. Captures you took
+                        yourself (📷 or <code>/capture</code>) and saved notes are kept.</span>
+                </div>
+            }
             else if (_activeSection == SettingsSection.Mcp)
             {
                 <div class="card-head">
@@ -400,15 +458,18 @@
 @code {
     private const string DefaultSystemPrompt =
         "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
-        "what's on their screen; each capture's on-screen text is stored in local memory. When the user " +
-        "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
-        "tool to retrieve it before answering, and ground your answer in what it returns. Be concise.";
+        "what's on their screen, and Floaty may also snapshot windows automatically as the user switches " +
+        "between them (screen history); both are stored in local memory. When the user asks about " +
+        "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
+        "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
+        "it returns. Be concise.";
 
     private enum SettingsSection
     {
         Behavior,
         Appearance,
         ModelProvider,
+        ScreenHistory,
         Mcp,
         Skills,
         Updates,
@@ -445,6 +506,11 @@
     // Discovered agent skills (metadata); enable state is tracked via _config.DisabledSkills.
     private List<FloatySkill> _skills = new();
 
+    // Screen history section state. The count loads lazily when the section is opened.
+    private int? _autoCaptureCount;
+    private bool _confirmClearHistory;
+    private bool _clearingHistory;
+
     // Update section state.
     private bool _checking;
     private bool _downloading;
@@ -469,6 +535,7 @@
             RingImageFileName = current.RingImageFileName,
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
+            ScreenHistoryMode = current.ScreenHistoryMode,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
         };
@@ -774,6 +841,54 @@
     {
         _activeSection = section;
         _saved = false;
+
+        if (section == SettingsSection.ScreenHistory)
+        {
+            _confirmClearHistory = false;
+            _autoCaptureCount = null;
+            _ = LoadAutoCaptureCountAsync();
+        }
+    }
+
+    private static string ScreenHistoryModeHint(ScreenHistoryMode mode) => mode switch
+    {
+        ScreenHistoryMode.Disabled => "Nothing is recorded.",
+        ScreenHistoryMode.TextOnly => "When you settle on a window or tab, its visible text is saved to " +
+            "local memory (one embedding call per snapshot). No screenshots.",
+        _ => "Also saves a PNG of the window; if a Snapshot model is set, it describes the image " +
+            "(adds a vision call per snapshot).",
+    };
+
+    private async Task LoadAutoCaptureCountAsync()
+    {
+        try
+        {
+            _autoCaptureCount = await MemoryService.CountAutoCapturesAsync();
+        }
+        catch
+        {
+            _autoCaptureCount = 0; // a fresh install has no database yet
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearScreenHistory()
+    {
+        _clearingHistory = true;
+        try
+        {
+            await MemoryService.DeleteAutoCapturesAsync();
+            _autoCaptureCount = 0;
+        }
+        catch
+        {
+            // Best-effort; the count reload below reflects whatever actually happened.
+            _ = LoadAutoCaptureCountAsync();
+        }
+
+        _clearingHistory = false;
+        _confirmClearHistory = false;
     }
 
     private string TabClass(SettingsSection section) => section == _activeSection ? "active" : string.Empty;
