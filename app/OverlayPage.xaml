@@ -38,7 +38,7 @@
             <Grid>
                 <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
-                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="0">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="0">
 
                     <CollectionView x:Name="MessagesList"
                         Grid.Row="0"
@@ -97,7 +97,89 @@
                             </CollectionView.ItemTemplate>
                         </CollectionView>
                     </Border>
-                    <Grid Grid.Row="2"
+                    <!-- Open-window picker shown while the user types an @-mention; mutually
+                         exclusive with SlashSuggestionsPanel (visibility managed in code). -->
+                    <Border x:Name="WindowSuggestionsPanel"
+                        Grid.Row="1"
+                        Margin="-5,0,15,0"
+                        IsVisible="False"
+                        MaximumHeightRequest="132"
+                        BackgroundColor="#CC151517"
+                        Stroke="#33FFFFFF"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 10"
+                        Padding="6,4">
+                        <CollectionView x:Name="WindowSuggestionsList"
+                            SelectionMode="Single"
+                            SelectionChanged="OnWindowSuggestionsSelectionChanged"
+                            VerticalScrollBarVisibility="Never"
+                            ItemsLayout="VerticalList">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate x:DataType="{x:Null}">
+                                    <Grid Padding="6,4" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                        <Label Grid.Column="0"
+                                            Text="{x:Static icons:TablerLine.AppWindow}"
+                                            FontFamily="TablerIconsLine"
+                                            TextColor="{DynamicResource AccentIconOnDarkColor}"
+                                            FontSize="15"
+                                            VerticalOptions="Center"
+                                            WidthRequest="18"
+                                            HorizontalTextAlignment="Center" />
+                                        <Label Grid.Column="1"
+                                            Text="{Binding Title}"
+                                            TextColor="White"
+                                            FontSize="13"
+                                            VerticalOptions="Center"
+                                            LineBreakMode="TailTruncation" />
+                                        <Label Grid.Column="2"
+                                            Text="{Binding ProcessName}"
+                                            TextColor="#CCFFFFFF"
+                                            FontSize="12"
+                                            VerticalOptions="Center" />
+                                    </Grid>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                    </Border>
+                    <!-- Windows attached to the pending prompt via @, shown as removable chips. -->
+                    <HorizontalStackLayout x:Name="AttachmentChipsPanel"
+                        Grid.Row="2"
+                        IsVisible="False"
+                        Spacing="6"
+                        Margin="-6,4,0,4">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="{x:Null}">
+                                <Border BackgroundColor="#33FFFFFF"
+                                    Stroke="Transparent"
+                                    Padding="8,3"
+                                    StrokeShape="RoundRectangle 9">
+                                    <HorizontalStackLayout Spacing="6">
+                                        <Label Text="{x:Static icons:TablerLine.AppWindow}"
+                                            FontFamily="TablerIconsLine"
+                                            TextColor="{DynamicResource AccentIconOnDarkColor}"
+                                            FontSize="12"
+                                            VerticalOptions="Center" />
+                                        <Label Text="{Binding Title}"
+                                            TextColor="White"
+                                            FontSize="11"
+                                            VerticalOptions="Center"
+                                            LineBreakMode="TailTruncation"
+                                            MaximumWidthRequest="140" />
+                                        <Label Text="✕"
+                                            TextColor="#CCFFFFFF"
+                                            FontSize="11"
+                                            VerticalOptions="Center"
+                                            SemanticProperties.Description="Remove attachment">
+                                            <Label.GestureRecognizers>
+                                                <TapGestureRecognizer Command="{Binding RemoveCommand}" />
+                                            </Label.GestureRecognizers>
+                                        </Label>
+                                    </HorizontalStackLayout>
+                                </Border>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </HorizontalStackLayout>
+                    <Grid Grid.Row="3"
                         ColumnDefinitions="Auto,*,Auto"
                         HorizontalOptions="Fill"
                         Margin="-6,0,-6,0">
@@ -264,7 +346,8 @@
         <DataTemplate x:Key="MessageTemplate" x:DataType="local:ChatMessageVm">
             <Grid Padding="0,3">
                 <Border HorizontalOptions="{Binding Alignment}"
-                    MaximumWidthRequest="420"
+                    WidthRequest="{Binding BubbleWidthRequest}"
+                    MaximumWidthRequest="{Binding BubbleMaxWidth}"
                     BackgroundColor="{Binding BubbleColor}"
                     Stroke="Transparent"
                     Padding="10,7"

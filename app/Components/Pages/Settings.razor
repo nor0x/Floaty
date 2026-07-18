@@ -160,6 +160,16 @@
                 </div>
 
                 <div class="field">
+                    <label>Chat attachments</label>
+                    <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                        <input type="checkbox" @bind="_config.RememberTaggedCaptures" />
+                        Remember windows attached with @@ in chat
+                    </label>
+                    <span class="hint">When you attach a window to a prompt by typing @@, its capture is also
+                        saved to memory so you can recall it later.</span>
+                </div>
+
+                <div class="field">
                     <label>Privacy</label>
                     <span class="hint">Everything stays on this machine: capture files in
                         <code>~/.floaty/captures</code>, the searchable index in <code>~/.floaty/floaty.db</code>.
@@ -536,6 +546,7 @@
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
             ScreenHistoryMode = current.ScreenHistoryMode,
+            RememberTaggedCaptures = current.RememberTaggedCaptures,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
         };

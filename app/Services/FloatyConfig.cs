@@ -65,6 +65,12 @@ public sealed class FloatyConfig
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ScreenHistoryMode ScreenHistoryMode { get; set; } = ScreenHistoryMode.TextOnly;
 
+    /// <summary>
+    /// When a window is attached to a prompt via @, also save that capture into memory
+    /// (like <c>/capture</c>) so it can be recalled later.
+    /// </summary>
+    public bool RememberTaggedCaptures { get; set; } = true;
+
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
 

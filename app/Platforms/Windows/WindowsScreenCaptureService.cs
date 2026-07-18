@@ -54,6 +54,24 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
             return CaptureCore(hwnd, includeScreenshot, AutoCaptureMaxImageWidth);
         }, cancellationToken);
 
+    public Task<IReadOnlyList<WindowInfo>> ListWindowsAsync(CancellationToken cancellationToken = default) =>
+        Task.Run<IReadOnlyList<WindowInfo>>(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var ownPid = (uint)Environment.ProcessId;
+            var windows = new List<WindowInfo>();
+
+            EnumWindows((hwnd, _) =>
+            {
+                if (IsCandidateWindow(hwnd, ownPid))
+                    windows.Add(new WindowInfo(hwnd, GetWindowText(hwnd), GetProcessName(hwnd)));
+                return true; // keep enumerating: we want every candidate, front to back
+            }, nint.Zero);
+
+            return windows;
+        }, cancellationToken);
+
     /// <summary>
     /// Captures <paramref name="hwnd"/>: accessibility text always, screenshot only when requested
     /// (text-only captures return an empty <see cref="CaptureResult.ImagePath"/>, which downstream

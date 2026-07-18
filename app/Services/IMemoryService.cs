@@ -27,6 +27,9 @@ public interface IMemoryService
     /// <summary>Source tag for captures recorded automatically by screen history.</summary>
     const string AutoCaptureSource = "auto";
 
+    /// <summary>Source tag for captures of windows the user attached to a prompt via @.</summary>
+    const string TaggedCaptureSource = "tagged";
+
     /// <summary>
     /// Embeds the capture's content and stores it as a graph node. Returns <c>false</c> when there's
     /// nothing to do (no API key configured or empty content); throws on hard failures so the caller

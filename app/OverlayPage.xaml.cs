@@ -33,6 +33,16 @@ public partial class OverlayPage : ContentPage
         public string Token => $"/{Name}";
     }
 
+    // A window the user attached to the pending prompt via @. The capture starts the moment the
+    // window is picked; the send path awaits it so what you saw when tagging is what gets sent.
+    private sealed class PromptAttachmentVm
+    {
+        public nint Hwnd { get; init; }
+        public string Title { get; init; } = string.Empty;
+        public Task<CaptureResult?>? CaptureTask { get; set; }
+        public Command? RemoveCommand { get; set; }
+    }
+
     private readonly IOverlayWindowController _windowController;
     private readonly SettingsService _settings;
     private readonly IChatService _chatService;
@@ -159,6 +169,21 @@ public partial class OverlayPage : ContentPage
     private int _conversationSelectedIndex = -1;
     private bool _updatingConversationSelection;
 
+    // @-mention window picker. The open-window list is enumerated once per popup opening
+    // (invalidated on hide) and filtered per keystroke.
+    private const int MaxWindowQueryLength = 40; // longer text after @ is prose, not a filter
+    private const int MaxAttachmentChars = 12_000; // cap per-attachment text sent to the model
+    private readonly ObservableCollection<PromptAttachmentVm> _attachments = new();
+    private readonly ObservableCollection<WindowInfo> _filteredWindows = new();
+    private IReadOnlyList<WindowInfo> _windowCache = Array.Empty<WindowInfo>();
+    private bool _windowCacheValid;
+    private bool _windowCacheLoading;
+    private bool _windowSuggestionsVisible;
+    private int _windowSelectedIndex = -1;
+    private bool _updatingWindowSelection;
+    private int _atTokenIndex = -1;          // index of the '@' driving the popup
+    private int _dismissedAtTokenIndex = -1; // Escape'd '@': stay hidden until its position changes
+
 #if WINDOWS
     private Microsoft.UI.Xaml.Controls.TextBox? _chatEntryTextBox;
 
@@ -201,10 +226,14 @@ public partial class OverlayPage : ContentPage
         _services = services;
         MessagesList.ItemsSource = Messages;
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
+        WindowSuggestionsList.ItemsSource = _filteredWindows;
+        BindableLayout.SetItemsSource(AttachmentChipsPanel, _attachments);
         ChatEntry.HandlerChanged += OnChatEntryHandlerChanged;
         Ring.HandlerChanged += OnRingHandlerChanged;
         MessagesList.HandlerChanged += OnListHandlerChanged;
+        MessagesList.SizeChanged += OnMessagesListSizeChanged;
         SlashSuggestionsList.HandlerChanged += OnListHandlerChanged;
+        WindowSuggestionsList.HandlerChanged += OnListHandlerChanged;
         ResizeCornerGrip.HandlerChanged += OnResizeGripHandlerChanged;
 
         _settings.Changed += OnSettingsChanged;
@@ -585,6 +614,7 @@ public partial class OverlayPage : ContentPage
             return;
 
         HideSlashSuggestions();
+        HideWindowSuggestions();
         if (_listMode)
             ExitListMode();
         PersistCurrentConversation();
@@ -629,6 +659,23 @@ public partial class OverlayPage : ContentPage
         _lastChatWindowHeight = target;
         // Anchor the ring's current edge so it stays put as the panel height changes.
         _windowController.Resize(_chatWidth, target, ChatAnchor);
+    }
+
+    // Keep assistant bubbles at 80% of the chat panel: recompute from the message list's measured
+    // width whenever the panel is resized (corner grip), then reflow the bubbles already on screen.
+    // New bubbles pick the value up at bind time via ChatMessageVm.BubbleWidthRequest.
+    private void OnMessagesListSizeChanged(object? sender, EventArgs e)
+    {
+        if (MessagesList.Width <= 0)
+            return;
+
+        var width = Math.Round(MessagesList.Width * 0.8);
+        if (Math.Abs(width - ChatMessageVm.AssistantBubbleWidth) < 1)
+            return;
+
+        ChatMessageVm.AssistantBubbleWidth = width;
+        foreach (var message in Messages)
+            message.RefreshBubbleWidth();
     }
 
     // Drag the chat panel's outer top corner to resize it in both axes. Width: the window grows away
@@ -839,6 +886,264 @@ public partial class OverlayPage : ContentPage
             return;
 
         UpdateSlashSuggestions(e.NewTextValue);
+        UpdateWindowSuggestions(e.NewTextValue);
+    }
+
+    // The caret from the platform TextBox on Windows: MAUI's CursorPosition lags behind during
+    // TextChanged there, and @-parsing needs the position the user is actually typing at.
+    private int GetChatEntryCaretIndex(string text)
+    {
+#if WINDOWS
+        var caret = _chatEntryTextBox?.SelectionStart ?? text.Length;
+#else
+        var caret = ChatEntry.CursorPosition;
+#endif
+        return Math.Clamp(caret, 0, text.Length);
+    }
+
+    // Show the open-window picker while the caret sits in an "@query" token (start of text or
+    // preceded by whitespace, so emails like user@host never trigger it).
+    private void UpdateWindowSuggestions(string? text)
+    {
+        if (!_chatOpen || string.IsNullOrEmpty(text) || _slashSuggestionsVisible)
+        {
+            HideWindowSuggestions();
+            return;
+        }
+
+        var caret = GetChatEntryCaretIndex(text);
+        var atIndex = caret > 0 ? text.LastIndexOf('@', caret - 1) : -1;
+        if (atIndex < 0 || (atIndex > 0 && !char.IsWhiteSpace(text[atIndex - 1])))
+        {
+            HideWindowSuggestions();
+            return;
+        }
+
+        // Escape dismissed the popup for this '@'; stay hidden until the token moves.
+        if (atIndex == _dismissedAtTokenIndex)
+        {
+            HideWindowSuggestions();
+            return;
+        }
+        _dismissedAtTokenIndex = -1;
+
+        var query = text[(atIndex + 1)..caret];
+        if (query.Length > MaxWindowQueryLength || query.Contains('\n'))
+        {
+            HideWindowSuggestions();
+            return;
+        }
+
+        _atTokenIndex = atIndex;
+
+        // First keystroke of a popup session: enumerate windows fresh, then filter once the list
+        // lands (LoadWindowCacheAsync re-enters this method).
+        if (!_windowCacheValid)
+        {
+            if (!_windowCacheLoading)
+            {
+                _windowCacheLoading = true;
+                _ = LoadWindowCacheAsync();
+            }
+            return;
+        }
+
+        FilterWindowSuggestions(query);
+    }
+
+    private async Task LoadWindowCacheAsync()
+    {
+        try
+        {
+            _windowCache = await _captureService.ListWindowsAsync();
+        }
+        catch
+        {
+            _windowCache = Array.Empty<WindowInfo>();
+        }
+
+        _windowCacheValid = true;
+        _windowCacheLoading = false;
+        UpdateWindowSuggestions(ChatEntry.Text);
+    }
+
+    private void FilterWindowSuggestions(string query)
+    {
+        var matches = _windowCache
+            .Where(window => _attachments.All(a => a.Hwnd != window.Hwnd))
+            .Where(window => query.Length == 0
+                || window.Title.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || window.ProcessName.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matches.Count == 0)
+        {
+            HideWindowSuggestions();
+            return;
+        }
+
+        _filteredWindows.Clear();
+        foreach (var window in matches)
+            _filteredWindows.Add(window);
+
+        _windowSuggestionsVisible = true;
+        WindowSuggestionsPanel.IsVisible = true;
+        SetWindowSelection(0);
+    }
+
+    private void HideWindowSuggestions()
+    {
+        _windowSuggestionsVisible = false;
+        _windowSelectedIndex = -1;
+        _atTokenIndex = -1;
+        _windowCacheValid = false; // re-enumerate next time the popup opens
+        WindowSuggestionsPanel.IsVisible = false;
+
+        _updatingWindowSelection = true;
+        try
+        {
+            WindowSuggestionsList.SelectedItem = null;
+        }
+        finally
+        {
+            _updatingWindowSelection = false;
+        }
+
+        _filteredWindows.Clear();
+    }
+
+    private void SetWindowSelection(int index)
+    {
+        if (_filteredWindows.Count == 0)
+        {
+            _windowSelectedIndex = -1;
+            return;
+        }
+
+        _windowSelectedIndex = Math.Clamp(index, 0, _filteredWindows.Count - 1);
+        _updatingWindowSelection = true;
+        try
+        {
+            var selected = _filteredWindows[_windowSelectedIndex];
+            WindowSuggestionsList.SelectedItem = selected;
+            WindowSuggestionsList.ScrollTo(selected, position: ScrollToPosition.MakeVisible, animate: true);
+        }
+        finally
+        {
+            _updatingWindowSelection = false;
+        }
+    }
+
+    private void MoveWindowSelection(int delta)
+    {
+        var count = _filteredWindows.Count;
+        if (count == 0)
+            return;
+
+        var start = _windowSelectedIndex < 0 ? 0 : _windowSelectedIndex;
+        var next = ((start + delta) % count + count) % count; // wrap-around
+        SetWindowSelection(next);
+    }
+
+    private bool TryAttachSelectedWindow()
+    {
+        if (!_windowSuggestionsVisible)
+            return false;
+        if (_windowSelectedIndex < 0 || _windowSelectedIndex >= _filteredWindows.Count)
+            return false;
+
+        AttachWindow(_filteredWindows[_windowSelectedIndex]);
+        return true;
+    }
+
+    private void AttachWindow(WindowInfo window)
+    {
+        // Remove the "@query" token from the entry and put the caret where it was.
+        var text = ChatEntry.Text ?? string.Empty;
+        var caret = GetChatEntryCaretIndex(text);
+        var atIndex = _atTokenIndex;
+
+        HideWindowSuggestions();
+
+        if (atIndex >= 0 && atIndex < text.Length)
+        {
+            var removeLength = Math.Min(Math.Max(1, caret - atIndex), text.Length - atIndex);
+            var newText = text.Remove(atIndex, removeLength);
+            _suppressEntryTextChanged = true;
+            ChatEntry.Text = newText;
+            _suppressEntryTextChanged = false;
+            ChatEntry.CursorPosition = Math.Min(atIndex, newText.Length);
+        }
+
+        if (_attachments.Any(a => a.Hwnd == window.Hwnd))
+        {
+            _ = ShowToastAsync("Window already attached");
+            return;
+        }
+
+        // Capture right away (downscaled like auto-history captures) so what the user saw when
+        // tagging is what gets sent, even if the window closes before send.
+        var vm = new PromptAttachmentVm { Hwnd = window.Hwnd, Title = window.Title };
+        vm.RemoveCommand = new Command(() => RemoveAttachment(vm));
+        vm.CaptureTask = _captureService.CaptureWindowAsync(window.Hwnd, includeScreenshot: true);
+        _attachments.Add(vm);
+        AttachmentChipsPanel.IsVisible = true;
+
+        _ = FinishAttachmentAsync(vm);
+    }
+
+    private void RemoveAttachment(PromptAttachmentVm vm)
+    {
+        _attachments.Remove(vm);
+        AttachmentChipsPanel.IsVisible = _attachments.Count > 0;
+    }
+
+    private async Task FinishAttachmentAsync(PromptAttachmentVm vm)
+    {
+        CaptureResult? result = null;
+        try
+        {
+            result = vm.CaptureTask is null ? null : await vm.CaptureTask;
+        }
+        catch
+        {
+            // fall through: treated as a failed capture below
+        }
+
+        if (result is null)
+        {
+            // Only toast if the chip is still pending (the user may have removed it already).
+            if (_attachments.Remove(vm))
+            {
+                AttachmentChipsPanel.IsVisible = _attachments.Count > 0;
+                await ShowToastAsync($"Couldn't capture {vm.Title}");
+            }
+            return;
+        }
+
+        if (_settings.Current.RememberTaggedCaptures)
+        {
+            try
+            {
+                await _memoryService.RememberCaptureAsync(result, IMemoryService.TaggedCaptureSource);
+            }
+            catch
+            {
+                // Memory persistence is best-effort; the attachment still rides on the prompt.
+            }
+        }
+    }
+
+    private void OnWindowSuggestionsSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingWindowSelection)
+            return;
+
+        if (e.CurrentSelection.FirstOrDefault() is not WindowInfo window)
+            return;
+
+        _windowSelectedIndex = _filteredWindows.IndexOf(window);
+        AttachWindow(window);
     }
 
     private void UpdateSlashSuggestions(string? text)
@@ -1649,7 +1954,7 @@ public partial class OverlayPage : ContentPage
         switch (e.Key)
         {
             case Windows.System.VirtualKey.Tab:
-                if (TryAutocompleteSelectedCommand())
+                if (TryAttachSelectedWindow() || TryAutocompleteSelectedCommand())
                     e.Handled = true;
                 return;
 
@@ -1657,6 +1962,11 @@ public partial class OverlayPage : ContentPage
                 if (_slashSuggestionsVisible)
                 {
                     MoveSlashSelection(1);
+                    e.Handled = true;
+                }
+                else if (_windowSuggestionsVisible)
+                {
+                    MoveWindowSelection(1);
                     e.Handled = true;
                 }
                 else if (_listMode)
@@ -1670,6 +1980,11 @@ public partial class OverlayPage : ContentPage
                 if (_slashSuggestionsVisible)
                 {
                     MoveSlashSelection(-1);
+                    e.Handled = true;
+                }
+                else if (_windowSuggestionsVisible)
+                {
+                    MoveWindowSelection(-1);
                     e.Handled = true;
                 }
                 else if (_listMode)
@@ -1693,6 +2008,12 @@ public partial class OverlayPage : ContentPage
                     HideSlashSuggestions();
                     e.Handled = true;
                 }
+                else if (_windowSuggestionsVisible)
+                {
+                    _dismissedAtTokenIndex = _atTokenIndex;
+                    HideWindowSuggestions();
+                    e.Handled = true;
+                }
                 else if (_listMode)
                 {
                     ExitListMode();
@@ -1705,6 +2026,10 @@ public partial class OverlayPage : ContentPage
 
     private async void OnSendClicked(object? sender, EventArgs e)
     {
+        // Enter with the @-window picker open attaches the highlighted window instead of sending.
+        if (TryAttachSelectedWindow())
+            return;
+
         if (await TryExecuteSelectedSlashCommandAsync())
             return;
 
@@ -1739,13 +2064,23 @@ public partial class OverlayPage : ContentPage
             }
         }
 
+        // Windows attached via @ ride along on this message only; the chips clear on send.
+        var attachments = _attachments.ToList();
+        _attachments.Clear();
+        AttachmentChipsPanel.IsVisible = false;
+
         // Build the conversation to send before adding the pending placeholder.
         var history = Messages
             .Select(m => new ChatMessage(m.IsUser ? ChatRole.User : ChatRole.Assistant, m.Text))
             .ToList();
-        history.Add(new ChatMessage(ChatRole.User, prompt));
+        history.Add(await BuildUserMessageAsync(prompt, attachments));
 
-        Messages.Add(new ChatMessageVm(isUser: true, text));
+        // Later turns rebuild history from bubble text only, so keep at least a marker of what
+        // was attached in the bubble itself.
+        var bubbleText = attachments.Count == 0
+            ? text
+            : $"{text}\n[Attached: {string.Join(", ", attachments.Select(a => a.Title))}]";
+        Messages.Add(new ChatMessageVm(isUser: true, bubbleText));
         var pending = new ChatMessageVm(isUser: false, "…");
         Messages.Add(pending);
         MessagesList.IsVisible = true;
@@ -1808,6 +2143,43 @@ public partial class OverlayPage : ContentPage
         PersistCurrentConversation();
     }
 
+    // The outgoing user message: plain text, or multimodal when windows were attached via @ —
+    // each attachment contributes its accessibility text and (when captured) the screenshot bytes.
+    private static async Task<ChatMessage> BuildUserMessageAsync(
+        string prompt,
+        List<PromptAttachmentVm> attachments)
+    {
+        if (attachments.Count == 0)
+            return new ChatMessage(ChatRole.User, prompt);
+
+        var contents = new List<AIContent> { new TextContent(prompt) };
+        foreach (var attachment in attachments)
+        {
+            CaptureResult? capture = null;
+            try
+            {
+                capture = attachment.CaptureTask is null ? null : await attachment.CaptureTask;
+            }
+            catch
+            {
+                // Failed captures were already removed + toasted by FinishAttachmentAsync.
+            }
+
+            if (capture is null)
+                continue;
+
+            var body = capture.Content.Length > MaxAttachmentChars
+                ? capture.Content[..MaxAttachmentChars] + "…"
+                : capture.Content;
+            contents.Add(new TextContent($"[Attached window: {capture.WindowTitle}]\n{body}"));
+
+            if (!string.IsNullOrEmpty(capture.ImagePath) && File.Exists(capture.ImagePath))
+                contents.Add(new DataContent(await File.ReadAllBytesAsync(capture.ImagePath), "image/png"));
+        }
+
+        return new ChatMessage(ChatRole.User, contents);
+    }
+
     private void ScrollToLatest()
     {
         if (Messages.Count > 0)
@@ -1820,9 +2192,9 @@ public partial class OverlayPage : ContentPage
         Application.Current?.OpenWindow(new Window(settingsPage)
         {
             Title = "Floaty Settings",
-            Width = 520,
+            Width = 790,
             Height = 640,
-            MinimumWidth = 480,
+            MinimumWidth = 790,
             MinimumHeight = 560,
         });
     }
@@ -1833,19 +2205,19 @@ public partial class OverlayPage : ContentPage
     private void OnCloseClicked(object? sender, EventArgs e) =>
         Application.Current?.Quit();
 
-	private void OnRingTapped(object sender, TappedEventArgs e)
-	{
-		OnOpenChatClicked(sender, e);
-	}
+    private void OnRingTapped(object sender, TappedEventArgs e)
+    {
+        OnOpenChatClicked(sender, e);
+    }
 
-	// Fade a short status message in above the action bar, hold briefly, then fade out.
-	private async Task ShowToastAsync(string message)
-	{
-		CaptureToast.Text = message;
-		CaptureToast.IsVisible = true;
-		await CaptureToast.FadeToAsync(1, 150);
-		await Task.Delay(1600);
-		await CaptureToast.FadeToAsync(0, 250);
-		CaptureToast.IsVisible = false;
-	}
+    // Fade a short status message in above the action bar, hold briefly, then fade out.
+    private async Task ShowToastAsync(string message)
+    {
+        CaptureToast.Text = message;
+        CaptureToast.IsVisible = true;
+        await CaptureToast.FadeToAsync(1, 150);
+        await Task.Delay(1600);
+        await CaptureToast.FadeToAsync(0, 250);
+        CaptureToast.IsVisible = false;
+    }
 }
