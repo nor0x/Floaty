@@ -661,19 +661,22 @@ public partial class OverlayPage : ContentPage
         _windowController.Resize(_chatWidth, target, ChatAnchor);
     }
 
-    // Keep assistant bubbles at 80% of the chat panel: recompute from the message list's measured
-    // width whenever the panel is resized (corner grip), then reflow the bubbles already on screen.
-    // New bubbles pick the value up at bind time via ChatMessageVm.BubbleWidthRequest.
+    // Keep assistant bubbles at 80% and user bubbles capped at 60% of the chat panel: recompute from
+    // the message list's measured width whenever the panel is resized (corner grip), then reflow the
+    // bubbles already on screen. New bubbles pick the values up at bind time via ChatMessageVm.
     private void OnMessagesListSizeChanged(object? sender, EventArgs e)
     {
         if (MessagesList.Width <= 0)
             return;
 
-        var width = Math.Round(MessagesList.Width * 0.8);
-        if (Math.Abs(width - ChatMessageVm.AssistantBubbleWidth) < 1)
+        var assistantWidth = Math.Round(MessagesList.Width * 0.8);
+        var userMaxWidth = Math.Round(MessagesList.Width * 0.6);
+        if (Math.Abs(assistantWidth - ChatMessageVm.AssistantBubbleWidth) < 1
+            && Math.Abs(userMaxWidth - ChatMessageVm.UserBubbleMaxWidth) < 1)
             return;
 
-        ChatMessageVm.AssistantBubbleWidth = width;
+        ChatMessageVm.AssistantBubbleWidth = assistantWidth;
+        ChatMessageVm.UserBubbleMaxWidth = userMaxWidth;
         foreach (var message in Messages)
             message.RefreshBubbleWidth();
     }

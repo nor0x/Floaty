@@ -112,16 +112,28 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     /// whenever the chat panel is resized; -1 (auto) until the list has been measured.</summary>
     public static double AssistantBubbleWidth { get; set; } = -1;
 
+    /// <summary>Cap for user bubbles: 60% of the message list. Pushed by OverlayPage alongside
+    /// <see cref="AssistantBubbleWidth"/>; infinite (uncapped) until the list has been measured.</summary>
+    public static double UserBubbleMaxWidth { get; set; } = double.PositiveInfinity;
+
     /// <summary>Assistant answers are fixed at <see cref="AssistantBubbleWidth"/>; user messages and
     /// system notes size to their content (-1 = auto).</summary>
     public double BubbleWidthRequest => !IsUser && !IsSystemNote ? AssistantBubbleWidth : -1;
 
-    /// <summary>Content-sized bubbles keep the classic 420 cap; assistant bubbles are governed by
-    /// <see cref="BubbleWidthRequest"/> instead.</summary>
-    public double BubbleMaxWidth => !IsUser && !IsSystemNote ? double.PositiveInfinity : 420;
+    /// <summary>Assistant bubbles are governed by <see cref="BubbleWidthRequest"/> (no separate cap
+    /// needed); user bubbles size to content up to <see cref="UserBubbleMaxWidth"/>; system notes
+    /// keep the classic 420 cap.</summary>
+    public double BubbleMaxWidth => !IsUser && !IsSystemNote
+        ? double.PositiveInfinity
+        : IsUser ? UserBubbleMaxWidth : 420;
 
-    /// <summary>Re-raises <see cref="BubbleWidthRequest"/> after the panel is resized so bound bubbles reflow.</summary>
-    public void RefreshBubbleWidth() => OnPropertyChanged(nameof(BubbleWidthRequest));
+    /// <summary>Re-raises <see cref="BubbleWidthRequest"/>/<see cref="BubbleMaxWidth"/> after the panel
+    /// is resized so bound bubbles reflow.</summary>
+    public void RefreshBubbleWidth()
+    {
+        OnPropertyChanged(nameof(BubbleWidthRequest));
+        OnPropertyChanged(nameof(BubbleMaxWidth));
+    }
 
     /// <summary>Current accent for user bubbles; set by OverlayPage from settings/preview.</summary>
     public static Color UserBubbleColor { get; set; } = Color.FromArgb(Floaty.Services.AccentPalette.DefaultHex);
