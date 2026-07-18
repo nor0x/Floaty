@@ -26,6 +26,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/skills</c> — user-placed agent skills (each a folder with a SKILL.md).</summary>
     public static string Skills => EnsureDir(Path.Combine(Home, "skills"));
 
+    /// <summary><c>~/.floaty/models</c> — downloaded local speech-to-text models, one folder per model id.</summary>
+    public static string SttModels => EnsureDir(Path.Combine(Home, "models"));
+
     private static string EnsureDir(string path)
     {
         Directory.CreateDirectory(path);

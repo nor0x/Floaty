@@ -18,6 +18,18 @@ public enum ScreenHistoryMode
 }
 
 /// <summary>
+/// How dictated text is sent once it lands in the chat entry.
+/// </summary>
+public enum VoiceSendMode
+{
+    /// <summary>Recognized text fills the entry; the user presses send themselves.</summary>
+    Manual,
+
+    /// <summary>After a long silence following speech, the message is sent automatically.</summary>
+    AutoSendOnPause,
+}
+
+/// <summary>
 /// User-editable configuration for Floaty, persisted as JSON in <c>~/.floaty/config.json</c>.
 /// Mirrors the local-first design in readme.md. Only the AI provider section exists today;
 /// more sections (skills, MCP, memory) will be added as siblings here.
@@ -76,6 +88,19 @@ public sealed class FloatyConfig
 
     /// <summary>Names of discovered agent skills the user has turned off (excluded from slash commands).</summary>
     public List<string> DisabledSkills { get; set; } = new();
+
+    /// <summary>
+    /// Selected local speech-to-text model id from <see cref="SttModelCatalog"/>. Null until the user
+    /// picks a downloaded model; the mic button only shows once this points at one that is on disk.
+    /// </summary>
+    public string? SttSelectedModelId { get; set; }
+
+    /// <summary>Whether dictation auto-sends after a silence pause or waits for a manual send.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VoiceSendMode VoiceSendMode { get; set; } = VoiceSendMode.Manual;
+
+    /// <summary>Silence length (seconds) that triggers auto-send. Clamped to 1–10 on use.</summary>
+    public double AutoSendPauseSeconds { get; set; } = 2.0;
 }
 
 /// <summary>

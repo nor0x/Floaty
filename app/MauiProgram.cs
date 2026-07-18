@@ -38,6 +38,9 @@ public static class MauiProgram
 		// In-app auto-update (Velopack) checking the GitHub Releases of nor0x/Floaty.
 		builder.Services.AddSingleton<UpdateService>();
 
+		// Local speech-to-text model downloads (~/.floaty/models) for the Voice input settings.
+		builder.Services.AddSingleton<ModelDownloadService>();
+
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
 		builder.Services.AddTransient<SettingsPage>();
@@ -47,14 +50,21 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IScreenCaptureService, Floaty.Platforms.Windows.WindowsScreenCaptureService>();
 		// Automatic screen history: captures the foreground window into memory on window/tab switches.
 		builder.Services.AddSingleton<IScreenHistoryService, Floaty.Platforms.Windows.WindowsScreenHistoryService>();
+		// Voice input: NAudio mic capture + sherpa-onnx local speech-to-text.
+		builder.Services.AddSingleton<IAudioCaptureService, Floaty.Platforms.Windows.WindowsAudioCaptureService>();
+		builder.Services.AddSingleton<IVoiceInputService, Floaty.Platforms.Windows.WindowsVoiceInputService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
+		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
+		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
+		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
+		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
 #endif
 
 		ConfigureOverlayWindow(builder);

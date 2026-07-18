@@ -50,7 +50,11 @@ public partial class OverlayPage : ContentPage
     private readonly IMemoryService _memoryService;
     private readonly ConversationService _conversationStore;
     private readonly SkillService _skillService;
+    private readonly IVoiceInputService _voiceInput;
     private readonly IServiceProvider _services;
+
+    // True while the mic pulse animation loop should keep running (set on start/stop listening).
+    private bool _micPulsing;
 
     // The conversation currently shown in Messages; created lazily on first chat open (resume most recent).
     private Conversation? _currentConversation;
@@ -213,6 +217,7 @@ public partial class OverlayPage : ContentPage
         IMemoryService memoryService,
         ConversationService conversationStore,
         SkillService skillService,
+        IVoiceInputService voiceInput,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -223,6 +228,7 @@ public partial class OverlayPage : ContentPage
         _memoryService = memoryService;
         _conversationStore = conversationStore;
         _skillService = skillService;
+        _voiceInput = voiceInput;
         _services = services;
         MessagesList.ItemsSource = Messages;
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
@@ -239,10 +245,15 @@ public partial class OverlayPage : ContentPage
         _settings.Changed += OnSettingsChanged;
         _settings.RingSizePreviewRequested += OnRingSizePreviewRequested;
         _settings.AccentColorPreviewRequested += OnAccentColorPreviewRequested;
+        _voiceInput.SegmentTranscribed += OnVoiceSegment;
+        _voiceInput.PauseElapsed += OnVoicePause;
+        _voiceInput.Error += OnVoiceError;
+
         ApplyRingImage();
         ApplyRingSize(_settings.Current.RingSize);
         ApplyAccentColor(_settings.Current.AccentColor);
         RebuildSlashCommands();
+        UpdateMicVisibility();
 
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
         _windowController.SummonRequested += OnSummonRequested;
@@ -257,6 +268,7 @@ public partial class OverlayPage : ContentPage
             ApplyRingSize(_settings.Current.RingSize);
             ApplyAccentColor(_settings.Current.AccentColor);
             RebuildSlashCommands();
+            UpdateMicVisibility();
         });
 
     // Rebuild the slash-command list: built-in actions, then a /name per enabled MCP server, then per
@@ -617,6 +629,9 @@ public partial class OverlayPage : ContentPage
         HideWindowSuggestions();
         if (_listMode)
             ExitListMode();
+        // A collapsed panel must never keep the microphone hot.
+        if (_voiceInput.IsListening)
+            _ = StopListeningAsync();
         PersistCurrentConversation();
         _chatOpen = false;
         _chatAnimating = true;
@@ -643,6 +658,120 @@ public partial class OverlayPage : ContentPage
                 _windowController.Resize(CompactWidth, CompactHeight, anchor);
             });
     }
+
+    // ---- Voice input ----
+
+    // The mic button only shows while a downloaded speech-to-text model is selected in settings
+    // (and the platform can capture audio). Re-evaluated on every settings change.
+    private void UpdateMicVisibility()
+    {
+        MicButton.IsVisible = _voiceInput.IsConfigured;
+        if (!MicButton.IsVisible && _voiceInput.IsListening)
+            _ = StopListeningAsync();
+    }
+
+    private async void OnMicClicked(object? sender, EventArgs e)
+    {
+        if (_voiceInput.IsListening)
+        {
+            await StopListeningAsync();
+            return;
+        }
+
+        // Disabled while the model loads — first start can take seconds for the larger models.
+        MicButton.IsEnabled = false;
+        try
+        {
+            await _voiceInput.StartAsync();
+            ApplyMicListeningVisuals(true);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync($"⚠️ {ex.Message}");
+        }
+        finally
+        {
+            MicButton.IsEnabled = true;
+        }
+    }
+
+    private async Task StopListeningAsync()
+    {
+        ApplyMicListeningVisuals(false);
+        try
+        {
+            await _voiceInput.StopAsync();
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync($"⚠️ {ex.Message}");
+        }
+    }
+
+    // Listening: record glyph on the accent color with a soft opacity pulse; idle: plain mic on
+    // the neutral input-row background.
+    private void ApplyMicListeningVisuals(bool listening)
+    {
+        if (listening)
+        {
+            MicButton.Text = IconFont.TablerLine.PlayerRecord;
+            MicButton.SetDynamicResource(VisualElement.BackgroundColorProperty, "AccentColor");
+            if (!_micPulsing)
+            {
+                _micPulsing = true;
+                _ = PulseMicAsync();
+            }
+        }
+        else
+        {
+            _micPulsing = false;
+            MicButton.Text = IconFont.TablerLine.Microphone;
+            MicButton.BackgroundColor = Color.FromArgb("#33FFFFFF");
+        }
+    }
+
+    private async Task PulseMicAsync()
+    {
+        while (_micPulsing)
+        {
+            await MicButton.FadeToAsync(0.55, 500, Easing.SinInOut);
+            await MicButton.FadeToAsync(1.0, 500, Easing.SinInOut);
+        }
+        MicButton.Opacity = 1;
+    }
+
+    // A finished speech segment: append to the entry like the user typed it. Deliberately not
+    // wrapped in _suppressEntryTextChanged — dictated text is user content, so slash/@ popup
+    // parsing should behave exactly as it does for typing.
+    private void OnVoiceSegment(object? sender, string text) =>
+        Dispatcher.Dispatch(() =>
+        {
+            var existing = ChatEntry.Text ?? string.Empty;
+            ChatEntry.Text = existing.Length == 0 ? text : $"{existing.TrimEnd()} {text}";
+            ChatEntry.CursorPosition = ChatEntry.Text.Length;
+        });
+
+    // Long silence after speech: in auto-send mode this sends through the normal send path
+    // (slash/@ handling included). Listening always stops first so the mic never transcribes
+    // while the reply streams.
+    private void OnVoicePause(object? sender, EventArgs e) =>
+        Dispatcher.Dispatch(async () =>
+        {
+            if (!_voiceInput.IsListening
+                || _settings.Current.VoiceSendMode != VoiceSendMode.AutoSendOnPause
+                || string.IsNullOrWhiteSpace(ChatEntry.Text))
+                return;
+
+            await StopListeningAsync();
+            OnSendClicked(MicButton, EventArgs.Empty);
+        });
+
+    private void OnVoiceError(object? sender, string message) =>
+        Dispatcher.Dispatch(async () =>
+        {
+            ApplyMicListeningVisuals(false);
+            await ShowToastAsync($"⚠️ {message}");
+        });
 
     // Grow (or shrink) the overlay window to match the chat panel's content height. The panel hugs its
     // content — collapsed messages area when empty, expanding up to MessagesList's MaximumHeightRequest

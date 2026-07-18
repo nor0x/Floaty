@@ -203,7 +203,7 @@
                             BackgroundColor="#22FFFFFF"
                             Stroke="Transparent"
                             StrokeShape="RoundRectangle 6">
-                            <Grid ColumnDefinitions="*,Auto">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
                                 <Entry x:Name="ChatEntry"
                                     Grid.Column="0"
                                     Placeholder="Ask Floaty…"
@@ -213,7 +213,23 @@
                                     ReturnType="Send"
                                     TextChanged="OnChatEntryTextChanged"
                                     Completed="OnSendClicked" />
-                                <Button Grid.Column="1"
+                                <!-- Voice input: hidden until a downloaded speech-to-text model is
+                                     selected in settings (see UpdateMicVisibility). -->
+                                <Button x:Name="MicButton"
+                                    Grid.Column="1"
+                                    Text="{x:Static icons:TablerLine.Microphone}"
+                                    FontFamily="TablerIconsLine"
+                                    Clicked="OnMicClicked"
+                                    SemanticProperties.Description="Voice input"
+                                    IsVisible="False"
+                                    WidthRequest="36"
+                                    HeightRequest="36"
+                                    Padding="0"
+                                    CornerRadius="0"
+                                    FontSize="16"
+                                    BackgroundColor="#33FFFFFF"
+                                    TextColor="White" />
+                                <Button Grid.Column="2"
                                     Text="{x:Static icons:TablerLine.Send}"
                                     FontFamily="TablerIconsLine"
                                     Clicked="OnSendClicked"

@@ -2,6 +2,7 @@
 @inject SkillService SkillService
 @inject UpdateService UpdateService
 @inject IMemoryService MemoryService
+@inject ModelDownloadService ModelDownloads
 @using Floaty.Services
 @implements IDisposable
 
@@ -32,6 +33,11 @@
                     @onclick="() => SelectSection(SettingsSection.ScreenHistory)">
                 <i class="ti ti-history" aria-hidden="true"></i>
                 <span>Screen History</span>
+            </button>
+            <button class="tab @TabClass(SettingsSection.VoiceInput)"
+                    @onclick="() => SelectSection(SettingsSection.VoiceInput)">
+                <i class="ti ti-microphone" aria-hidden="true"></i>
+                <span>Voice Input</span>
             </button>
             <button class="tab @TabClass(SettingsSection.Mcp)"
                     @onclick="() => SelectSection(SettingsSection.Mcp)">
@@ -203,6 +209,108 @@
                     <span class="hint">Deletes all automatic snapshots and their files. Captures you took
                         yourself (📷 or <code>/capture</code>) and saved notes are kept.</span>
                 </div>
+            }
+            else if (_activeSection == SettingsSection.VoiceInput)
+            {
+                <div class="card-head">
+                    <h2>Voice Input</h2>
+                    <p>Dictate chat messages with a local, offline speech-to-text model.</p>
+                </div>
+
+                <div class="mcp-list">
+                    <div class="mcp-row">
+                        <input type="radio" name="sttModel" checked="@(_config.SttSelectedModelId is null)"
+                               @onchange="() => SelectSttModel(null)" title="Voice input off" />
+                        <div class="mcp-info">
+                            <span class="mcp-name"><i class="ti ti-microphone-off" aria-hidden="true"></i> Off</span>
+                            <span class="mcp-meta">No voice input; the mic button is hidden.</span>
+                        </div>
+                    </div>
+                    @foreach (var model in SttModelCatalog.Models)
+                    {
+                        var downloaded = IsSttDownloaded(model);
+                        <div class="mcp-row">
+                            <input type="radio" name="sttModel" checked="@(_config.SttSelectedModelId == model.Id)"
+                                   disabled="@(!downloaded)"
+                                   @onchange="() => SelectSttModel(model.Id)" title="Use this model" />
+                            <div class="mcp-info">
+                                <span class="mcp-name"><i class="ti ti-microphone" aria-hidden="true"></i> @model.DisplayName</span>
+                                <span class="mcp-meta">
+                                    @if (model.IsAvailable)
+                                    {
+                                        @($"{model.Engine} · {model.SizeNote} · {model.LanguageNote}")
+                                    }
+                                    else
+                                    {
+                                        @("Coming soon")
+                                    }
+                                </span>
+                            </div>
+                            @if (!model.IsAvailable)
+                            {
+                                <!-- no actions for models we can't run yet -->
+                            }
+                            else if (_sttDownloading.Contains(model.Id))
+                            {
+                                <button class="mcp-remove" disabled>
+                                    <i class="ti ti-download" aria-hidden="true"></i>
+                                    <span>@($"{(int)(_sttProgress.GetValueOrDefault(model.Id) * 100)}%")</span>
+                                </button>
+                            }
+                            else if (!downloaded)
+                            {
+                                <button class="mcp-remove" @onclick="() => DownloadSttModel(model)">
+                                    <i class="ti ti-download" aria-hidden="true"></i>
+                                    <span>Download</span>
+                                </button>
+                            }
+                            else if (_confirmDeleteModelId == model.Id)
+                            {
+                                <button class="mcp-remove" @onclick="() => DeleteSttModel(model)">
+                                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                                    <span>Really delete?</span>
+                                </button>
+                                <button class="mcp-remove" @onclick="() => _confirmDeleteModelId = null">
+                                    <span>Cancel</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="mcp-remove" @onclick="() => _confirmDeleteModelId = model.Id">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                    <span>Delete</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_sttError is not null)
+                {
+                    <p class="hint">@_sttError</p>
+                }
+                <span class="hint">Models download to <code>~/.floaty/models</code> and run entirely on this
+                    machine. Downloads apply immediately; the selected model and send mode apply on Save.</span>
+
+                <div class="field">
+                    <label for="voiceSendMode">Send mode</label>
+                    <select id="voiceSendMode" @bind="_config.VoiceSendMode">
+                        <option value="@VoiceSendMode.Manual">Manual — I press send myself</option>
+                        <option value="@VoiceSendMode.AutoSendOnPause">Auto-send after a pause</option>
+                    </select>
+                    <span class="hint">@(_config.VoiceSendMode == VoiceSendMode.AutoSendOnPause
+                        ? "After you stop speaking for the pause length below, the message sends automatically."
+                        : "Dictated text lands in the chat box; press send when you're ready.")</span>
+                </div>
+
+                @if (_config.VoiceSendMode == VoiceSendMode.AutoSendOnPause)
+                {
+                    <div class="field">
+                        <label for="voicePauseSeconds">Pause length (seconds)</label>
+                        <input id="voicePauseSeconds" type="number" min="1" max="10" step="0.5"
+                               @bind="_config.AutoSendPauseSeconds" />
+                        <span class="hint">Silence this long after you finish speaking sends the message.</span>
+                    </div>
+                }
             }
             else if (_activeSection == SettingsSection.Mcp)
             {
@@ -480,6 +588,7 @@
         Appearance,
         ModelProvider,
         ScreenHistory,
+        VoiceInput,
         Mcp,
         Skills,
         Updates,
@@ -521,6 +630,12 @@
     private bool _confirmClearHistory;
     private bool _clearingHistory;
 
+    // Voice input section state. Downloads mutate disk immediately; selection/mode commit on Save.
+    private readonly HashSet<string> _sttDownloading = new();
+    private readonly Dictionary<string, double> _sttProgress = new();
+    private string? _sttError;
+    private string? _confirmDeleteModelId;
+
     // Update section state.
     private bool _checking;
     private bool _downloading;
@@ -549,6 +664,9 @@
             RememberTaggedCaptures = current.RememberTaggedCaptures,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
+            SttSelectedModelId = current.SttSelectedModelId,
+            VoiceSendMode = current.VoiceSendMode,
+            AutoSendPauseSeconds = current.AutoSendPauseSeconds,
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
@@ -622,6 +740,57 @@
     }
 
     private void RestartAndUpdate() => UpdateService.ApplyAndRestart();
+
+    private bool IsSttDownloaded(SttModelInfo model) => model.IsAvailable && ModelDownloads.IsDownloaded(model);
+
+    private void SelectSttModel(string? modelId)
+    {
+        _config.SttSelectedModelId = modelId;
+        _saved = false;
+    }
+
+    private async Task DownloadSttModel(SttModelInfo model)
+    {
+        _sttError = null;
+        _sttDownloading.Add(model.Id);
+        _sttProgress[model.Id] = 0;
+        StateHasChanged();
+
+        var progress = new Progress<double>(p =>
+        {
+            _sttProgress[model.Id] = p;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await ModelDownloads.DownloadAsync(model, progress);
+        }
+        catch (Exception ex)
+        {
+            _sttError = $"Download failed: {ex.Message}";
+        }
+
+        _sttDownloading.Remove(model.Id);
+        StateHasChanged();
+    }
+
+    private void DeleteSttModel(SttModelInfo model)
+    {
+        _confirmDeleteModelId = null;
+        ModelDownloads.Delete(model);
+        if (_config.SttSelectedModelId == model.Id)
+            _config.SttSelectedModelId = null;
+
+        // Deleting files takes effect immediately, so if the saved config still points at this
+        // model, clear it right away (not on Save) — a dangling selection would keep claiming
+        // voice input is configured while nothing is on disk.
+        if (ConfigService.Current.SttSelectedModelId == model.Id)
+        {
+            ConfigService.Current.SttSelectedModelId = null;
+            ConfigService.Save(ConfigService.Current);
+        }
+    }
 
     private async Task OpenReleasesPage()
     {
