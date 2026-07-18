@@ -80,11 +80,21 @@ public partial class OverlayPage : ContentPage
     // when the chat opens, and re-evaluated after the ring is dragged or summoned (see ApplyChatSide).
     private bool _chatOnLeft;
 
-    // User-adjustable chat panel width (dragged via the panel's right edge), clamped to this range.
+    // User-adjustable chat panel width (dragged via the corner grip), clamped to this range.
     private const double MinChatWidth = 300;
     private const double MaxChatWidth = 680;
     private double _chatWidth = ChatWidth;
     private double _resizeStartWidth;
+
+    // User-adjustable messages-list height (the corner grip's vertical axis). Null until the user
+    // drags vertically — the lists then keep their XAML default (content-driven, max 240). The value
+    // lives on the lists themselves so the existing SizeChanged → window-resize pipeline follows it.
+    private const double MinChatListHeight = 80;
+    private const double MaxChatListHeight = 800; // fallback ceiling when the work area is unknown
+    private const double DefaultListMaxHeight = 240; // mirrors the lists' XAML MaximumHeightRequest
+    private double? _userListHeight;
+    private double _resizeStartListHeight;
+    private double _resizeStartChromeDip;
 
     // Height reserved for the ring + action bar (everything below the chat panel). The chat window
     // height is this plus the chat panel's own measured height, so the window grows with the panel.
@@ -195,6 +205,7 @@ public partial class OverlayPage : ContentPage
         Ring.HandlerChanged += OnRingHandlerChanged;
         MessagesList.HandlerChanged += OnListHandlerChanged;
         SlashSuggestionsList.HandlerChanged += OnListHandlerChanged;
+        ResizeCornerGrip.HandlerChanged += OnResizeGripHandlerChanged;
 
         _settings.Changed += OnSettingsChanged;
         _settings.RingSizePreviewRequested += OnRingSizePreviewRequested;
@@ -620,25 +631,60 @@ public partial class OverlayPage : ContentPage
         _windowController.Resize(_chatWidth, target, ChatAnchor);
     }
 
-    // Drag the chat panel's outer edge to widen/narrow it. The window grows away from the ring
-    // (ChatAnchor keeps the ring's edge fixed) so the ring stays put; the bottom edge stays anchored.
-    // On the left side the grip is on the panel's left, so dragging left (negative X) widens it.
-    // Width is clamped to the space available on the current side so the panel can't run off-screen.
-    private void OnResizeHandlePanUpdated(object? sender, PanUpdatedEventArgs e)
+    // Drag the chat panel's outer top corner to resize it in both axes. Width: the window grows away
+    // from the ring (ChatAnchor keeps the ring's edge fixed); on the left side the grip is on the
+    // panel's left, so dragging left (negative X) widens it. Height: the grip is on top and the
+    // window's bottom edge is anchored, so dragging up (negative Y) grows it — the drag sets a
+    // user height on the lists, the panel grows, and OnChatPanelSizeChanged resizes the window.
+    // Both axes are clamped to the screen space available so the panel can't run off-screen.
+    private void OnResizeCornerPanUpdated(object? sender, PanUpdatedEventArgs e)
     {
         switch (e.StatusType)
         {
             case GestureStatus.Started:
                 _resizeStartWidth = _chatWidth;
+                var measuredList = MeasuredListHeightDip();
+                _resizeStartListHeight = measuredList > 0 ? measuredList : _userListHeight ?? DefaultListMaxHeight;
+                // Fixed chrome (input row, padding, suggestions…) around the list, captured once so
+                // it isn't re-measured mid-drag while the layout is in flux.
+                _resizeStartChromeDip = Math.Max(0, ChatPanel.Height - measuredList);
                 break;
 
             case GestureStatus.Running:
-                var delta = _chatOnLeft ? -e.TotalX : e.TotalX;
-                _chatWidth = Math.Clamp(_resizeStartWidth + delta, MinChatWidth, AvailableChatWidthDip());
+                var widthDelta = _chatOnLeft ? -e.TotalX : e.TotalX;
+                var heightDelta = -e.TotalY;
+                _chatWidth = Math.Clamp(_resizeStartWidth + widthDelta, MinChatWidth, AvailableChatWidthDip());
+                var listHeight = Math.Clamp(_resizeStartListHeight + heightDelta,
+                    MinChatListHeight, AvailableChatListHeightDip());
+                ApplyUserListHeight(listHeight);
                 var height = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
                 _windowController.Resize(_chatWidth, height, ChatAnchor);
                 break;
         }
+    }
+
+    // Measured height of whichever list is currently visible, or 0 when the chat is empty (both
+    // lists collapsed). Used as the drag baseline so the grip tracks the pointer from the real size.
+    private double MeasuredListHeightDip()
+    {
+        if (MessagesList.IsVisible && MessagesList.Height > 0)
+            return MessagesList.Height;
+        if (ConversationList.IsVisible && ConversationList.Height > 0)
+            return ConversationList.Height;
+        return 0;
+    }
+
+    // Apply a user-dragged list height to both lists (so the /chats switcher matches the messages
+    // view). Both HeightRequest and MaximumHeightRequest are set — the XAML max of 240 would
+    // otherwise cap the request, and the fixed HeightRequest makes the drag track the pointer even
+    // when the content is shorter than the requested height.
+    private void ApplyUserListHeight(double heightDip)
+    {
+        _userListHeight = heightDip;
+        MessagesList.MaximumHeightRequest = heightDip;
+        MessagesList.HeightRequest = heightDip;
+        ConversationList.MaximumHeightRequest = heightDip;
+        ConversationList.HeightRequest = heightDip;
     }
 
     // --- Dynamic chat-panel side (left/right of the ring) ---
@@ -697,8 +743,28 @@ public partial class OverlayPage : ContentPage
         return Math.Clamp(spacePx / DisplayScale, MinChatWidth, MaxChatWidth);
     }
 
+    // The tallest the messages list may grow without pushing the window past the top of the work
+    // area. The window's bottom edge is anchored, so the ceiling is the distance from the window's
+    // bottom to the work-area top, minus the ring base and the panel's fixed chrome (input row,
+    // padding…) captured at drag start. Returns MaxChatListHeight when the work area is unknown.
+    private double AvailableChatListHeightDip()
+    {
+        var wa = _windowController.GetWorkArea();
+        if (wa.Height <= 0)
+            return MaxChatListHeight;
+
+        var (_, winY) = _windowController.GetPosition();
+        var (_, winH) = _windowController.GetSize();
+        var maxWindowDip = (winY + winH - wa.Y) / DisplayScale - 8; // small gap below the screen top
+        return Math.Clamp(maxWindowDip - ChatBaseHeight - _resizeStartChromeDip,
+            MinChatListHeight, MaxChatListHeight);
+    }
+
     // Place the chat panel on the given side of the ring: swap the star/zero side columns, the
-    // panel's column and overlap margin, and mirror the collapse chevron + resize grip.
+    // panel's column and overlap margin, and mirror the collapse chevron + corner resize grip.
+    // The grip hugs the panel's outer top corner; its glyph is drawn for the top-right corner and
+    // mirrored via ScaleX when the panel sits on the left. The negative margins reach into the
+    // panel's padding (14 left / 8 right) so the grip sits visually on the corner.
     private void ApplyChatSide(bool onLeft)
     {
         _chatOnLeft = onLeft;
@@ -710,7 +776,9 @@ public partial class OverlayPage : ContentPage
             ChatPanel.Margin = new Thickness(0, 10, -30, 0);
             CollapseButton.Text = IconFont.TablerLine.CaretRight;
             Grid.SetColumn(CollapseButton, 2);
-            Grid.SetColumn(ResizeGrip, 0);
+            ResizeCornerGrip.HorizontalOptions = LayoutOptions.Start;
+            ResizeCornerGrip.Margin = new Thickness(-14, -8, 0, 0);
+            ResizeCornerGlyph.ScaleX = -1;
         }
         else
         {
@@ -720,8 +788,12 @@ public partial class OverlayPage : ContentPage
             ChatPanel.Margin = new Thickness(-30, 10, 0, 0);
             CollapseButton.Text = IconFont.TablerLine.CaretLeft;
             Grid.SetColumn(CollapseButton, 0);
-            Grid.SetColumn(ResizeGrip, 2);
+            ResizeCornerGrip.HorizontalOptions = LayoutOptions.End;
+            ResizeCornerGrip.Margin = new Thickness(0, -8, -8, 0);
+            ResizeCornerGlyph.ScaleX = 1;
         }
+
+        ApplyResizeGripCursor();
     }
 
     // After the ring moves with the chat open, flip the panel to the other side only if the current
@@ -1489,6 +1561,28 @@ public partial class OverlayPage : ContentPage
 #endif
     }
 
+    private void OnResizeGripHandlerChanged(object? sender, EventArgs e) => ApplyResizeGripCursor();
+
+    // Show a diagonal resize cursor while hovering the corner grip (Windows only — MAUI has no
+    // cross-platform cursor API). The diagonal matches the corner the grip occupies: top-right of
+    // the panel gets NE-SW, top-left gets NW-SE. WinUI's UIElement.ProtectedCursor is protected,
+    // so it is set via reflection — the standard workaround until WinUI exposes it publicly.
+    private void ApplyResizeGripCursor()
+    {
+#if WINDOWS
+        if (ResizeCornerGrip.Handler?.PlatformView is not Microsoft.UI.Xaml.UIElement element)
+            return;
+
+        var shape = _chatOnLeft
+            ? Microsoft.UI.Input.InputSystemCursorShape.SizeNorthwestSoutheast
+            : Microsoft.UI.Input.InputSystemCursorShape.SizeNortheastSouthwest;
+        typeof(Microsoft.UI.Xaml.UIElement)
+            .GetProperty("ProtectedCursor",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            ?.SetValue(element, Microsoft.UI.Input.InputSystemCursor.Create(shape));
+#endif
+    }
+
     private void OnRingHandlerChanged(object? sender, EventArgs e)
     {
 #if WINDOWS
@@ -1728,6 +1822,8 @@ public partial class OverlayPage : ContentPage
             Title = "Floaty Settings",
             Width = 520,
             Height = 640,
+            MinimumWidth = 480,
+            MinimumHeight = 560,
         });
     }
 

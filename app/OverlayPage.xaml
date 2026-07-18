@@ -34,7 +34,7 @@
             Padding="14,8,8,8"
             StrokeShape="RoundRectangle 10"
             SizeChanged="OnChatPanelSizeChanged">
-            <!-- Content + a right-edge resize grip overlaid on top of it. -->
+            <!-- Content + a corner resize grip overlaid on top of it. -->
             <Grid>
                 <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
@@ -145,30 +145,35 @@
                                     TextColor="White" />
                             </Grid>
                         </Border>
-                        <!-- Resize grip: drag to change the chat panel width. The transparent strip
-                        is the hit area; the thin bar is the visible affordance. Sits on the panel's
-                        outer edge — its column is set at runtime to match the panel's side. -->
-                        <Border x:Name="ResizeGrip"
-                            WidthRequest="12"
-                            Margin="0,0,0,0"
-                            Grid.Column="2"
-								VerticalOptions="Fill"
-                            BackgroundColor="Transparent"
-                            Stroke="Transparent">
-                            <Border WidthRequest="4"
-                                HeightRequest="34"
-                                HorizontalOptions="Center"
-                                VerticalOptions="Center"
-                                BackgroundColor="#55FFFFFF"
-                                Stroke="Transparent"
-                                StrokeShape="RoundRectangle 2" />
-                            <Border.GestureRecognizers>
-                                <PanGestureRecognizer PanUpdated="OnResizeHandlePanUpdated" />
-                            </Border.GestureRecognizers>
-                        </Border>
                     </Grid>
 
                 </Grid>
+
+                <!-- Corner resize grip: drag to change the chat panel width and height. The
+                     transparent square is the hit area; the quarter-arc "L" is the visible
+                     affordance, drawn for the top-right corner and mirrored (ScaleX = -1) when the
+                     panel sits left of the ring. HorizontalOptions/Margin are set at runtime so the
+                     grip hugs the panel's outer top corner (see ApplyChatSide). -->
+                <Border x:Name="ResizeCornerGrip"
+                    WidthRequest="26"
+                    HeightRequest="26"
+                    HorizontalOptions="End"
+                    VerticalOptions="Start"
+                    Margin="0,-8,-8,0"
+                    BackgroundColor="Transparent"
+                    Stroke="Transparent"
+                    SemanticProperties.Description="Resize chat">
+                    <Path x:Name="ResizeCornerGlyph"
+                        Data="M6,6 L13,6 A7,7 0 0 1 20,13 L20,20"
+                        Stroke="#33FFFFFF"
+                        StrokeThickness="2"
+                        StrokeLineCap="Round"
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center" />
+                    <Border.GestureRecognizers>
+                        <PanGestureRecognizer PanUpdated="OnResizeCornerPanUpdated" />
+                    </Border.GestureRecognizers>
+                </Border>
             </Grid>
         </Border>
 
@@ -249,6 +254,12 @@
             <Setter Property="TextColor" Value="White" />
         </Style>
 
+        <!-- Message bubble text: a chrome-less Editor (see EditorHandlerCustomization) so it reads like
+             a plain Label but supports native drag-select/copy. -->
+        <Style x:Key="SelectableBubbleEditor" TargetType="Editor">
+            <Setter Property="Margin" Value="0" />
+        </Style>
+
         <!-- Chat message bubble (also used by the message list). -->
         <DataTemplate x:Key="MessageTemplate" x:DataType="local:ChatMessageVm">
             <Grid Padding="0,3">
@@ -259,10 +270,18 @@
                     Padding="10,7"
                     StrokeShape="RoundRectangle 12">
                     <VerticalStackLayout Spacing="6">
-                        <Label Text="{Binding Text}"
+                        <!-- Read-only Editor (not Label) so users can drag-select and copy message text;
+                             AutoSize grows it to fit content instead of showing its own scrollbar, and the
+                             chrome (border/background) is stripped in MauiProgram's Editor handler mapper. -->
+                        <Editor Text="{Binding Text}"
+                            IsReadOnly="True"
+                            AutoSize="TextChanges"
+                            IsSpellCheckEnabled="False"
+                            IsTextPredictionEnabled="False"
                             TextColor="White"
                             FontSize="13"
-                            LineBreakMode="WordWrap" />
+                            BackgroundColor="Transparent"
+                            Style="{StaticResource SelectableBubbleEditor}" />
 
                         <!-- Memory sources cited for this answer (RAG provenance). -->
                         <VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">

@@ -58,6 +58,7 @@ public static class MauiProgram
 #endif
 
 		ConfigureOverlayWindow(builder);
+		ConfigureEditorChrome();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
@@ -103,5 +104,49 @@ public static class MauiProgram
 			}));
 #endif
 		});
+	}
+
+	// Message bubbles use a read-only Editor instead of a Label so text can be drag-selected and
+	// copied (see OverlayPage.xaml's SelectableBubbleEditor style). Editors render with native
+	// textbox chrome by default; strip it here so bubbles still look like plain labels.
+	private static void ConfigureEditorChrome()
+	{
+#if WINDOWS
+		Microsoft.Maui.Handlers.EditorHandler.Mapper.AppendToMapping("NoChrome", (handler, _) =>
+		{
+			var textBox = handler.PlatformView;
+			textBox.BorderThickness = new Microsoft.UI.Xaml.Thickness(0);
+			textBox.Padding = new Microsoft.UI.Xaml.Thickness(0);
+			textBox.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+			// WinUI's default TextBox style enforces a ~32px MinHeight, which made single-line
+			// bubbles noticeably taller than the old Label. AutoSize already sizes the box to its
+			// text, so the theme minimum just adds dead space here.
+			textBox.MinHeight = 0;
+
+			// WinUI's default TextBox style swaps in these theme brushes on pointer-over/focus
+			// regardless of the Background/BorderThickness set above, so override them too.
+			var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+			foreach (var key in new[]
+			{
+				"TextControlBackground", "TextControlBackgroundPointerOver",
+				"TextControlBackgroundFocused", "TextControlBackgroundDisabled",
+				"TextControlBorderBrush", "TextControlBorderBrushPointerOver",
+				"TextControlBorderBrushFocused", "TextControlBorderBrushDisabled",
+			})
+			{
+				textBox.Resources[key] = transparent;
+			}
+		});
+#elif MACCATALYST
+		Microsoft.Maui.Handlers.EditorHandler.Mapper.AppendToMapping("NoChrome", (handler, _) =>
+		{
+			var textView = handler.PlatformView;
+			textView.BackgroundColor = UIKit.UIColor.Clear;
+			textView.TextContainerInset = UIKit.UIEdgeInsets.Zero;
+			// AutoSize handles growth to fit content, so the Editor never needs its own scroll region.
+			textView.ScrollEnabled = false;
+		});
+#endif
 	}
 }
