@@ -153,4 +153,15 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 
         Hide();
     }
+
+    public void SetInteractiveHitTest(Func<double, double, bool>? hitTest)
+    {
+        // Click-through for transparent regions is not implemented on macOS yet
+        // (would use NSWindow.ignoresMouseEvents).
+    }
+
+    public void SetForceInteractive(bool force)
+    {
+        // Not implemented on macOS yet.
+    }
 }

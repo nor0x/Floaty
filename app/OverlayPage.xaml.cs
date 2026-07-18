@@ -258,7 +258,61 @@ public partial class OverlayPage : ContentPage
         // Summon (Alt+F): glide the window to the mouse with a ring spin.
         _windowController.SummonRequested += OnSummonRequested;
 
+        // Click-through: tell the native window which regions are interactive so mouse input over
+        // the transparent rest of the window falls through to the apps behind.
+        _windowController.SetInteractiveHitTest(IsInteractiveAt);
+
         StartIdleSpin();
+    }
+
+    // Padding around the ring's hit-rect so the ~50 ms click-through poll can't eat clicks
+    // landing right on its edge while the cursor is still approaching.
+    private const double InteractiveEdgeSlopDip = 4;
+
+    // Called from the native click-through poll (UI thread) with window-client DIP coordinates.
+    // Anything outside these regions lets mouse input pass through to the windows behind.
+    private bool IsInteractiveAt(double x, double y)
+    {
+        if (_chatAnimating)
+            return true; // bounds are in flux mid open/close animation
+
+        var ring = BoundsInPage(Ring);
+        ring = new Rect(
+            ring.X - InteractiveEdgeSlopDip,
+            ring.Y - InteractiveEdgeSlopDip,
+            ring.Width + (2 * InteractiveEdgeSlopDip),
+            ring.Height + (2 * InteractiveEdgeSlopDip));
+        if (ring.Contains(x, y))
+            return true;
+
+        if (ChatPanel.IsVisible)
+        {
+            if (BoundsInPage(ChatPanel).Contains(x, y))
+                return true;
+            // The grip overhangs the panel's outer top corner via negative margins.
+            if (BoundsInPage(ResizeCornerGrip).Contains(x, y))
+                return true;
+        }
+
+        return CaptureToast.IsVisible && BoundsInPage(CaptureToast).Contains(x, y);
+    }
+
+    // Element bounds in page coordinates (== window-client DIPs, since the page fills the window):
+    // Frame is the post-margin arranged rect in parent coordinates, so accumulating it up the tree
+    // handles negative margins and Border padding automatically.
+    private static Rect BoundsInPage(VisualElement element)
+    {
+        double x = 0, y = 0;
+        Element? current = element;
+        while (current is VisualElement visual)
+        {
+            x += visual.Frame.X + visual.TranslationX;
+            y += visual.Frame.Y + visual.TranslationY;
+            current = current.Parent;
+            if (current is Page)
+                break;
+        }
+        return new Rect(x, y, element.Width, element.Height);
     }
 
     private void OnSettingsChanged(object? sender, EventArgs e) =>
@@ -428,6 +482,8 @@ public partial class OverlayPage : ContentPage
                 _lastTotalX = 0;
                 _lastTotalY = 0;
                 _ringBusy = true; // pause the idle spin while dragging
+                // A fast drag can outrun the ring's hit-rect; keep the window input-opaque until release.
+                _windowController.SetForceInteractive(true);
                 break;
 
             case GestureStatus.Running:
@@ -445,6 +501,7 @@ public partial class OverlayPage : ContentPage
 
             case GestureStatus.Completed:
             case GestureStatus.Canceled:
+                _windowController.SetForceInteractive(false);
                 _ = Ring.RotateToAsync(Random.Shared.Next(0, 360), 350, Easing.SinOut);
                 // Resume the idle spin from the ring's current angle.
                 _ringBusy = false;
@@ -821,6 +878,8 @@ public partial class OverlayPage : ContentPage
         switch (e.StatusType)
         {
             case GestureStatus.Started:
+                // The grip drag routinely leaves the grip's small hit-rect; stay input-opaque until release.
+                _windowController.SetForceInteractive(true);
                 _resizeStartWidth = _chatWidth;
                 var measuredList = MeasuredListHeightDip();
                 _resizeStartListHeight = measuredList > 0 ? measuredList : _userListHeight ?? DefaultListMaxHeight;
@@ -838,6 +897,11 @@ public partial class OverlayPage : ContentPage
                 ApplyUserListHeight(listHeight);
                 var height = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
                 _windowController.Resize(_chatWidth, height, ChatAnchor);
+                break;
+
+            case GestureStatus.Completed:
+            case GestureStatus.Canceled:
+                _windowController.SetForceInteractive(false);
                 break;
         }
     }

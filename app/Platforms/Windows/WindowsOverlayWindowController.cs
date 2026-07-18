@@ -20,6 +20,15 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
     private WindowsTrayIcon? _trayIcon;
     private DispatcherQueueTimer? _floatHideTimer;
 
+    // Click-through state: the overlay page supplies a hit-test over its interactive elements;
+    // a polling timer flips WS_EX_TRANSPARENT so transparent regions pass mouse input to the
+    // windows behind while drawn content stays clickable.
+    private Func<double, double, bool>? _hitTest;
+    private bool _forceInteractive;
+    private bool _clickThroughActive;
+    private bool _layeredApplied;
+    private DispatcherQueueTimer? _hitTestTimer;
+
     // Keep the subclass delegate alive for the window's lifetime so the GC can't collect the callback.
     private SUBCLASSPROC? _hotkeyProc;
 
@@ -81,14 +90,90 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         if (!RegisterHotKey(_hwnd, HotkeyId, MOD_ALT | MOD_NOREPEAT, VK_F))
             System.Diagnostics.Debug.WriteLine("[Floaty] Alt+F hotkey registration failed (already in use?).");
 
+        // Poll the cursor and toggle click-through: the window is a normal input-opaque HWND, so
+        // without this its transparent regions would swallow clicks meant for the apps behind it.
+        // A WS_EX_TRANSPARENT window receives no mouse messages, so polling (rather than reacting
+        // to pointer events) is the only way to notice the cursor arriving over interactive content.
+        _hitTestTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _hitTestTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _hitTestTimer.IsRepeating = true;
+        _hitTestTimer.Tick += (_, _) => UpdateClickThrough();
+        _hitTestTimer.Start();
+
         // Tear the tray icon + hotkey down when the window closes.
         nativeWindow.Closed += (_, _) =>
         {
+            _hitTestTimer?.Stop();
+            ApplyClickThrough(false);
             UnregisterHotKey(_hwnd, HotkeyId);
             if (_hotkeyProc is not null)
                 RemoveWindowSubclass(_hwnd, _hotkeyProc, HotkeySubclassId);
             _trayIcon?.Dispose();
         };
+    }
+
+    public void SetInteractiveHitTest(Func<double, double, bool>? hitTest) => _hitTest = hitTest;
+
+    public void SetForceInteractive(bool force)
+    {
+        _forceInteractive = force;
+        if (force)
+            ApplyClickThrough(false); // take effect immediately; don't wait for the next poll tick
+    }
+
+    private void UpdateClickThrough()
+    {
+        if (_appWindow is null || _hitTest is null)
+            return;
+
+        if (_forceInteractive)
+        {
+            ApplyClickThrough(false);
+            return;
+        }
+
+        // Hidden (floated to tray): nothing to hit, leave the style as-is.
+        if (!_appWindow.IsVisible)
+            return;
+
+        if (!GetCursorPos(out var pt))
+            return;
+
+        var client = pt;
+        ScreenToClient(_hwnd, ref client);
+
+        var size = _appWindow.ClientSize; // physical pixels
+        if (client.X < 0 || client.Y < 0 || client.X >= size.Width || client.Y >= size.Height)
+        {
+            // Cursor is outside the window entirely — never block the apps behind.
+            ApplyClickThrough(true);
+            return;
+        }
+
+        // The hit-test works in DIPs; re-reading the DPI every tick keeps monitor changes correct.
+        var scale = GetDpiForWindow(_hwnd) / 96.0;
+        ApplyClickThrough(!_hitTest(client.X / scale, client.Y / scale));
+    }
+
+    private void ApplyClickThrough(bool enable)
+    {
+        if (_hwnd == 0 || enable == _clickThroughActive)
+            return;
+        _clickThroughActive = enable;
+
+        var ex = GetWindowLongPtr(_hwnd, GWL_EXSTYLE).ToInt64();
+        if (!_layeredApplied)
+        {
+            // WS_EX_TRANSPARENT only passes input to other processes' windows when the window is
+            // layered; alpha 255 keeps the DWM-composited visuals untouched.
+            SetWindowLongPtr(_hwnd, GWL_EXSTYLE, new nint(ex | WS_EX_LAYERED));
+            SetLayeredWindowAttributes(_hwnd, 0, 255, LWA_ALPHA);
+            _layeredApplied = true;
+            ex |= WS_EX_LAYERED;
+        }
+
+        ex = enable ? ex | WS_EX_TRANSPARENT : ex & ~WS_EX_TRANSPARENT;
+        SetWindowLongPtr(_hwnd, GWL_EXSTYLE, new nint(ex));
     }
 
     private nint HotkeyWndProc(nint hWnd, uint msg, nint wParam, nint lParam, nuint id, nuint refData)
@@ -298,6 +383,19 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
     private const long WS_SYSMENU = 0x00080000L;
     private const long WS_MINIMIZEBOX = 0x00020000L;
     private const long WS_MAXIMIZEBOX = 0x00010000L;
+
+    // Extended-style click-through: WS_EX_TRANSPARENT on a layered window lets mouse input fall
+    // through to whatever window is behind the overlay.
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_EX_TRANSPARENT = 0x00000020L;
+    private const long WS_EX_LAYERED = 0x00080000L;
+    private const uint LWA_ALPHA = 0x00000002;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetLayeredWindowAttributes(nint hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool ScreenToClient(nint hWnd, ref POINT lpPoint);
 
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;
