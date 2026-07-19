@@ -1,15 +1,16 @@
+using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Floaty.Services;
-using SherpaOnnx;
 
 namespace Floaty.Platforms.Windows;
 
 /// <summary>
 /// Local speech-to-text pipeline: mic samples flow through Silero VAD, which splits them into
-/// speech segments; each finished segment is transcribed by the sherpa-onnx offline recognizer
-/// for the model selected in settings. Pause detection for auto-send also lives here (not in a UI
-/// timer) so one long unbroken sentence is never sent mid-speech: silence only counts once at
-/// least one segment has been transcribed and the VAD reports no active speech.
+/// speech segments; each finished segment is transcribed by the transcribe.cpp runtime (GGUF
+/// model selected in settings, Vulkan-accelerated where a driver exists, CPU otherwise). Pause
+/// detection for auto-send also lives here (not in a UI timer) so one long unbroken sentence is
+/// never sent mid-speech: silence only counts once at least one segment has been transcribed and
+/// the VAD reports no active speech.
 /// </summary>
 public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
 {
@@ -19,21 +20,25 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
     private readonly IAudioCaptureService _audio;
     private readonly SettingsService _settings;
     private readonly ModelDownloadService _downloads;
+    private readonly NativeRuntimeService _runtime;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private OfflineRecognizer? _recognizer;
-    private VoiceActivityDetector? _vad;
+    private IntPtr _model;
+    private IntPtr _session;
+    private SileroVadDetector? _vad;
     private string? _loadedModelId;
 
     private Channel<float[]>? _channel;
     private Task? _worker;
 
     public WindowsVoiceInputService(
-        IAudioCaptureService audio, SettingsService settings, ModelDownloadService downloads)
+        IAudioCaptureService audio, SettingsService settings, ModelDownloadService downloads,
+        NativeRuntimeService runtime)
     {
         _audio = audio;
         _settings = settings;
         _downloads = downloads;
+        _runtime = runtime;
         _audio.SamplesAvailable += OnSamplesAvailable;
         _audio.CaptureFailed += OnCaptureFailed;
         _settings.Changed += OnSettingsChanged;
@@ -63,23 +68,26 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
             if (!_downloads.IsDownloaded(model))
                 throw new InvalidOperationException($"{model.DisplayName} is not downloaded.");
 
-            // Model load can take seconds (Parakeet); keep it off the UI thread. The VAD is
-            // recreated per session so no stale audio state leaks between recordings.
+            // Model load can take seconds (Voxtral: tens of seconds); keep it off the UI thread.
+            // The VAD is recreated per session so no stale audio state leaks between recordings.
             await Task.Run(() =>
             {
-                if (_recognizer is null || _loadedModelId != model.Id)
+                TranscribeNative.Initialize(_runtime.InstallDir);
+                if (_session == IntPtr.Zero || _loadedModelId != model.Id)
                 {
-                    _recognizer?.Dispose();
-                    _recognizer = null;
-                    _recognizer = CreateRecognizer(model);
+                    FreeNative();
+                    LoadModel(model);
                     _loadedModelId = model.Id;
                 }
                 _vad?.Dispose();
-                _vad = CreateVad();
+                _vad = new SileroVadDetector(Path.Combine(
+                    _downloads.GetModelDir(SttModelCatalog.SileroVad.Id),
+                    SttModelCatalog.SileroVad.Files[0].FileName));
             });
 
             _channel = Channel.CreateUnbounded<float[]>();
-            _worker = Task.Run(() => RunWorkerAsync(_channel.Reader, _recognizer!, _vad!,
+            var session = _session;
+            _worker = Task.Run(() => RunWorkerAsync(_channel.Reader, session, _vad!,
                 pauseSeconds: Math.Clamp(_settings.Current.AutoSendPauseSeconds, 1, 10)));
 
             IsListening = true;
@@ -144,8 +152,8 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
 
     private void OnSettingsChanged(object? sender, EventArgs e)
     {
-        // A different model was selected (or cleared): drop the loaded recognizer so its memory
-        // (several hundred MB for Parakeet) is freed; the next StartAsync loads the new one.
+        // A different model was selected (or cleared): drop the loaded native handles so the
+        // weights (up to ~3 GB for Voxtral) are freed; the next StartAsync loads the new one.
         if (_loadedModelId is null || _settings.Current.SttSelectedModelId == _loadedModelId)
             return;
 
@@ -155,8 +163,7 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
             try
             {
                 await StopCoreAsync();
-                _recognizer?.Dispose();
-                _recognizer = null;
+                FreeNative();
                 _vad?.Dispose();
                 _vad = null;
                 _loadedModelId = null;
@@ -169,13 +176,34 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
     }
 
     /// <summary>
+    /// Loads the GGUF with backend auto-selection (Vulkan when a driver registered, else CPU).
+    /// A broken GPU driver surfaces as ERR_BACKEND at load; the header-documented recovery is a
+    /// clean reload pinned to CPU, tried once before giving up.
+    /// </summary>
+    private void LoadModel(SttModelInfo model)
+    {
+        var path = Path.Combine(_downloads.GetModelDir(model.Id), model.Files[0].FileName);
+
+        var status = TranscribeNative.transcribe_model_load_file(path, IntPtr.Zero, out _model);
+        if (status == TranscribeNative.ErrBackend)
+        {
+            var cpuParams = default(TranscribeNative.ModelLoadParams);
+            TranscribeNative.transcribe_model_load_params_init(ref cpuParams);
+            cpuParams.BackendRequest = TranscribeNative.Backend.Cpu;
+            status = TranscribeNative.transcribe_model_load_file(path, ref cpuParams, out _model);
+        }
+        TranscribeNative.Check(status, $"loading {model.DisplayName}");
+        TranscribeNative.Check(
+            TranscribeNative.transcribe_session_init(_model, IntPtr.Zero, out _session), "session setup");
+    }
+
+    /// <summary>
     /// Drains mic buffers, feeds the VAD in 512-sample windows, transcribes finished segments,
     /// and raises <see cref="PauseElapsed"/> once silence outlasts the configured pause. Runs
     /// until the channel completes (StopAsync), then flushes the trailing partial segment.
     /// </summary>
     private async Task RunWorkerAsync(
-        ChannelReader<float[]> reader, OfflineRecognizer recognizer, VoiceActivityDetector vad,
-        double pauseSeconds)
+        ChannelReader<float[]> reader, IntPtr session, SileroVadDetector vad, double pauseSeconds)
     {
         var carry = new List<float>(VadWindowSize * 4);
         var window = new float[VadWindowSize];
@@ -194,7 +222,7 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
 
                 vad.AcceptWaveform(window);
 
-                if (vad.IsSpeechDetected())
+                if (vad.IsSpeechActive)
                 {
                     silentSamples = 0;
                     pauseLatched = false;
@@ -204,7 +232,7 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
                     silentSamples += VadWindowSize;
                 }
 
-                if (DrainSegments(recognizer, vad))
+                if (DrainSegments(session, vad))
                     hasEmitted = true;
 
                 if (hasEmitted && !pauseLatched && silentSamples >= (long)(pauseSeconds * SampleRate))
@@ -218,84 +246,49 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
 
         // Emit whatever the user was mid-saying when they tapped stop.
         vad.Flush();
-        DrainSegments(recognizer, vad);
+        DrainSegments(session, vad);
     }
 
-    private bool DrainSegments(OfflineRecognizer recognizer, VoiceActivityDetector vad)
+    private bool DrainSegments(IntPtr session, SileroVadDetector vad)
     {
         var emitted = false;
-        while (!vad.IsEmpty())
+        while (vad.TryDequeueSegment(out var segment))
         {
-            var segment = vad.Front();
-            vad.Pop();
-
-            using var stream = recognizer.CreateStream();
-            stream.AcceptWaveform(SampleRate, segment.Samples);
-            recognizer.Decode(stream);
-            var text = stream.Result.Text?.Trim();
-            if (!string.IsNullOrWhiteSpace(text))
+            var status = TranscribeNative.transcribe_run(session, segment, segment.Length, IntPtr.Zero);
+            if (status is TranscribeNative.Ok or TranscribeNative.ErrOutputTruncated)
             {
-                emitted = true;
-                SegmentTranscribed?.Invoke(this, text);
+                var text = Marshal.PtrToStringUTF8(TranscribeNative.transcribe_full_text(session))?.Trim();
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    emitted = true;
+                    SegmentTranscribed?.Invoke(this, text);
+                }
+            }
+            else if (status == TranscribeNative.ErrInputTooLong)
+            {
+                Error?.Invoke(this, "That was too long for this model in one stretch — try a short pause.");
+            }
+            else
+            {
+                throw new InvalidOperationException(TranscribeNative.StatusString(status));
             }
         }
         return emitted;
     }
 
-    private OfflineRecognizer CreateRecognizer(SttModelInfo model)
+    private void FreeNative()
     {
-        var dir = _downloads.GetModelDir(model.Id);
-        string P(string fileName) => Path.Combine(dir, fileName);
-        var files = model.Files.Select(f => f.FileName).ToArray();
-
-        var config = new OfflineRecognizerConfig();
-        config.ModelConfig.Tokens = P(files.Single(f => f.EndsWith("tokens.txt")));
-        config.ModelConfig.NumThreads = Math.Min(4, Environment.ProcessorCount);
-        config.ModelConfig.Provider = "cpu";
-        config.ModelConfig.Debug = 0;
-        config.DecodingMethod = "greedy_search";
-
-        switch (model.Engine)
+        // A session borrows its model: free it first.
+        if (_session != IntPtr.Zero)
         {
-            case SttEngineKind.Whisper:
-                config.ModelConfig.Whisper.Encoder = P(files.Single(f => f.Contains("encoder")));
-                config.ModelConfig.Whisper.Decoder = P(files.Single(f => f.Contains("decoder")));
-                config.ModelConfig.Whisper.Language = "en";
-                config.ModelConfig.Whisper.Task = "transcribe";
-                break;
-            case SttEngineKind.Transducer:
-                config.ModelConfig.Transducer.Encoder = P(files.Single(f => f.StartsWith("encoder")));
-                config.ModelConfig.Transducer.Decoder = P(files.Single(f => f.StartsWith("decoder")));
-                config.ModelConfig.Transducer.Joiner = P(files.Single(f => f.StartsWith("joiner")));
-                // NeMo transducer exports (Parakeet) need the explicit model type; the generic
-                // "transducer" path assumes zipformer-style metadata.
-                config.ModelConfig.ModelType = "nemo_transducer";
-                break;
-            case SttEngineKind.Moonshine:
-                config.ModelConfig.Moonshine.Preprocessor = P("preprocess.onnx");
-                config.ModelConfig.Moonshine.Encoder = P(files.Single(f => f.StartsWith("encode.")));
-                config.ModelConfig.Moonshine.UncachedDecoder = P(files.Single(f => f.StartsWith("uncached_decode")));
-                config.ModelConfig.Moonshine.CachedDecoder = P(files.Single(f => f.StartsWith("cached_decode")));
-                break;
-            default:
-                throw new InvalidOperationException($"Unsupported engine: {model.Engine}");
+            TranscribeNative.transcribe_session_free(_session);
+            _session = IntPtr.Zero;
         }
-
-        return new OfflineRecognizer(config);
-    }
-
-    private VoiceActivityDetector CreateVad()
-    {
-        var config = new VadModelConfig();
-        config.SileroVad.Model = Path.Combine(
-            _downloads.GetModelDir(SttModelCatalog.SileroVad.Id),
-            SttModelCatalog.SileroVad.Files[0].FileName);
-        config.SileroVad.Threshold = 0.5f;
-        config.SileroVad.MinSilenceDuration = 0.5f;
-        config.SileroVad.MinSpeechDuration = 0.25f;
-        config.SileroVad.WindowSize = VadWindowSize;
-        config.SampleRate = SampleRate;
-        return new VoiceActivityDetector(config, bufferSizeInSeconds: 60);
+        if (_model != IntPtr.Zero)
+        {
+            TranscribeNative.transcribe_model_free(_model);
+            _model = IntPtr.Zero;
+        }
     }
 
     public void Dispose()
@@ -304,7 +297,7 @@ public sealed class WindowsVoiceInputService : IVoiceInputService, IDisposable
         _audio.CaptureFailed -= OnCaptureFailed;
         _settings.Changed -= OnSettingsChanged;
         StopCoreAsync().GetAwaiter().GetResult();
-        _recognizer?.Dispose();
+        FreeNative();
         _vad?.Dispose();
         _gate.Dispose();
     }

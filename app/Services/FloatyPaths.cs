@@ -29,6 +29,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/models</c> — downloaded local speech-to-text models, one folder per model id.</summary>
     public static string SttModels => EnsureDir(Path.Combine(Home, "models"));
 
+    /// <summary><c>~/.floaty/native</c> — downloaded native runtimes (transcribe.cpp), one folder per version.</summary>
+    public static string NativeRuntimes => EnsureDir(Path.Combine(Home, "native"));
+
     private static string EnsureDir(string path)
     {
         Directory.CreateDirectory(path);

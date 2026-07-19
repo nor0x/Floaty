@@ -95,10 +95,11 @@
         <!-- In-app auto-update for the unpackaged Windows build: atomic install/restart plus the
              UpdateManager that reads GitHub Releases. The matching `vpk` CLI packages releases in CI. -->
         <PackageReference Include="Velopack" Version="1.2.0" />
-        <!-- Voice input: NAudio captures the mic; sherpa-onnx runs the local speech-to-text models
-             (Whisper/Parakeet/Moonshine + Silero VAD). Bundles its native onnxruntime for win-x64. -->
+        <!-- Voice input: NAudio captures the mic; onnxruntime runs the Silero VAD that segments
+             speech. Transcription itself is transcribe.cpp (GGUF models), whose native runtime is
+             downloaded at first use rather than packaged (see NativeRuntimeService). -->
         <PackageReference Include="NAudio" Version="2.2.1" />
-        <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.4" />
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
     </ItemGroup>
 
 </Project>

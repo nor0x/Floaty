@@ -38,7 +38,9 @@ public static class MauiProgram
 		// In-app auto-update (Velopack) checking the GitHub Releases of nor0x/Floaty.
 		builder.Services.AddSingleton<UpdateService>();
 
-		// Local speech-to-text model downloads (~/.floaty/models) for the Voice input settings.
+		// Local speech-to-text: the transcribe.cpp native runtime (~/.floaty/native) and the
+		// model downloads (~/.floaty/models) for the Voice input settings.
+		builder.Services.AddSingleton<NativeRuntimeService>();
 		builder.Services.AddSingleton<ModelDownloadService>();
 
 		// The floating overlay page (native MAUI UI) and the settings window.

@@ -238,7 +238,7 @@
                                 <span class="mcp-meta">
                                     @if (model.IsAvailable)
                                     {
-                                        @($"{model.Engine} · {model.SizeNote} · {model.LanguageNote}")
+                                        @($"{model.SizeNote} · {model.LanguageNote}{(model.GpuRecommended ? " · GPU recommended" : "")}")
                                     }
                                     else
                                     {
@@ -289,7 +289,9 @@
                     <p class="hint">@_sttError</p>
                 }
                 <span class="hint">Models download to <code>~/.floaty/models</code> and run entirely on this
-                    machine. Downloads apply immediately; the selected model and send mode apply on Save.</span>
+                    machine (GPU-accelerated where available), sharing a small speech engine (~26 MB)
+                    fetched automatically with the first model. Downloads apply immediately; the selected
+                    model and send mode apply on Save.</span>
 
                 <div class="field">
                     <label for="voiceSendMode">Send mode</label>
