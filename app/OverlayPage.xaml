@@ -298,6 +298,17 @@
                             </MenuFlyoutItem.IconImageSource>
                         </MenuFlyoutItem>
                         <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="AlwaysOnTopMenuItem"
+                            Text="Always on Top"
+                            Clicked="OnAlwaysOnTopClicked">
+                            <MenuFlyoutItem.IconImageSource>
+                                <FontImageSource x:Name="AlwaysOnTopIcon"
+                                    FontFamily="TablerIconsLine"
+                                    Glyph="{x:Static icons:TablerLine.Pinned}"
+                                    Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
+                            </MenuFlyoutItem.IconImageSource>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Settings"
                             Clicked="OnSettingsClicked">
                             <MenuFlyoutItem.IconImageSource>

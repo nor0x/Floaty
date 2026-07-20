@@ -16,6 +16,7 @@ namespace Floaty.Platforms.Windows;
 public sealed class WindowsOverlayWindowController : IOverlayWindowController
 {
     private AppWindow? _appWindow;
+    private OverlappedPresenter? _presenter;
     private nint _hwnd;
     private WindowsTrayIcon? _trayIcon;
     private DispatcherQueueTimer? _floatHideTimer;
@@ -56,6 +57,7 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         // Borderless, fixed-size, always-on-top.
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
+            _presenter = presenter;
             presenter.SetBorderAndTitleBar(false, false);
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
@@ -110,6 +112,12 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
                 RemoveWindowSubclass(_hwnd, _hotkeyProc, HotkeySubclassId);
             _trayIcon?.Dispose();
         };
+    }
+
+    public void SetAlwaysOnTop(bool alwaysOnTop)
+    {
+        if (_presenter is not null)
+            _presenter.IsAlwaysOnTop = alwaysOnTop;
     }
 
     public void SetInteractiveHitTest(Func<double, double, bool>? hitTest) => _hitTest = hitTest;

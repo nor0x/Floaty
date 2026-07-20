@@ -83,6 +83,9 @@ public sealed class FloatyConfig
     /// </summary>
     public bool RememberTaggedCaptures { get; set; } = true;
 
+    /// <summary>Keeps the ring window above other windows. Enabled by default.</summary>
+    public bool AlwaysOnTop { get; set; } = true;
+
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
 

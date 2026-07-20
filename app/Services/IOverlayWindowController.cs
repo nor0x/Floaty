@@ -83,4 +83,7 @@ public interface IOverlayWindowController
     /// progress, so a fast drag can't outrun the interactive region and drop the gesture.
     /// </summary>
     void SetForceInteractive(bool force);
+
+    /// <summary>Sets whether the overlay window stays above other windows.</summary>
+    void SetAlwaysOnTop(bool alwaysOnTop);
 }

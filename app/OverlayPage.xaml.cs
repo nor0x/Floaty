@@ -252,6 +252,8 @@ public partial class OverlayPage : ContentPage
         ApplyRingImage();
         ApplyRingSize(_settings.Current.RingSize);
         ApplyAccentColor(_settings.Current.AccentColor);
+        ApplyAlwaysOnTopMenuState();
+        _windowController.SetAlwaysOnTop(_settings.Current.AlwaysOnTop);
         RebuildSlashCommands();
         UpdateMicVisibility();
 
@@ -321,6 +323,7 @@ public partial class OverlayPage : ContentPage
             ApplyRingImage();
             ApplyRingSize(_settings.Current.RingSize);
             ApplyAccentColor(_settings.Current.AccentColor);
+            ApplyAlwaysOnTopMenuState();
             RebuildSlashCommands();
             UpdateMicVisibility();
         });
@@ -2397,6 +2400,20 @@ public partial class OverlayPage : ContentPage
 
     private void OnFloatToTaskbarClicked(object? sender, EventArgs e) =>
         _windowController.FloatToTaskbarAndHide();
+
+    private void OnAlwaysOnTopClicked(object? sender, EventArgs e)
+    {
+        var config = _settings.Current;
+        config.AlwaysOnTop = !config.AlwaysOnTop;
+        _settings.Save(config);
+        _windowController.SetAlwaysOnTop(config.AlwaysOnTop);
+        ApplyAlwaysOnTopMenuState();
+    }
+
+    private void ApplyAlwaysOnTopMenuState() =>
+        AlwaysOnTopIcon.Glyph = _settings.Current.AlwaysOnTop
+            ? Floaty.IconFont.TablerLine.Pinned
+            : Floaty.IconFont.TablerLine.PinnedOff;
 
     private void OnCloseClicked(object? sender, EventArgs e) =>
         Application.Current?.Quit();
