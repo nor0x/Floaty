@@ -48,7 +48,7 @@ Everything Floaty knows lives under `~/.floaty`:
 | --- | --- |
 | `config.json` | Settings and preferences |
 | `floaty.md` | User-editable system prompt for the assistant |
-| `litegraph.db` | Local memory — capture embeddings + vector search (SQLite) |
+| `floaty.db` | Local memory — capture embeddings + vector search (SQLite) |
 | `captures/` | Screenshot + screen-content pairs |
 | `conversations/` | Saved chat threads, one JSON file each |
 | `skills/` | Agent skills, each a folder with a `SKILL.md` |
