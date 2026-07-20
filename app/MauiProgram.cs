@@ -23,7 +23,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<SettingsService>();
 		builder.Services.AddSingleton<IChatService, ChatService>();
 
-		// Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/litegraph.db).
+		// Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/floaty.db).
 		builder.Services.AddSingleton<IMemoryService, MemoryService>();
 
 		// MCP servers: connected on demand, tools exposed to chat via /server slash commands.

@@ -17,7 +17,7 @@ public sealed record MemoryCitation(string Title, string? ImagePath, string? Tex
 
 /// <summary>
 /// Floaty's local memory: turns a capture into a text embedding and stores it (with metadata) in the
-/// local LiteGraph vector+graph database under <c>~/.floaty/litegraph.db</c> for later semantic search.
+/// local LiteGraph vector+graph database under <c>~/.floaty/floaty.db</c> for later semantic search.
 /// </summary>
 public interface IMemoryService
 {

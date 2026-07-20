@@ -13,7 +13,7 @@ A local-first AI desktop assistant built with .NET MAUI. It runs as a tray icon 
 | UI framework | .NET MAUI (net10.0), XAML pages + one Blazor hybrid `BlazorWebView` for settings |
 | Language / SDK | C# (nullable enabled, implicit usings), .NET SDK pinned in `app/global.json` (10.0.301, `rollForward: latestFeature`) |
 | AI | `Microsoft.Extensions.AI` abstractions + `Microsoft.Extensions.AI.OpenAI` (chat, tool calls, embeddings) |
-| Local memory | `LiteGraph` — embedded SQLite graph/vector store at `~/.floaty/litegraph.db` |
+| Local memory | `LiteGraph` — embedded SQLite graph/vector store at `~/.floaty/floaty.db` |
 | MCP | `ModelContextProtocol` 2.0.0-preview.1 (`McpClientTool : AIFunction` plugs into `ChatOptions.Tools`) |
 | Windows overlay | `WinUIEx` (transparent/borderless window), Win32 interop for click-through regions |
 | Screen capture | UI Automation (`Interop.UIAutomationClient`) for text, GDI (`System.Drawing.Common`) for screenshots |
@@ -72,7 +72,7 @@ Key services:
 
 ## Data: `~/.floaty`
 
-All user data is local-first under the home directory: `config.json`, `floaty.md` (user system prompt), `litegraph.db`, `captures/`, `conversations/` (one JSON per thread), `skills/`, `models/`, `native/`, `ring/`. Never hardcode these paths — go through `FloatyPaths`.
+All user data is local-first under the home directory: `config.json`, `floaty.md` (user system prompt), `floaty.db`, `captures/`, `conversations/` (one JSON per thread), `skills/`, `models/`, `native/`, `ring/`. Never hardcode these paths — go through `FloatyPaths`.
 
 ## Build & run
 
