@@ -15,6 +15,18 @@ public partial class App : Application
         // in the background. It never restarts on its own — the Updates settings tab surfaces a
         // "Restart & update" button once a download is pending.
         StartBackgroundUpdateCheck();
+
+        // Re-align the OS autostart registration with the saved config and current exe path
+        // (updates can move the install), and keep the singleton alive so later config saves
+        // propagate to the registry via SettingsService.Changed.
+        try
+        {
+            _services.GetService<IAutostartService>()?.SyncOnStartup();
+        }
+        catch
+        {
+            // Autostart sync is best-effort and must never crash startup.
+        }
     }
 
     private void StartBackgroundUpdateCheck()

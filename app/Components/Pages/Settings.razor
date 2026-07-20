@@ -61,7 +61,7 @@
             {
                 <div class="card-head">
                     <h2>Behavior</h2>
-                    <p>Define Floaty's system prompt used at the start of every chat.</p>
+                    <p>Define Floaty's system prompt used at the start of every chat, and how Floaty starts.</p>
                 </div>
 
                 <div class="field">
@@ -70,6 +70,19 @@
                               @bind:event="oninput"></textarea>
                     <span class="hint">Saved locally to <code>~/.floaty/floaty.md</code>.</span>
                 </div>
+
+                @if (OperatingSystem.IsWindows())
+                {
+                    <div class="field">
+                        <label for="autostartMode">Start with Windows</label>
+                        <select id="autostartMode" @bind="_config.AutostartMode">
+                            <option value="@AutostartMode.Disabled">Don't start automatically</option>
+                            <option value="@AutostartMode.Minimized">Start minimized (tray only)</option>
+                            <option value="@AutostartMode.Visible">Start visible</option>
+                        </select>
+                        <span class="hint">@AutostartModeHint(_config.AutostartMode)</span>
+                    </div>
+                }
             }
             else if (_activeSection == SettingsSection.Appearance)
             {
@@ -663,6 +676,7 @@
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
             ScreenHistoryMode = current.ScreenHistoryMode,
+            AutostartMode = current.AutostartMode,
             RememberTaggedCaptures = current.RememberTaggedCaptures,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
@@ -1031,6 +1045,13 @@
             _ = LoadAutoCaptureCountAsync();
         }
     }
+
+    private static string AutostartModeHint(AutostartMode mode) => mode switch
+    {
+        AutostartMode.Disabled => "Floaty only runs when you launch it yourself.",
+        AutostartMode.Minimized => "Floaty starts hidden when you sign in — summon it with Alt+F or the tray icon.",
+        _ => "The floating ring appears as soon as you sign in.",
+    };
 
     private static string ScreenHistoryModeHint(ScreenHistoryMode mode) => mode switch
     {

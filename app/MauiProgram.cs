@@ -55,18 +55,22 @@ public static class MauiProgram
 		// Voice input: NAudio mic capture + sherpa-onnx local speech-to-text.
 		builder.Services.AddSingleton<IAudioCaptureService, Floaty.Platforms.Windows.WindowsAudioCaptureService>();
 		builder.Services.AddSingleton<IVoiceInputService, Floaty.Platforms.Windows.WindowsVoiceInputService>();
+		// Autostart on sign-in: mirrors config.AutostartMode into the HKCU Run registry key.
+		builder.Services.AddSingleton<IAutostartService, Floaty.Platforms.Windows.WindowsAutostartService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
 		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
 		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
+		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
 		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
 		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
+		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 #endif
 
 		ConfigureOverlayWindow(builder);

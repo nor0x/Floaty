@@ -18,6 +18,21 @@ public enum ScreenHistoryMode
 }
 
 /// <summary>
+/// Whether (and how) Floaty launches automatically when the user signs in to the OS.
+/// </summary>
+public enum AutostartMode
+{
+    /// <summary>Floaty only runs when launched manually.</summary>
+    Disabled,
+
+    /// <summary>Starts hidden in the notification area; summoned via the tray icon or Alt+F.</summary>
+    Minimized,
+
+    /// <summary>Starts with the floating ring visible.</summary>
+    Visible,
+}
+
+/// <summary>
 /// How dictated text is sent once it lands in the chat entry.
 /// </summary>
 public enum VoiceSendMode
@@ -85,6 +100,13 @@ public sealed class FloatyConfig
 
     /// <summary>Keeps the ring window above other windows. Enabled by default.</summary>
     public bool AlwaysOnTop { get; set; } = true;
+
+    /// <summary>
+    /// Whether Floaty starts automatically on OS sign-in, and if so whether it starts hidden or
+    /// visible. Windows-only; mirrored into the HKCU Run registry key on save.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public AutostartMode AutostartMode { get; set; } = AutostartMode.Disabled;
 
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();

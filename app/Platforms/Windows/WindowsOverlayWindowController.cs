@@ -86,6 +86,15 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
         // window is shown (the attribute doesn't take during OnWindowCreated).
         nativeWindow.Activated += OnActivatedRemoveBorder;
 
+        // Autostart launched us with --minimized: start hidden in the tray. Hide now, and again on
+        // the first activation — MAUI calls window.Activate() after OnWindowCreated, which would
+        // otherwise re-show the window. The tray icon above is already up, so the app stays reachable.
+        if (Environment.GetCommandLineArgs().Contains("--minimized", StringComparer.OrdinalIgnoreCase))
+        {
+            _appWindow.Hide();
+            nativeWindow.Activated += OnActivatedStartMinimized;
+        }
+
         // Global summon hotkey (Alt+F): subclass the window to receive WM_HOTKEY, then register it.
         _hotkeyProc = HotkeyWndProc;
         SetWindowSubclass(_hwnd, _hotkeyProc, HotkeySubclassId, 0);
@@ -190,6 +199,12 @@ public sealed class WindowsOverlayWindowController : IOverlayWindowController
             SummonRequested?.Invoke(pt.X, pt.Y);
 
         return DefSubclassProc(hWnd, msg, wParam, lParam);
+    }
+
+    private void OnActivatedStartMinimized(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
+    {
+        ((Microsoft.UI.Xaml.Window)sender).Activated -= OnActivatedStartMinimized;
+        _appWindow?.Hide();
     }
 
     private void OnActivatedRemoveBorder(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs args)
