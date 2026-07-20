@@ -2,7 +2,7 @@ namespace Floaty.Services;
 
 /// <summary>
 /// Central location for Floaty's local-first data directory (<c>~/.floaty</c>) and its subfolders.
-/// Each accessor ensures the directory exists before returning it. See readme.md ("Local First Approach").
+/// Each accessor ensures the directory exists before returning it. See README.md ("Local-first layout").
 /// </summary>
 public static class FloatyPaths
 {
