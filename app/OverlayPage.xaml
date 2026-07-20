@@ -7,6 +7,20 @@
     x:DataType="local:OverlayPage"
     BackgroundColor="Transparent">
 
+    <ContentPage.Resources>
+        <!-- Swapped onto AlwaysOnTopMenuItem.IconImageSource in code-behind (ApplyAlwaysOnTopMenuState):
+             mutating FontImageSource.Glyph in place doesn't propagate to the already-realized native
+             menu icon, so a fresh instance is assigned instead. -->
+        <FontImageSource x:Key="AlwaysOnTopOnIcon"
+            FontFamily="TablerIconsLine"
+            Glyph="{x:Static icons:TablerLine.Pinned}"
+            Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
+        <FontImageSource x:Key="AlwaysOnTopOffIcon"
+            FontFamily="TablerIconsLine"
+            Glyph="{x:Static icons:TablerLine.PinnedOff}"
+            Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
+    </ContentPage.Resources>
+
     <!-- Whole-window layout: chat panel (hidden until opened) beside the ring, which sits in the
          center column. The panel opens into the left or right side column depending on available
          screen space (see OverlayPage.ApplyChatSide); the unused side column is collapsed to 0 so
@@ -300,14 +314,8 @@
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem x:Name="AlwaysOnTopMenuItem"
                             Text="Always on Top"
-                            Clicked="OnAlwaysOnTopClicked">
-                            <MenuFlyoutItem.IconImageSource>
-                                <FontImageSource x:Name="AlwaysOnTopIcon"
-                                    FontFamily="TablerIconsLine"
-                                    Glyph="{x:Static icons:TablerLine.Pinned}"
-                                    Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-                            </MenuFlyoutItem.IconImageSource>
-                        </MenuFlyoutItem>
+                            IconImageSource="{StaticResource AlwaysOnTopOnIcon}"
+                            Clicked="OnAlwaysOnTopClicked" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Settings"
                             Clicked="OnSettingsClicked">

@@ -2411,9 +2411,8 @@ public partial class OverlayPage : ContentPage
     }
 
     private void ApplyAlwaysOnTopMenuState() =>
-        AlwaysOnTopIcon.Glyph = _settings.Current.AlwaysOnTop
-            ? Floaty.IconFont.TablerLine.Pinned
-            : Floaty.IconFont.TablerLine.PinnedOff;
+        AlwaysOnTopMenuItem.IconImageSource = (FontImageSource)Resources[
+            _settings.Current.AlwaysOnTop ? "AlwaysOnTopOnIcon" : "AlwaysOnTopOffIcon"];
 
     private void OnCloseClicked(object? sender, EventArgs e) =>
         Application.Current?.Quit();
