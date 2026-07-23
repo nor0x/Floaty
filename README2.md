@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="website/ring1.png" alt="Floaty" width="160" />
+  <img src="website/ring-spin.svg" alt="Floaty" width="160" />
 </p>
 
 <h1 align="center">Floaty 🛟</h1>
