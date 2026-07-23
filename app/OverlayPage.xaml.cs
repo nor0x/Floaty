@@ -2295,7 +2295,7 @@ public partial class OverlayPage : ContentPage
             var repaint = Stopwatch.StartNew();
             var lastScrollMs = 0L;
 
-            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions))
+            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions, ApproveExecAsync))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
                 if (string.IsNullOrEmpty(chunk))
@@ -2340,6 +2340,63 @@ public partial class OverlayPage : ContentPage
 
         ScrollToLatest();
         PersistCurrentConversation();
+    }
+
+    // Completes when the user clicks Run/Cancel on the exec approval panel; set while a command is pending.
+    private TaskCompletionSource<bool>? _pendingExecApproval;
+
+    // Called by the exec tool (possibly off the UI thread) before it runs a command: shows the approval
+    // panel with the exact command, waits for Run/Cancel, records the outcome as a system note, and returns
+    // whether the user approved. All UI mutation is marshaled to the main thread.
+    private async Task<bool> ApproveExecAsync(ExecApprovalRequest request)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            _pendingExecApproval = tcs;
+            ExecApprovalHeaderLabel.Text = $"Run this command in {request.ShellName}?";
+            ExecApprovalCommandLabel.Text = request.Command;
+
+            if (!string.IsNullOrWhiteSpace(request.WorkingDirectory))
+            {
+                ExecApprovalDirLabel.Text = $"in {request.WorkingDirectory}";
+                ExecApprovalDirLabel.IsVisible = true;
+            }
+            else
+            {
+                ExecApprovalDirLabel.IsVisible = false;
+            }
+
+            ExecApprovalPanel.IsVisible = true;
+            ScrollToLatest();
+        });
+
+        var approved = await tcs.Task;
+
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            ExecApprovalPanel.IsVisible = false;
+            var note = approved ? $"⚡ Ran in {request.ShellName}: {request.Command}"
+                                : $"🚫 Declined: {request.Command}";
+            Messages.Add(new ChatMessageVm(isUser: false, note, isSystemNote: true));
+            MessagesList.IsVisible = true;
+            ScrollToLatest();
+        });
+
+        return approved;
+    }
+
+    private void OnExecApprovalRunClicked(object? sender, EventArgs e) => ResolveExecApproval(true);
+
+    private void OnExecApprovalCancelClicked(object? sender, EventArgs e) => ResolveExecApproval(false);
+
+    private void ResolveExecApproval(bool approved)
+    {
+        var pending = _pendingExecApproval;
+        _pendingExecApproval = null;
+        ExecApprovalPanel.IsVisible = false;
+        pending?.TrySetResult(approved);
     }
 
     // The outgoing user message: plain text, or multimodal when windows were attached via @ —

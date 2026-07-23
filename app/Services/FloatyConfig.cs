@@ -33,6 +33,34 @@ public enum AutostartMode
 }
 
 /// <summary>
+/// Which shell the <c>exec</c> agent tool runs commands through. Stored as a string so config.json
+/// stays hand-editable. <see cref="ExecShellKind.Custom"/> uses the user-supplied executable + args.
+/// </summary>
+public enum ExecShellKind
+{
+    /// <summary>Windows PowerShell (<c>powershell.exe</c>).</summary>
+    PowerShell,
+
+    /// <summary>PowerShell Core (<c>pwsh</c>), cross-platform.</summary>
+    Pwsh,
+
+    /// <summary>Windows Command Prompt (<c>cmd.exe</c>).</summary>
+    Cmd,
+
+    /// <summary>Bourne-again shell (<c>bash</c>).</summary>
+    Bash,
+
+    /// <summary>Z shell (<c>zsh</c>).</summary>
+    Zsh,
+
+    /// <summary>POSIX shell (<c>sh</c>).</summary>
+    Sh,
+
+    /// <summary>A user-specified executable and argument template.</summary>
+    Custom,
+}
+
+/// <summary>
 /// How dictated text is sent once it lands in the chat entry.
 /// </summary>
 public enum VoiceSendMode
@@ -126,6 +154,26 @@ public sealed class FloatyConfig
 
     /// <summary>Silence length (seconds) that triggers auto-send. Clamped to 1–10 on use.</summary>
     public double AutoSendPauseSeconds { get; set; } = 2.0;
+
+    /// <summary>
+    /// Whether the <c>exec</c> agent tool is exposed to the model. Off by default: shell execution is a
+    /// powerful capability, and even when on, every command still requires explicit user approval.
+    /// </summary>
+    public bool ExecEnabled { get; set; } = false;
+
+    /// <summary>Which shell the <c>exec</c> tool launches. Defaults to PowerShell on Windows, zsh elsewhere.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ExecShellKind ExecShell { get; set; } =
+        OperatingSystem.IsWindows() ? ExecShellKind.PowerShell : ExecShellKind.Zsh;
+
+    /// <summary>Executable path for <see cref="ExecShellKind.Custom"/>, e.g. <c>/usr/bin/fish</c>.</summary>
+    public string ExecCustomShellPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Argument template for <see cref="ExecShellKind.Custom"/>. The <c>{command}</c> token is replaced by
+    /// the command text; if the token is absent, the command is appended as a final argument.
+    /// </summary>
+    public string ExecCustomShellArgs { get; set; } = "-c {command}";
 }
 
 /// <summary>

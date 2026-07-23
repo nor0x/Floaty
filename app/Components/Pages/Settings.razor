@@ -44,6 +44,11 @@
                 <i class="ti ti-server-2" aria-hidden="true"></i>
                 <span>MCP Servers</span>
             </button>
+            <button class="tab @TabClass(SettingsSection.Exec)"
+                    @onclick="() => SelectSection(SettingsSection.Exec)">
+                <i class="ti ti-terminal-2" aria-hidden="true"></i>
+                <span>Shell</span>
+            </button>
             <button class="tab @TabClass(SettingsSection.Skills)"
                     @onclick="() => SelectSection(SettingsSection.Skills)">
                 <i class="ti ti-bolt" aria-hidden="true"></i>
@@ -419,6 +424,63 @@
                     </button>
                 </div>
             }
+            else if (_activeSection == SettingsSection.Exec)
+            {
+                <div class="card-head">
+                    <h2>Shell</h2>
+                    <p>Let Floaty run shell commands to create and edit files, launch apps, and automate your
+                        computer. Off by default; every command must be approved by you before it runs.</p>
+                </div>
+
+                <div class="field">
+                    <label>Command execution</label>
+                    <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                        <input type="checkbox" @bind="_config.ExecEnabled" />
+                        Enable the shell command tool
+                    </label>
+                    <span class="hint">When enabled, Floaty can propose shell commands. Each one appears in the
+                        overlay with the exact command and a Run / Cancel prompt — nothing executes until you
+                        approve it.</span>
+                </div>
+
+                @if (_config.ExecEnabled)
+                {
+                    <div class="field">
+                        <label for="execShell">Default shell</label>
+                        <select id="execShell" @bind="_config.ExecShell">
+                            <option value="@ExecShellKind.PowerShell">Windows PowerShell (powershell.exe)</option>
+                            <option value="@ExecShellKind.Pwsh">PowerShell Core (pwsh)</option>
+                            <option value="@ExecShellKind.Cmd">Command Prompt (cmd.exe)</option>
+                            <option value="@ExecShellKind.Bash">bash</option>
+                            <option value="@ExecShellKind.Zsh">zsh</option>
+                            <option value="@ExecShellKind.Sh">sh</option>
+                            <option value="@ExecShellKind.Custom">Custom…</option>
+                        </select>
+                        <span class="hint">The shell commands are run through.</span>
+                    </div>
+
+                    @if (_config.ExecShell == ExecShellKind.Custom)
+                    {
+                        <div class="field">
+                            <label for="execCustomPath">Custom shell executable</label>
+                            <input id="execCustomPath" type="text" autocomplete="off" spellcheck="false"
+                                   placeholder="/usr/bin/fish" @bind="_config.ExecCustomShellPath"
+                                   @bind:event="oninput" />
+                            <span class="hint">Full path to the shell executable to launch.</span>
+                        </div>
+
+                        <div class="field">
+                            <label for="execCustomArgs">Custom arguments</label>
+                            <input id="execCustomArgs" type="text" autocomplete="off" spellcheck="false"
+                                   placeholder="-c {command}" @bind="_config.ExecCustomShellArgs"
+                                   @bind:event="oninput" />
+                            <span class="hint">Arguments passed before the command. The <code>{command}</code>
+                                token is replaced by the command text; if omitted, the command is appended as a
+                                final argument.</span>
+                        </div>
+                    }
+                }
+            }
             else if (_activeSection == SettingsSection.Skills)
             {
                 <div class="card-head">
@@ -605,6 +667,7 @@
         ScreenHistory,
         VoiceInput,
         Mcp,
+        Exec,
         Skills,
         Updates,
     }
@@ -683,6 +746,10 @@
             SttSelectedModelId = current.SttSelectedModelId,
             VoiceSendMode = current.VoiceSendMode,
             AutoSendPauseSeconds = current.AutoSendPauseSeconds,
+            ExecEnabled = current.ExecEnabled,
+            ExecShell = current.ExecShell,
+            ExecCustomShellPath = current.ExecCustomShellPath,
+            ExecCustomShellArgs = current.ExecCustomShellArgs,
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
