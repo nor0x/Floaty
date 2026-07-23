@@ -69,4 +69,21 @@ public interface IOverlayWindowController
     /// keeping the process alive so summon can bring it back.
     /// </summary>
     void FloatToTaskbarAndHide();
+
+    /// <summary>
+    /// Supplies the hit-test the platform uses to decide whether the point under the mouse cursor
+    /// (window-client coordinates, device-independent units) is an interactive part of the overlay.
+    /// Points outside every interactive region let mouse input pass through to whatever window is
+    /// behind the overlay. Pass null to clear; platforms without click-through support ignore this.
+    /// </summary>
+    void SetInteractiveHitTest(Func<double, double, bool>? hitTest);
+
+    /// <summary>
+    /// Forces the window input-opaque regardless of the hit-test while a drag gesture is in
+    /// progress, so a fast drag can't outrun the interactive region and drop the gesture.
+    /// </summary>
+    void SetForceInteractive(bool force);
+
+    /// <summary>Sets whether the overlay window stays above other windows.</summary>
+    void SetAlwaysOnTop(bool alwaysOnTop);
 }

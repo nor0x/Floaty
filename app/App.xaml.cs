@@ -15,6 +15,18 @@ public partial class App : Application
         // in the background. It never restarts on its own — the Updates settings tab surfaces a
         // "Restart & update" button once a download is pending.
         StartBackgroundUpdateCheck();
+
+        // Re-align the OS autostart registration with the saved config and current exe path
+        // (updates can move the install), and keep the singleton alive so later config saves
+        // propagate to the registry via SettingsService.Changed.
+        try
+        {
+            _services.GetService<IAutostartService>()?.SyncOnStartup();
+        }
+        catch
+        {
+            // Autostart sync is best-effort and must never crash startup.
+        }
     }
 
     private void StartBackgroundUpdateCheck()
@@ -42,9 +54,10 @@ public partial class App : Application
 
         // Small overlay parked toward the bottom-right of the primary display. The window hugs the
         // ring (see OverlayPage.CompactWidth) so it sits flush against both edges, letting the chat
-        // panel open to either side with the ring staying put.
-        const double width = 150;
-        const double height = 250;
+        // panel open to either side with the ring staying put. Its size follows the persisted ring size.
+        var settings = _services.GetRequiredService<SettingsService>();
+        var ringSize = SettingsService.ClampRingSize(settings.Current.RingSize);
+        var (width, height) = OverlayPage.CompactWindowSizeFor(ringSize);
         var display = DeviceDisplay.Current.MainDisplayInfo;
         var x = (display.Width / display.Density) - width - 40;
         var y = (display.Height / display.Density) - height - 80;

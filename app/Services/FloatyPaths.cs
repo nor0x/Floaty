@@ -2,7 +2,7 @@ namespace Floaty.Services;
 
 /// <summary>
 /// Central location for Floaty's local-first data directory (<c>~/.floaty</c>) and its subfolders.
-/// Each accessor ensures the directory exists before returning it. See readme.md ("Local First Approach").
+/// Each accessor ensures the directory exists before returning it. See README.md ("Local-first layout").
 /// </summary>
 public static class FloatyPaths
 {
@@ -25,6 +25,12 @@ public static class FloatyPaths
 
     /// <summary><c>~/.floaty/skills</c> — user-placed agent skills (each a folder with a SKILL.md).</summary>
     public static string Skills => EnsureDir(Path.Combine(Home, "skills"));
+
+    /// <summary><c>~/.floaty/models</c> — downloaded local speech-to-text models, one folder per model id.</summary>
+    public static string SttModels => EnsureDir(Path.Combine(Home, "models"));
+
+    /// <summary><c>~/.floaty/native</c> — downloaded native runtimes (transcribe.cpp), one folder per version.</summary>
+    public static string NativeRuntimes => EnsureDir(Path.Combine(Home, "native"));
 
     private static string EnsureDir(string path)
     {

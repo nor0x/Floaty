@@ -22,6 +22,10 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
     // Stop walking the UI Automation tree past this many elements so pathological trees can't hang us.
     private const int MaxElements = 3000;
 
+    // Automatic history screenshots are downscaled to this width: plenty for a vision model to read,
+    // a fraction of the disk and token cost of a full-resolution window. Manual captures stay full-res.
+    private const int AutoCaptureMaxImageWidth = 1280;
+
     public Task<CaptureResult?> CaptureUnderlyingWindowAsync(CancellationToken cancellationToken = default) =>
         Task.Run<CaptureResult?>(() =>
         {
@@ -31,16 +35,63 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
             if (hwnd == nint.Zero)
                 return null;
 
-            var title = GetWindowText(hwnd);
-            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-            var imagePath = Path.Combine(FloatyPaths.Captures, $"capture-{stamp}.png");
-            var textPath = Path.Combine(FloatyPaths.Captures, $"capture-{stamp}.txt");
-
-            SaveWindowImage(hwnd, imagePath);
-            var content = SaveWindowText(hwnd, title, textPath);
-
-            return new CaptureResult(imagePath, textPath, title, content);
+            return CaptureCore(hwnd, includeScreenshot: true, maxImageWidth: 0);
         }, cancellationToken);
+
+    public Task<CaptureResult?> CaptureWindowAsync(
+        nint hwnd,
+        bool includeScreenshot,
+        CancellationToken cancellationToken = default) =>
+        Task.Run<CaptureResult?>(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Re-validate: between the foreground event and the debounced capture the window may
+            // have closed, minimized, or been cloaked.
+            if (hwnd == nint.Zero || !IsCandidateWindow(hwnd, (uint)Environment.ProcessId))
+                return null;
+
+            return CaptureCore(hwnd, includeScreenshot, AutoCaptureMaxImageWidth);
+        }, cancellationToken);
+
+    public Task<IReadOnlyList<WindowInfo>> ListWindowsAsync(CancellationToken cancellationToken = default) =>
+        Task.Run<IReadOnlyList<WindowInfo>>(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var ownPid = (uint)Environment.ProcessId;
+            var windows = new List<WindowInfo>();
+
+            EnumWindows((hwnd, _) =>
+            {
+                if (IsCandidateWindow(hwnd, ownPid))
+                    windows.Add(new WindowInfo(hwnd, GetWindowText(hwnd), GetProcessName(hwnd)));
+                return true; // keep enumerating: we want every candidate, front to back
+            }, nint.Zero);
+
+            return windows;
+        }, cancellationToken);
+
+    /// <summary>
+    /// Captures <paramref name="hwnd"/>: accessibility text always, screenshot only when requested
+    /// (text-only captures return an empty <see cref="CaptureResult.ImagePath"/>, which downstream
+    /// consumers treat as "no image"). <paramref name="maxImageWidth"/> &gt; 0 downscales the PNG.
+    /// </summary>
+    private static CaptureResult CaptureCore(nint hwnd, bool includeScreenshot, int maxImageWidth)
+    {
+        var title = GetWindowText(hwnd);
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var imagePath = includeScreenshot
+            ? Path.Combine(FloatyPaths.Captures, $"capture-{stamp}.png")
+            : string.Empty;
+        var textPath = Path.Combine(FloatyPaths.Captures, $"capture-{stamp}.txt");
+
+        if (includeScreenshot)
+            SaveWindowImage(hwnd, imagePath, maxImageWidth);
+        var content = SaveWindowText(hwnd, title, textPath);
+
+        return new CaptureResult(imagePath, textPath, title, content);
+    }
 
     // --- Target window selection -------------------------------------------------------------
 
@@ -102,7 +153,7 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
 
     // --- Screenshot --------------------------------------------------------------------------
 
-    private static void SaveWindowImage(nint hwnd, string path)
+    private static void SaveWindowImage(nint hwnd, string path, int maxWidth = 0)
     {
         GetWindowRect(hwnd, out var rect);
         using var bmp = new Bitmap(rect.Width, rect.Height, PixelFormat.Format32bppArgb);
@@ -123,6 +174,14 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
         // PrintWindow fills RGB but commonly leaves the alpha channel at 0, which saves as a fully
         // transparent ("empty") PNG. Force every pixel opaque so the real content shows.
         ForceOpaque(bmp);
+
+        if (maxWidth > 0 && bmp.Width > maxWidth)
+        {
+            var height = Math.Max(1, (int)Math.Round(bmp.Height * (maxWidth / (double)bmp.Width)));
+            using var scaled = new Bitmap(bmp, maxWidth, height);
+            scaled.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+            return;
+        }
 
         bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
     }

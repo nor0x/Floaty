@@ -1,4 +1,76 @@
+using System.Text.Json.Serialization;
+
 namespace Floaty.Services;
+
+/// <summary>
+/// What Floaty records into memory when the foreground window (or its title) changes.
+/// </summary>
+public enum ScreenHistoryMode
+{
+    /// <summary>Nothing is recorded.</summary>
+    Disabled,
+
+    /// <summary>Only the window's accessibility text is captured and embedded.</summary>
+    TextOnly,
+
+    /// <summary>Accessibility text plus a PNG of the window (described by the snapshot model, if set).</summary>
+    TextAndScreenshot,
+}
+
+/// <summary>
+/// Whether (and how) Floaty launches automatically when the user signs in to the OS.
+/// </summary>
+public enum AutostartMode
+{
+    /// <summary>Floaty only runs when launched manually.</summary>
+    Disabled,
+
+    /// <summary>Starts hidden in the notification area; summoned via the tray icon or Alt+F.</summary>
+    Minimized,
+
+    /// <summary>Starts with the floating ring visible.</summary>
+    Visible,
+}
+
+/// <summary>
+/// Which shell the <c>exec</c> agent tool runs commands through. Stored as a string so config.json
+/// stays hand-editable. <see cref="ExecShellKind.Custom"/> uses the user-supplied executable + args.
+/// </summary>
+public enum ExecShellKind
+{
+    /// <summary>Windows PowerShell (<c>powershell.exe</c>).</summary>
+    PowerShell,
+
+    /// <summary>PowerShell Core (<c>pwsh</c>), cross-platform.</summary>
+    Pwsh,
+
+    /// <summary>Windows Command Prompt (<c>cmd.exe</c>).</summary>
+    Cmd,
+
+    /// <summary>Bourne-again shell (<c>bash</c>).</summary>
+    Bash,
+
+    /// <summary>Z shell (<c>zsh</c>).</summary>
+    Zsh,
+
+    /// <summary>POSIX shell (<c>sh</c>).</summary>
+    Sh,
+
+    /// <summary>A user-specified executable and argument template.</summary>
+    Custom,
+}
+
+/// <summary>
+/// How dictated text is sent once it lands in the chat entry.
+/// </summary>
+public enum VoiceSendMode
+{
+    /// <summary>Recognized text fills the entry; the user presses send themselves.</summary>
+    Manual,
+
+    /// <summary>After a long silence following speech, the message is sent automatically.</summary>
+    AutoSendOnPause,
+}
 
 /// <summary>
 /// User-editable configuration for Floaty, persisted as JSON in <c>~/.floaty/config.json</c>.
@@ -29,11 +101,79 @@ public sealed class FloatyConfig
     /// </summary>
     public string RingImageFileName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Ring diameter in device-independent units. Defaults to <see cref="SettingsService.RingDefaultSize"/>;
+    /// adjustable via the Appearance slider or Ctrl+scroll over the ring. Clamped on load.
+    /// </summary>
+    public double RingSize { get; set; } = 148;
+
+    /// <summary>
+    /// Accent hex color ("#rrggbb") used for buttons, chat bubbles, and highlights.
+    /// Invalid values fall back to <see cref="AccentPalette.DefaultHex"/> on use.
+    /// </summary>
+    public string AccentColor { get; set; } = AccentPalette.DefaultHex;
+
+    /// <summary>
+    /// What gets auto-captured into memory when the user switches windows (or tabs, via title
+    /// changes). Stored as a string ("TextOnly") so config.json stays hand-editable.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ScreenHistoryMode ScreenHistoryMode { get; set; } = ScreenHistoryMode.TextOnly;
+
+    /// <summary>
+    /// When a window is attached to a prompt via @, also save that capture into memory
+    /// (like <c>/capture</c>) so it can be recalled later.
+    /// </summary>
+    public bool RememberTaggedCaptures { get; set; } = true;
+
+    /// <summary>Keeps the ring window above other windows. Enabled by default.</summary>
+    public bool AlwaysOnTop { get; set; } = true;
+
+    /// <summary>
+    /// Whether Floaty starts automatically on OS sign-in, and if so whether it starts hidden or
+    /// visible. Windows-only; mirrored into the HKCU Run registry key on save.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public AutostartMode AutostartMode { get; set; } = AutostartMode.Disabled;
+
     /// <summary>Configured MCP servers, each callable from chat via its <c>/name</c> slash command.</summary>
     public List<McpServerConfig> McpServers { get; set; } = new();
 
     /// <summary>Names of discovered agent skills the user has turned off (excluded from slash commands).</summary>
     public List<string> DisabledSkills { get; set; } = new();
+
+    /// <summary>
+    /// Selected local speech-to-text model id from <see cref="SttModelCatalog"/>. Null until the user
+    /// picks a downloaded model; the mic button only shows once this points at one that is on disk.
+    /// </summary>
+    public string? SttSelectedModelId { get; set; }
+
+    /// <summary>Whether dictation auto-sends after a silence pause or waits for a manual send.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public VoiceSendMode VoiceSendMode { get; set; } = VoiceSendMode.Manual;
+
+    /// <summary>Silence length (seconds) that triggers auto-send. Clamped to 1–10 on use.</summary>
+    public double AutoSendPauseSeconds { get; set; } = 2.0;
+
+    /// <summary>
+    /// Whether the <c>exec</c> agent tool is exposed to the model. Off by default: shell execution is a
+    /// powerful capability, and even when on, every command still requires explicit user approval.
+    /// </summary>
+    public bool ExecEnabled { get; set; } = false;
+
+    /// <summary>Which shell the <c>exec</c> tool launches. Defaults to PowerShell on Windows, zsh elsewhere.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ExecShellKind ExecShell { get; set; } =
+        OperatingSystem.IsWindows() ? ExecShellKind.PowerShell : ExecShellKind.Zsh;
+
+    /// <summary>Executable path for <see cref="ExecShellKind.Custom"/>, e.g. <c>/usr/bin/fish</c>.</summary>
+    public string ExecCustomShellPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Argument template for <see cref="ExecShellKind.Custom"/>. The <c>{command}</c> token is replaced by
+    /// the command text; if the token is absent, the command is appended as a final argument.
+    /// </summary>
+    public string ExecCustomShellArgs { get; set; } = "-c {command}";
 }
 
 /// <summary>

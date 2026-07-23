@@ -6,6 +6,9 @@ namespace Floaty.Services;
 /// </summary>
 public sealed record CaptureResult(string ImagePath, string TextPath, string WindowTitle, string Content);
 
+/// <summary>A top-level application window that can be captured as prompt context.</summary>
+public sealed record WindowInfo(nint Hwnd, string Title, string ProcessName);
+
 /// <summary>
 /// Captures the window directly beneath the floating overlay: a screenshot (PNG) plus its
 /// accessibility content (TXT), written to <c>~/.floaty/captures</c>.
@@ -17,4 +20,22 @@ public interface IScreenCaptureService
     /// no suitable window (e.g. only the desktop is visible) or the platform doesn't support capture.
     /// </summary>
     Task<CaptureResult?> CaptureUnderlyingWindowAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Captures a specific top-level window (used by automatic screen history). When
+    /// <paramref name="includeScreenshot"/> is false only the accessibility text is written and
+    /// <see cref="CaptureResult.ImagePath"/> is empty. Returns <c>null</c> when the window is no
+    /// longer a valid capture target or the platform doesn't support capture.
+    /// </summary>
+    Task<CaptureResult?> CaptureWindowAsync(
+        nint hwnd,
+        bool includeScreenshot,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists the top-level application windows that are valid capture targets, in Z-order front to
+    /// back (so the most recently used windows come first). Empty when the platform doesn't
+    /// support capture.
+    /// </summary>
+    Task<IReadOnlyList<WindowInfo>> ListWindowsAsync(CancellationToken cancellationToken = default);
 }

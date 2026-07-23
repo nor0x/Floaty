@@ -1,6 +1,7 @@
 <p align="center">
   <img src="website/ring1.png" alt="Floaty" width="160" />
 </p>
+
 <h1 align="center">Floaty 🛟</h1>
 
 <p align="center">

@@ -15,6 +15,7 @@ public interface IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
+        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
         CancellationToken cancellationToken = default);
 
     Task<string> GetResponseAsync(
@@ -22,8 +23,15 @@ public interface IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
+        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// A pending shell command awaiting the user's approval before the <c>exec</c> tool runs it. Surfaced from
+/// the tool back to the overlay via the approval callback threaded through <see cref="IChatService"/>.
+/// </summary>
+public sealed record ExecApprovalRequest(string Command, string ShellName, string? WorkingDirectory);
 
 /// <summary>
 /// Microsoft.Extensions.AI-backed chat service. Builds an <see cref="IChatClient"/> from the
@@ -35,20 +43,28 @@ public sealed class ChatService : IChatService
 {
     private const string DefaultSystemPrompt =
         "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
-        "what's on their screen; each capture's on-screen text is stored in local memory. When the user " +
-        "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
-        "tool to retrieve it before answering, and ground your answer in what it returns. When the user " +
-        "asks you to remember a durable fact, call the save_memory tool to persist it. Be concise.";
+        "what's on their screen, and Floaty may also snapshot windows automatically as the user switches " +
+        "between them (screen history); both are stored in local memory. When the user asks about " +
+        "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
+        "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
+        "it returns. When the user asks you to remember a durable fact, call the save_memory tool to " +
+        "persist it. Be concise.";
 
     // Per-turn sink the search_captures tool writes its sources into; flows via the async call chain
     // from GetStreamingResponseAsync into the function-invocation middleware.
     private static readonly AsyncLocal<ICollection<MemoryCitation>?> _citationSink = new();
+
+    // Per-turn callback the exec tool uses to ask the UI to approve a command before running it. Flows via
+    // the async call chain just like the citation sink. Null when the caller offers no approval channel
+    // (e.g. background summarization), in which case the exec tool refuses to run anything.
+    private static readonly AsyncLocal<Func<ExecApprovalRequest, Task<bool>>?> _execApprovalSink = new();
 
     private readonly SettingsService _settings;
     private readonly IMemoryService _memory;
     private readonly IMcpService _mcp;
     private readonly AIFunction _searchTool;
     private readonly AIFunction _saveTool;
+    private readonly AIFunction _execTool;
 
     private IChatClient? _client;
     private string? _clientKey;
@@ -64,6 +80,7 @@ public sealed class ChatService : IChatService
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
         _saveTool = AIFunctionFactory.Create(SaveMemory, name: "save_memory");
+        _execTool = AIFunctionFactory.Create(Exec, name: "exec");
     }
 
     public async IAsyncEnumerable<string> GetStreamingResponseAsync(
@@ -71,6 +88,7 @@ public sealed class ChatService : IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
+        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
@@ -84,6 +102,9 @@ public sealed class ChatService : IChatService
         // Expose the sink so the search_captures tool can record which sources it returned this turn.
         _citationSink.Value = citations;
 
+        // Expose the approval callback so the exec tool can gate each command on the user's confirmation.
+        _execApprovalSink.Value = execApproval;
+
         var client = GetOrCreateClient(config);
 
         var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
@@ -95,6 +116,19 @@ public sealed class ChatService : IChatService
 
         // Always expose memory search + save; add the scoped MCP server's tools when invoked via /server.
         var tools = new List<AITool> { _searchTool, _saveTool };
+
+        // Only expose the shell tool when the user has opted in. Every command it runs is still gated on an
+        // explicit approval prompt in the overlay.
+        if (config.ExecEnabled)
+        {
+            tools.Add(_execTool);
+            messages.Add(new ChatMessage(ChatRole.System,
+                "You can run shell commands on the user's computer with the exec tool — use it to create, " +
+                "read, or edit files, run programs, inspect the system, or automate tasks. Every command is " +
+                "shown to the user for approval before it runs, so prefer the smallest, safest command that " +
+                "accomplishes the goal and briefly explain anything destructive before running it."));
+        }
+
         if (!string.IsNullOrWhiteSpace(mcpServer))
         {
             var mcpTools = await _mcp.GetToolsAsync(mcpServer, cancellationToken);
@@ -120,10 +154,11 @@ public sealed class ChatService : IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
+        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
-        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions, cancellationToken)
+        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions, execApproval, cancellationToken)
             .WithCancellation(cancellationToken))
         {
             sb.Append(chunk);
@@ -171,6 +206,34 @@ public sealed class ChatService : IChatService
     {
         var saved = await _memory.RememberTextAsync(content);
         return saved ? "Saved to memory." : "Could not save to memory (no API key configured).";
+    }
+
+    [Description("Run a shell command on the user's computer and return its output. Use to create, read, or " +
+                 "edit files, run programs, inspect the system, or automate tasks. The user must approve " +
+                 "every command before it executes; if they decline, the command does not run.")]
+    private async Task<string> Exec(
+        [Description("The command to run, exactly as it would be typed into the configured shell.")] string command,
+        [Description("Optional working directory for the command; defaults to the user's home folder.")] string? workingDirectory = null)
+    {
+        var config = _settings.Current;
+        if (!config.ExecEnabled)
+            return "Shell command execution is disabled. The user can enable it in Settings → Shell.";
+
+        if (string.IsNullOrWhiteSpace(command))
+            return "No command was provided.";
+
+        // Refuse rather than run un-approved: the sink is only set on interactive turns that wired an
+        // approval channel, so background callers (e.g. summarization) can never trigger execution.
+        var approve = _execApprovalSink.Value;
+        if (approve is null)
+            return "Cannot run a command: no approval channel is available in this context.";
+
+        var shellName = ShellExecutor.ShellDisplayName(config);
+        var approved = await approve(new ExecApprovalRequest(command, shellName, workingDirectory));
+        if (!approved)
+            return "The user declined to run this command.";
+
+        return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
     }
 
     // Records file-backed search hits into the current turn's citation sink (deduped by file path).

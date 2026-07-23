@@ -19,6 +19,7 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 {
     // AppKit constants (not available as symbols in Catalyst).
     private const long NSWindowStyleMaskBorderless = 0;
+    private const long NSNormalWindowLevel = 0;
     private const long NSFloatingWindowLevel = 3;
 
     private NSObject? _nsWindow;
@@ -152,5 +153,25 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
             new NSString("frame"));
 
         Hide();
+    }
+
+    public void SetInteractiveHitTest(Func<double, double, bool>? hitTest)
+    {
+        // Click-through for transparent regions is not implemented on macOS yet
+        // (would use NSWindow.ignoresMouseEvents).
+    }
+
+    public void SetAlwaysOnTop(bool alwaysOnTop)
+    {
+        if (_nsWindow is null)
+            return;
+
+        var level = alwaysOnTop ? NSFloatingWindowLevel : NSNormalWindowLevel;
+        _nsWindow.SetValueForKey(NSNumber.FromInt64(level), new NSString("level"));
+    }
+
+    public void SetForceInteractive(bool force)
+    {
+        // Not implemented on macOS yet.
     }
 }

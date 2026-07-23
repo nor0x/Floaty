@@ -108,8 +108,41 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     /// <summary>User bubbles hug the right edge, assistant bubbles the left.</summary>
     public LayoutOptions Alignment => IsUser ? LayoutOptions.End : LayoutOptions.Start;
 
-    /// <summary>Blue for the user, neutral gray for the assistant.</summary>
-    public Color BubbleColor => IsUser ? Color.FromArgb("#3A6DF0") : Color.FromArgb("#3A3A3F");
+    /// <summary>Fixed width for assistant bubbles: 80% of the message list. Pushed by OverlayPage
+    /// whenever the chat panel is resized; -1 (auto) until the list has been measured.</summary>
+    public static double AssistantBubbleWidth { get; set; } = -1;
+
+    /// <summary>Cap for user bubbles: 60% of the message list. Pushed by OverlayPage alongside
+    /// <see cref="AssistantBubbleWidth"/>; infinite (uncapped) until the list has been measured.</summary>
+    public static double UserBubbleMaxWidth { get; set; } = double.PositiveInfinity;
+
+    /// <summary>Assistant answers are fixed at <see cref="AssistantBubbleWidth"/>; user messages and
+    /// system notes size to their content (-1 = auto).</summary>
+    public double BubbleWidthRequest => !IsUser && !IsSystemNote ? AssistantBubbleWidth : -1;
+
+    /// <summary>Assistant bubbles are governed by <see cref="BubbleWidthRequest"/> (no separate cap
+    /// needed); user bubbles size to content up to <see cref="UserBubbleMaxWidth"/>; system notes
+    /// keep the classic 420 cap.</summary>
+    public double BubbleMaxWidth => !IsUser && !IsSystemNote
+        ? double.PositiveInfinity
+        : IsUser ? UserBubbleMaxWidth : 420;
+
+    /// <summary>Re-raises <see cref="BubbleWidthRequest"/>/<see cref="BubbleMaxWidth"/> after the panel
+    /// is resized so bound bubbles reflow.</summary>
+    public void RefreshBubbleWidth()
+    {
+        OnPropertyChanged(nameof(BubbleWidthRequest));
+        OnPropertyChanged(nameof(BubbleMaxWidth));
+    }
+
+    /// <summary>Current accent for user bubbles; set by OverlayPage from settings/preview.</summary>
+    public static Color UserBubbleColor { get; set; } = Color.FromArgb(Floaty.Services.AccentPalette.DefaultHex);
+
+    /// <summary>Accent for the user, neutral gray for the assistant.</summary>
+    public Color BubbleColor => IsUser ? UserBubbleColor : Color.FromArgb("#3A3A3F");
+
+    /// <summary>Re-raises <see cref="BubbleColor"/> after the accent changes so bound bubbles repaint.</summary>
+    public void RefreshBubbleColor() => OnPropertyChanged(nameof(BubbleColor));
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

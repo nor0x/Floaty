@@ -1,9 +1,12 @@
 @inject SettingsService ConfigService
 @inject SkillService SkillService
 @inject UpdateService UpdateService
+@inject IMemoryService MemoryService
+@inject ModelDownloadService ModelDownloads
 @using Floaty.Services
+@implements IDisposable
 
-<div class="settings">
+<div class="settings" style="@AccentPalette.From(_config.AccentColor).ToCssVariables()">
     <header class="settings-header">
         <h1><i class="ti ti-settings" aria-hidden="true"></i> Settings</h1>
         <p class="subtitle">Configure Floaty behavior and AI provider options.</p>
@@ -26,10 +29,25 @@
                 <i class="ti ti-cpu" aria-hidden="true"></i>
                 <span>Model Provider</span>
             </button>
+            <button class="tab @TabClass(SettingsSection.ScreenHistory)"
+                    @onclick="() => SelectSection(SettingsSection.ScreenHistory)">
+                <i class="ti ti-history" aria-hidden="true"></i>
+                <span>Screen History</span>
+            </button>
+            <button class="tab @TabClass(SettingsSection.VoiceInput)"
+                    @onclick="() => SelectSection(SettingsSection.VoiceInput)">
+                <i class="ti ti-microphone" aria-hidden="true"></i>
+                <span>Voice Input</span>
+            </button>
             <button class="tab @TabClass(SettingsSection.Mcp)"
                     @onclick="() => SelectSection(SettingsSection.Mcp)">
                 <i class="ti ti-server-2" aria-hidden="true"></i>
                 <span>MCP Servers</span>
+            </button>
+            <button class="tab @TabClass(SettingsSection.Exec)"
+                    @onclick="() => SelectSection(SettingsSection.Exec)">
+                <i class="ti ti-terminal-2" aria-hidden="true"></i>
+                <span>Shell</span>
             </button>
             <button class="tab @TabClass(SettingsSection.Skills)"
                     @onclick="() => SelectSection(SettingsSection.Skills)">
@@ -48,7 +66,7 @@
             {
                 <div class="card-head">
                     <h2>Behavior</h2>
-                    <p>Define Floaty's system prompt used at the start of every chat.</p>
+                    <p>Define Floaty's system prompt used at the start of every chat, and how Floaty starts.</p>
                 </div>
 
                 <div class="field">
@@ -57,6 +75,19 @@
                               @bind:event="oninput"></textarea>
                     <span class="hint">Saved locally to <code>~/.floaty/floaty.md</code>.</span>
                 </div>
+
+                @if (OperatingSystem.IsWindows())
+                {
+                    <div class="field">
+                        <label for="autostartMode">Start with Windows</label>
+                        <select id="autostartMode" @bind="_config.AutostartMode">
+                            <option value="@AutostartMode.Disabled">Don't start automatically</option>
+                            <option value="@AutostartMode.Minimized">Start minimized (tray only)</option>
+                            <option value="@AutostartMode.Visible">Start visible</option>
+                        </select>
+                        <span class="hint">@AutostartModeHint(_config.AutostartMode)</span>
+                    </div>
+                }
             }
             else if (_activeSection == SettingsSection.Appearance)
             {
@@ -96,6 +127,36 @@
                     </span>
                 </div>
 
+                <div class="field">
+                    <label for="ringSize">Ring size</label>
+                    <div class="ring-size-row">
+                        <input id="ringSize" type="range"
+                               min="@SettingsService.RingMinSize" max="@SettingsService.RingMaxSize" step="1"
+                               value="@((int)_config.RingSize)"
+                               @oninput="OnRingSizeInput" />
+                        <span class="ring-size-value">@((int)_config.RingSize) px</span>
+                    </div>
+                    <span class="hint">Drag to resize the overlay ring — it updates live. You can also hold
+                        <code>Ctrl</code> and scroll over the ring.</span>
+                </div>
+
+                <div class="field">
+                    <label>Accent color</label>
+                    <div class="accent-row" role="list" aria-label="Accent color options">
+                        @foreach (var preset in AccentPresets)
+                        {
+                            <button type="button" role="listitem"
+                                    class="accent-swatch @(IsSelectedAccent(preset.Value) ? "selected" : string.Empty)"
+                                    style="background:@preset.Value" title="@preset.Label"
+                                    @onclick="() => SelectAccent(preset.Value)"></button>
+                        }
+                        <input type="color" class="accent-custom" value="@_config.AccentColor"
+                               @oninput="OnAccentColorInput" title="Custom color" />
+                    </div>
+                    <span class="hint">Used for buttons, chat bubbles and highlights. Previews live; committed on
+                        Save.</span>
+                </div>
+
                 <div class="actions sub-actions">
                     <button class="reload" @onclick="ReloadRingImages">
                         <i class="ti ti-refresh" aria-hidden="true"></i>
@@ -105,6 +166,172 @@
                         image(s).</span>
                     </div>
                 }
+            else if (_activeSection == SettingsSection.ScreenHistory)
+            {
+                <div class="card-head">
+                    <h2>Screen History</h2>
+                    <p>Automatically remember what's on your screen when you switch windows or tabs.</p>
+                </div>
+
+                <div class="field">
+                    <label for="screenHistoryMode">Capture mode</label>
+                    <select id="screenHistoryMode" @bind="_config.ScreenHistoryMode">
+                        <option value="@ScreenHistoryMode.Disabled">Disabled</option>
+                        <option value="@ScreenHistoryMode.TextOnly">Text only</option>
+                        <option value="@ScreenHistoryMode.TextAndScreenshot">Text + screenshot</option>
+                    </select>
+                    <span class="hint">@ScreenHistoryModeHint(_config.ScreenHistoryMode)</span>
+                </div>
+
+                <div class="field">
+                    <label>Chat attachments</label>
+                    <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                        <input type="checkbox" @bind="_config.RememberTaggedCaptures" />
+                        Remember windows attached with @@ in chat
+                    </label>
+                    <span class="hint">When you attach a window to a prompt by typing @@, its capture is also
+                        saved to memory so you can recall it later.</span>
+                </div>
+
+                <div class="field">
+                    <label>Privacy</label>
+                    <span class="hint">Everything stays on this machine: capture files in
+                        <code>~/.floaty/captures</code>, the searchable index in <code>~/.floaty/floaty.db</code>.
+                        Capture text (and screenshots, in that mode) is sent to your configured OpenAI models to
+                        be embedded/described. Ask Floaty things like “what was I reading about X earlier?” to
+                        search it.</span>
+                </div>
+
+                <div class="field">
+                    <label>Stored history</label>
+                    <div class="actions sub-actions">
+                        @if (!_confirmClearHistory)
+                        {
+                            <button class="reload" @onclick="() => _confirmClearHistory = true" disabled="@_clearingHistory">
+                                <i class="ti ti-trash" aria-hidden="true"></i>
+                                <span>Clear screen history</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="reload" @onclick="ClearScreenHistory" disabled="@_clearingHistory">
+                                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                                <span>@(_clearingHistory ? "Clearing…" : "Yes, delete it all")</span>
+                            </button>
+                            <button class="reload" @onclick="() => _confirmClearHistory = false" disabled="@_clearingHistory">
+                                <span>Cancel</span>
+                            </button>
+                        }
+                        <span class="hint">@(_autoCaptureCount is int n ? $"{n} snapshot(s) stored." : "Counting…")</span>
+                    </div>
+                    <span class="hint">Deletes all automatic snapshots and their files. Captures you took
+                        yourself (📷 or <code>/capture</code>) and saved notes are kept.</span>
+                </div>
+            }
+            else if (_activeSection == SettingsSection.VoiceInput)
+            {
+                <div class="card-head">
+                    <h2>Voice Input</h2>
+                    <p>Dictate chat messages with a local, offline speech-to-text model.</p>
+                </div>
+
+                <div class="mcp-list">
+                    <div class="mcp-row">
+                        <input type="radio" name="sttModel" checked="@(_config.SttSelectedModelId is null)"
+                               @onchange="() => SelectSttModel(null)" title="Voice input off" />
+                        <div class="mcp-info">
+                            <span class="mcp-name"><i class="ti ti-microphone-off" aria-hidden="true"></i> Off</span>
+                            <span class="mcp-meta">No voice input; the mic button is hidden.</span>
+                        </div>
+                    </div>
+                    @foreach (var model in SttModelCatalog.Models)
+                    {
+                        var downloaded = IsSttDownloaded(model);
+                        <div class="mcp-row">
+                            <input type="radio" name="sttModel" checked="@(_config.SttSelectedModelId == model.Id)"
+                                   disabled="@(!downloaded)"
+                                   @onchange="() => SelectSttModel(model.Id)" title="Use this model" />
+                            <div class="mcp-info">
+                                <span class="mcp-name"><i class="ti ti-microphone" aria-hidden="true"></i> @model.DisplayName</span>
+                                <span class="mcp-meta">
+                                    @if (model.IsAvailable)
+                                    {
+                                        @($"{model.SizeNote} · {model.LanguageNote}{(model.GpuRecommended ? " · GPU recommended" : "")}")
+                                    }
+                                    else
+                                    {
+                                        @("Coming soon")
+                                    }
+                                </span>
+                            </div>
+                            @if (!model.IsAvailable)
+                            {
+                                <!-- no actions for models we can't run yet -->
+                            }
+                            else if (_sttDownloading.Contains(model.Id))
+                            {
+                                <button class="mcp-remove" disabled>
+                                    <i class="ti ti-download" aria-hidden="true"></i>
+                                    <span>@($"{(int)(_sttProgress.GetValueOrDefault(model.Id) * 100)}%")</span>
+                                </button>
+                            }
+                            else if (!downloaded)
+                            {
+                                <button class="mcp-remove" @onclick="() => DownloadSttModel(model)">
+                                    <i class="ti ti-download" aria-hidden="true"></i>
+                                    <span>Download</span>
+                                </button>
+                            }
+                            else if (_confirmDeleteModelId == model.Id)
+                            {
+                                <button class="mcp-remove" @onclick="() => DeleteSttModel(model)">
+                                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                                    <span>Really delete?</span>
+                                </button>
+                                <button class="mcp-remove" @onclick="() => _confirmDeleteModelId = null">
+                                    <span>Cancel</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="mcp-remove" @onclick="() => _confirmDeleteModelId = model.Id">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                    <span>Delete</span>
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_sttError is not null)
+                {
+                    <p class="hint">@_sttError</p>
+                }
+                <span class="hint">Models download to <code>~/.floaty/models</code> and run entirely on this
+                    machine (GPU-accelerated where available), sharing a small speech engine (~26 MB)
+                    fetched automatically with the first model. Downloads apply immediately; the selected
+                    model and send mode apply on Save.</span>
+
+                <div class="field">
+                    <label for="voiceSendMode">Send mode</label>
+                    <select id="voiceSendMode" @bind="_config.VoiceSendMode">
+                        <option value="@VoiceSendMode.Manual">Manual — I press send myself</option>
+                        <option value="@VoiceSendMode.AutoSendOnPause">Auto-send after a pause</option>
+                    </select>
+                    <span class="hint">@(_config.VoiceSendMode == VoiceSendMode.AutoSendOnPause
+                        ? "After you stop speaking for the pause length below, the message sends automatically."
+                        : "Dictated text lands in the chat box; press send when you're ready.")</span>
+                </div>
+
+                @if (_config.VoiceSendMode == VoiceSendMode.AutoSendOnPause)
+                {
+                    <div class="field">
+                        <label for="voicePauseSeconds">Pause length (seconds)</label>
+                        <input id="voicePauseSeconds" type="number" min="1" max="10" step="0.5"
+                               @bind="_config.AutoSendPauseSeconds" />
+                        <span class="hint">Silence this long after you finish speaking sends the message.</span>
+                    </div>
+                }
+            }
             else if (_activeSection == SettingsSection.Mcp)
             {
                 <div class="card-head">
@@ -196,6 +423,63 @@
                         <span>Add server</span>
                     </button>
                 </div>
+            }
+            else if (_activeSection == SettingsSection.Exec)
+            {
+                <div class="card-head">
+                    <h2>Shell</h2>
+                    <p>Let Floaty run shell commands to create and edit files, launch apps, and automate your
+                        computer. Off by default; every command must be approved by you before it runs.</p>
+                </div>
+
+                <div class="field">
+                    <label>Command execution</label>
+                    <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                        <input type="checkbox" @bind="_config.ExecEnabled" />
+                        Enable the shell command tool
+                    </label>
+                    <span class="hint">When enabled, Floaty can propose shell commands. Each one appears in the
+                        overlay with the exact command and a Run / Cancel prompt — nothing executes until you
+                        approve it.</span>
+                </div>
+
+                @if (_config.ExecEnabled)
+                {
+                    <div class="field">
+                        <label for="execShell">Default shell</label>
+                        <select id="execShell" @bind="_config.ExecShell">
+                            <option value="@ExecShellKind.PowerShell">Windows PowerShell (powershell.exe)</option>
+                            <option value="@ExecShellKind.Pwsh">PowerShell Core (pwsh)</option>
+                            <option value="@ExecShellKind.Cmd">Command Prompt (cmd.exe)</option>
+                            <option value="@ExecShellKind.Bash">bash</option>
+                            <option value="@ExecShellKind.Zsh">zsh</option>
+                            <option value="@ExecShellKind.Sh">sh</option>
+                            <option value="@ExecShellKind.Custom">Custom…</option>
+                        </select>
+                        <span class="hint">The shell commands are run through.</span>
+                    </div>
+
+                    @if (_config.ExecShell == ExecShellKind.Custom)
+                    {
+                        <div class="field">
+                            <label for="execCustomPath">Custom shell executable</label>
+                            <input id="execCustomPath" type="text" autocomplete="off" spellcheck="false"
+                                   placeholder="/usr/bin/fish" @bind="_config.ExecCustomShellPath"
+                                   @bind:event="oninput" />
+                            <span class="hint">Full path to the shell executable to launch.</span>
+                        </div>
+
+                        <div class="field">
+                            <label for="execCustomArgs">Custom arguments</label>
+                            <input id="execCustomArgs" type="text" autocomplete="off" spellcheck="false"
+                                   placeholder="-c {command}" @bind="_config.ExecCustomShellArgs"
+                                   @bind:event="oninput" />
+                            <span class="hint">Arguments passed before the command. The <code>{command}</code>
+                                token is replaced by the command text; if omitted, the command is appended as a
+                                final argument.</span>
+                        </div>
+                    }
+                }
             }
             else if (_activeSection == SettingsSection.Skills)
             {
@@ -369,21 +653,38 @@
 @code {
     private const string DefaultSystemPrompt =
         "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
-        "what's on their screen; each capture's on-screen text is stored in local memory. When the user " +
-        "asks about something they previously saw, viewed, read, or captured, call the search_captures " +
-        "tool to retrieve it before answering, and ground your answer in what it returns. Be concise.";
+        "what's on their screen, and Floaty may also snapshot windows automatically as the user switches " +
+        "between them (screen history); both are stored in local memory. When the user asks about " +
+        "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
+        "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
+        "it returns. Be concise.";
 
     private enum SettingsSection
     {
         Behavior,
         Appearance,
         ModelProvider,
+        ScreenHistory,
+        VoiceInput,
         Mcp,
+        Exec,
         Skills,
         Updates,
     }
 
     private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
+
+    private static readonly (string Label, string Value)[] AccentPresets =
+    [
+        ("Blue", "#2b7fff"),
+        ("Indigo", "#6366f1"),
+        ("Violet", "#8b5cf6"),
+        ("Pink", "#ec4899"),
+        ("Red", "#ef4444"),
+        ("Orange", "#f97316"),
+        ("Green", "#22c55e"),
+        ("Teal", "#14b8a6"),
+    ];
 
     private FloatyConfig _config = new();
     private string _systemPrompt = string.Empty;
@@ -401,6 +702,17 @@
 
     // Discovered agent skills (metadata); enable state is tracked via _config.DisabledSkills.
     private List<FloatySkill> _skills = new();
+
+    // Screen history section state. The count loads lazily when the section is opened.
+    private int? _autoCaptureCount;
+    private bool _confirmClearHistory;
+    private bool _clearingHistory;
+
+    // Voice input section state. Downloads mutate disk immediately; selection/mode commit on Save.
+    private readonly HashSet<string> _sttDownloading = new();
+    private readonly Dictionary<string, double> _sttProgress = new();
+    private string? _sttError;
+    private string? _confirmDeleteModelId;
 
     // Update section state.
     private bool _checking;
@@ -424,8 +736,20 @@
             EmbeddingModel = current.EmbeddingModel,
             SnapshotModel = current.SnapshotModel,
             RingImageFileName = current.RingImageFileName,
+            RingSize = current.RingSize,
+            AccentColor = current.AccentColor,
+            ScreenHistoryMode = current.ScreenHistoryMode,
+            AutostartMode = current.AutostartMode,
+            RememberTaggedCaptures = current.RememberTaggedCaptures,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
+            SttSelectedModelId = current.SttSelectedModelId,
+            VoiceSendMode = current.VoiceSendMode,
+            AutoSendPauseSeconds = current.AutoSendPauseSeconds,
+            ExecEnabled = current.ExecEnabled,
+            ExecShell = current.ExecShell,
+            ExecCustomShellPath = current.ExecCustomShellPath,
+            ExecCustomShellArgs = current.ExecCustomShellArgs,
         };
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
@@ -499,6 +823,57 @@
     }
 
     private void RestartAndUpdate() => UpdateService.ApplyAndRestart();
+
+    private bool IsSttDownloaded(SttModelInfo model) => model.IsAvailable && ModelDownloads.IsDownloaded(model);
+
+    private void SelectSttModel(string? modelId)
+    {
+        _config.SttSelectedModelId = modelId;
+        _saved = false;
+    }
+
+    private async Task DownloadSttModel(SttModelInfo model)
+    {
+        _sttError = null;
+        _sttDownloading.Add(model.Id);
+        _sttProgress[model.Id] = 0;
+        StateHasChanged();
+
+        var progress = new Progress<double>(p =>
+        {
+            _sttProgress[model.Id] = p;
+            InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            await ModelDownloads.DownloadAsync(model, progress);
+        }
+        catch (Exception ex)
+        {
+            _sttError = $"Download failed: {ex.Message}";
+        }
+
+        _sttDownloading.Remove(model.Id);
+        StateHasChanged();
+    }
+
+    private void DeleteSttModel(SttModelInfo model)
+    {
+        _confirmDeleteModelId = null;
+        ModelDownloads.Delete(model);
+        if (_config.SttSelectedModelId == model.Id)
+            _config.SttSelectedModelId = null;
+
+        // Deleting files takes effect immediately, so if the saved config still points at this
+        // model, clear it right away (not on Save) — a dangling selection would keep claiming
+        // voice input is configured while nothing is on disk.
+        if (ConfigService.Current.SttSelectedModelId == model.Id)
+        {
+            ConfigService.Current.SttSelectedModelId = null;
+            ConfigService.Save(ConfigService.Current);
+        }
+    }
 
     private async Task OpenReleasesPage()
     {
@@ -682,6 +1057,41 @@
         _saved = false;
     }
 
+    // Live-preview the ring size on the overlay as the slider moves; committed only on Save.
+    private void OnRingSizeInput(ChangeEventArgs e)
+    {
+        var raw = Convert.ToString(e.Value, System.Globalization.CultureInfo.InvariantCulture);
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var size))
+            return;
+
+        _config.RingSize = SettingsService.ClampRingSize(size);
+        _saved = false;
+        ConfigService.PreviewRingSize(_config.RingSize);
+    }
+
+    private bool IsSelectedAccent(string value) =>
+        string.Equals(_config.AccentColor, value, StringComparison.OrdinalIgnoreCase);
+
+    // Live-preview the accent on the overlay as the user picks; committed only on Save.
+    private void SelectAccent(string value)
+    {
+        _config.AccentColor = SettingsService.NormalizeAccentColor(value);
+        _saved = false;
+        ConfigService.PreviewAccentColor(_config.AccentColor);
+    }
+
+    private void OnAccentColorInput(ChangeEventArgs e) =>
+        SelectAccent(Convert.ToString(e.Value, System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty);
+
+    // If the settings window closes without saving, revert any live previews (ring size, accent)
+    // to the persisted values so the overlay doesn't keep uncommitted state.
+    public void Dispose()
+    {
+        ConfigService.PreviewRingSize(ConfigService.Current.RingSize);
+        ConfigService.PreviewAccentColor(ConfigService.Current.AccentColor);
+    }
+
     private bool IsSelectedRing(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -694,6 +1104,61 @@
     {
         _activeSection = section;
         _saved = false;
+
+        if (section == SettingsSection.ScreenHistory)
+        {
+            _confirmClearHistory = false;
+            _autoCaptureCount = null;
+            _ = LoadAutoCaptureCountAsync();
+        }
+    }
+
+    private static string AutostartModeHint(AutostartMode mode) => mode switch
+    {
+        AutostartMode.Disabled => "Floaty only runs when you launch it yourself.",
+        AutostartMode.Minimized => "Floaty starts hidden when you sign in — summon it with Alt+F or the tray icon.",
+        _ => "The floating ring appears as soon as you sign in.",
+    };
+
+    private static string ScreenHistoryModeHint(ScreenHistoryMode mode) => mode switch
+    {
+        ScreenHistoryMode.Disabled => "Nothing is recorded.",
+        ScreenHistoryMode.TextOnly => "When you settle on a window or tab, its visible text is saved to " +
+            "local memory (one embedding call per snapshot). No screenshots.",
+        _ => "Also saves a PNG of the window; if a Snapshot model is set, it describes the image " +
+            "(adds a vision call per snapshot).",
+    };
+
+    private async Task LoadAutoCaptureCountAsync()
+    {
+        try
+        {
+            _autoCaptureCount = await MemoryService.CountAutoCapturesAsync();
+        }
+        catch
+        {
+            _autoCaptureCount = 0; // a fresh install has no database yet
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearScreenHistory()
+    {
+        _clearingHistory = true;
+        try
+        {
+            await MemoryService.DeleteAutoCapturesAsync();
+            _autoCaptureCount = 0;
+        }
+        catch
+        {
+            // Best-effort; the count reload below reflects whatever actually happened.
+            _ = LoadAutoCaptureCountAsync();
+        }
+
+        _clearingHistory = false;
+        _confirmClearHistory = false;
     }
 
     private string TabClass(SettingsSection section) => section == _activeSection ? "active" : string.Empty;
@@ -701,6 +1166,14 @@
 
 <style>
     .settings {
+        /* Fallback accent palette; overridden by the inline style computed from the configured accent. */
+        --accent: #2b7fff;
+        --accent-hover: #2670e0;
+        --accent-deep: #1e59b2;
+        --accent-tint: #eef5ff;
+        --accent-tint-faint: #f6faff;
+        --accent-border: #bfd8ff;
+        --accent-glow: rgba(43, 127, 255, 0.15);
         max-width: 980px;
         margin: 0 auto;
         padding: 24px 28px 40px;
@@ -720,7 +1193,7 @@
     .settings-header h1 .ti {
         font-size: 26px;
         line-height: 1;
-        color: #2b7fff;
+        color: var(--accent);
     }
 
     .settings-header .subtitle {
@@ -771,7 +1244,7 @@
     }
 
     .tab.active .ti {
-        color: #0f53bd;
+        color: var(--accent-deep);
     }
 
     .tab:hover {
@@ -779,12 +1252,13 @@
     }
 
     .tab.active {
-        background: #edf4ff;
-        border-color: #bfd6ff;
-        color: #0f53bd;
+        background: var(--accent-tint);
+        border-color: var(--accent-border);
+        color: var(--accent-deep);
     }
 
     .card {
+        min-width: 0;
         border: 1px solid #e4e4e8;
         border-radius: 12px;
         padding: 20px 22px;
@@ -843,8 +1317,8 @@
 
     .field input:focus,
     .field textarea:focus {
-        border-color: #2b7fff;
-        box-shadow: 0 0 0 3px rgba(43, 127, 255, 0.15);
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-glow);
         background: #fff;
     }
 
@@ -869,7 +1343,7 @@
     }
 
     .save {
-        background: #2b7fff;
+        background: var(--accent);
         color: #fff;
         border: none;
         border-radius: 8px;
@@ -891,13 +1365,13 @@
     }
 
     .save:hover {
-        background: #1f6ae0;
+        background: var(--accent-hover);
     }
 
     .reload {
-        background: #f1f4ff;
-        color: #1749a3;
-        border: 1px solid #c9d8ff;
+        background: var(--accent-tint-faint);
+        color: var(--accent-deep);
+        border: 1px solid var(--accent-border);
         border-radius: 8px;
         padding: 8px 14px;
         font-size: 13px;
@@ -909,7 +1383,7 @@
     }
 
     .reload:hover {
-        background: #e8efff;
+        background: var(--accent-tint);
     }
 
     .sub-actions {
@@ -923,6 +1397,34 @@
         overflow-x: auto;
         padding: 4px 2px 6px;
         scrollbar-width: thin;
+    }
+
+    .ring-size-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .ring-size-row input[type="range"] {
+        flex: 1;
+        padding: 0;
+        border: none;
+        background: transparent;
+        accent-color: var(--accent);
+        cursor: pointer;
+    }
+
+    .ring-size-row input[type="range"]:focus {
+        box-shadow: none;
+    }
+
+    .ring-size-value {
+        min-width: 52px;
+        text-align: right;
+        font-size: 13px;
+        font-weight: 600;
+        color: #2d2d31;
+        font-variant-numeric: tabular-nums;
     }
 
     .ring-option {
@@ -942,14 +1444,14 @@
     }
 
     .ring-option:hover {
-        border-color: #9bbcf6;
-        background: #f4f8ff;
+        border-color: var(--accent-border);
+        background: var(--accent-tint-faint);
     }
 
     .ring-option.selected {
-        border-color: #2b7fff;
-        background: #edf4ff;
-        box-shadow: 0 0 0 2px rgba(43, 127, 255, 0.16);
+        border-color: var(--accent);
+        background: var(--accent-tint);
+        box-shadow: 0 0 0 2px var(--accent-glow);
     }
 
     .ring-preview {
@@ -989,6 +1491,38 @@
     .ring-kind {
         font-size: 11px;
         color: #6f6f76;
+    }
+
+    .accent-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .accent-swatch {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        cursor: pointer;
+        padding: 0;
+    }
+
+    /* Neutral white gap + accent outline so the selection ring is visible on any hue. */
+    .accent-swatch.selected {
+        border-color: #fff;
+        box-shadow: 0 0 0 2px var(--accent);
+    }
+
+    .accent-custom {
+        width: 32px;
+        height: 30px;
+        border: 1px solid #d7dbe2;
+        border-radius: 6px;
+        padding: 2px;
+        background: #fff;
+        cursor: pointer;
     }
 
     .saved {
@@ -1042,7 +1576,7 @@
     }
 
     .whats-new .notes a {
-        color: #1f6ae0;
+        color: var(--accent-hover);
     }
 
     .mcp-list {
@@ -1084,9 +1618,7 @@
     .mcp-meta {
         font-size: 12px;
         color: #8a8a90;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        overflow-wrap: anywhere;
     }
 
     .mcp-remove {
@@ -1130,27 +1662,4 @@
         margin: 0 0 10px;
     }
 
-    @@media (max-width: 780px) {
-        .settings {
-            padding: 20px 16px 30px;
-        }
-
-        .settings-panel {
-            grid-template-columns: 1fr;
-        }
-
-        .tabs {
-            flex-direction: row;
-        }
-
-        .tab {
-            flex: 1;
-            text-align: center;
-        }
-
-        .ring-option {
-            width: 108px;
-            min-width: 108px;
-        }
-    }
 </style>

@@ -46,4 +46,19 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
     {
         // Intentionally no-op.
     }
+
+    public void SetInteractiveHitTest(Func<double, double, bool>? hitTest)
+    {
+        // Intentionally no-op: click-through is a desktop-overlay concern.
+    }
+
+    public void SetForceInteractive(bool force)
+    {
+        // Intentionally no-op: click-through is a desktop-overlay concern.
+    }
+
+    public void SetAlwaysOnTop(bool alwaysOnTop)
+    {
+        // Intentionally no-op: window layering is a desktop-overlay concern.
+    }
 }

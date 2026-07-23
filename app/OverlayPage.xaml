@@ -7,23 +7,184 @@
     x:DataType="local:OverlayPage"
     BackgroundColor="Transparent">
 
+    <ContentPage.Resources>
+        <!-- Swapped onto AlwaysOnTopMenuItem.IconImageSource in code-behind (ApplyAlwaysOnTopMenuState):
+             mutating FontImageSource.Glyph in place doesn't propagate to the already-realized native
+             menu icon, so a fresh instance is assigned instead. -->
+        <FontImageSource x:Key="AlwaysOnTopOnIcon"
+            FontFamily="TablerIconsLine"
+            Glyph="{x:Static icons:TablerLine.Pinned}"
+            Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
+        <FontImageSource x:Key="AlwaysOnTopOffIcon"
+            FontFamily="TablerIconsLine"
+            Glyph="{x:Static icons:TablerLine.PinnedOff}"
+            Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
+		<!-- Accent colors; replaced at runtime from the configured accent (see ApplyAccentColor). -->
+		<Color x:Key="AccentColor">#2b7fff</Color>
+		<Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
+
+		<Style x:Key="OverlayButton" TargetType="Button">
+			<Setter Property="WidthRequest" Value="36" />
+			<Setter Property="HeightRequest" Value="36" />
+			<Setter Property="Padding" Value="0" />
+			<Setter Property="CornerRadius" Value="18" />
+			<Setter Property="FontSize" Value="16" />
+			<Setter Property="BackgroundColor" Value="#CC202020" />
+			<Setter Property="TextColor" Value="White" />
+		</Style>
+
+		<!-- Message bubble text: a chrome-less Editor (see EditorHandlerCustomization) so it reads like
+     a plain Label but supports native drag-select/copy. -->
+		<Style x:Key="SelectableBubbleEditor" TargetType="Editor">
+			<Setter Property="Margin" Value="0" />
+		</Style>
+
+		<!-- Chat message bubble (also used by the message list). -->
+		<DataTemplate x:Key="MessageTemplate" x:DataType="local:ChatMessageVm">
+			<Grid Padding="0,3">
+				<Border HorizontalOptions="{Binding Alignment}"
+            WidthRequest="{Binding BubbleWidthRequest}"
+            MaximumWidthRequest="{Binding BubbleMaxWidth}"
+            BackgroundColor="{Binding BubbleColor}"
+            Stroke="Transparent"
+            Padding="10,7"
+            StrokeShape="RoundRectangle 12">
+					<VerticalStackLayout Spacing="6">
+						<!-- Read-only Editor (not Label) so users can drag-select and copy message text;
+                     AutoSize grows it to fit content instead of showing its own scrollbar, and the
+                     chrome (border/background) is stripped in MauiProgram's Editor handler mapper. -->
+						<Editor Text="{Binding Text}"
+                    IsReadOnly="True"
+                    AutoSize="TextChanges"
+                    IsSpellCheckEnabled="False"
+                    IsTextPredictionEnabled="False"
+                    TextColor="White"
+                    FontSize="13"
+                    BackgroundColor="Transparent"
+                    Style="{StaticResource SelectableBubbleEditor}" />
+
+						<!-- Memory sources cited for this answer (RAG provenance). -->
+						<VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">
+							<Label Text="Sources"
+                        TextColor="#99FFFFFF"
+                        FontSize="10"
+                        FontAttributes="Bold" />
+							<VerticalStackLayout Spacing="3"
+                        BindableLayout.ItemsSource="{Binding Citations}">
+								<BindableLayout.ItemTemplate>
+									<DataTemplate x:DataType="local:CitationVm">
+										<HorizontalStackLayout Spacing="4">
+											<Label Text="{Binding Title}"
+                                        TextColor="#DDFFFFFF"
+                                        FontSize="11"
+                                        VerticalOptions="Center"
+                                        LineBreakMode="TailTruncation"
+                                        MaximumWidthRequest="150" />
+											<Border IsVisible="{Binding HasImage}"
+                                        BackgroundColor="#55FFFFFF"
+                                        Stroke="Transparent"
+                                        Padding="6,1"
+                                        StrokeShape="RoundRectangle 7">
+												<Border.GestureRecognizers>
+													<TapGestureRecognizer Command="{Binding OpenImageCommand}" />
+												</Border.GestureRecognizers>
+												<Label TextColor="White" FontSize="11">
+													<Label.FormattedText>
+														<FormattedString>
+															<Span Text="{x:Static icons:TablerLine.Photo}"
+                                                        FontFamily="TablerIconsLine" />
+															<Span Text=" image" />
+														</FormattedString>
+													</Label.FormattedText>
+												</Label>
+											</Border>
+											<Border IsVisible="{Binding HasText}"
+                                        BackgroundColor="#55FFFFFF"
+                                        Stroke="Transparent"
+                                        Padding="6,1"
+                                        StrokeShape="RoundRectangle 7">
+												<Border.GestureRecognizers>
+													<TapGestureRecognizer Command="{Binding OpenTextCommand}" />
+												</Border.GestureRecognizers>
+												<Label TextColor="White" FontSize="11">
+													<Label.FormattedText>
+														<FormattedString>
+															<Span Text="{x:Static icons:TablerLine.FileText}"
+                                                        FontFamily="TablerIconsLine" />
+															<Span Text=" text" />
+														</FormattedString>
+													</Label.FormattedText>
+												</Label>
+											</Border>
+										</HorizontalStackLayout>
+									</DataTemplate>
+								</BindableLayout.ItemTemplate>
+							</VerticalStackLayout>
+						</VerticalStackLayout>
+					</VerticalStackLayout>
+				</Border>
+			</Grid>
+		</DataTemplate>
+
+		<!-- Conversation switcher row (shown in the message list under /chats). -->
+		<DataTemplate x:Key="ConversationTemplate" x:DataType="local:ConversationItemVm">
+			<Grid Padding="0,3" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+				<Border Grid.Column="0"
+            BackgroundColor="#2EFFFFFF"
+            Stroke="Transparent"
+            Padding="10,7"
+            StrokeShape="RoundRectangle 10">
+					<Border.GestureRecognizers>
+						<TapGestureRecognizer Command="{Binding OpenCommand}" />
+					</Border.GestureRecognizers>
+					<VerticalStackLayout Spacing="1">
+						<Label Text="{Binding Title}"
+                    TextColor="White"
+                    FontSize="13"
+                    LineBreakMode="TailTruncation" />
+						<Label Text="{Binding Subtitle}"
+                    TextColor="#99FFFFFF"
+                    FontSize="11"
+                    LineBreakMode="TailTruncation" />
+					</VerticalStackLayout>
+				</Border>
+				<Button Grid.Column="1"
+            IsVisible="{Binding HasDelete}"
+            Command="{Binding DeleteCommand}"
+            Text="✕"
+            WidthRequest="30"
+            HeightRequest="30"
+            Padding="0"
+            CornerRadius="15"
+            FontSize="12"
+            VerticalOptions="Center"
+            BackgroundColor="#33FFFFFF"
+            TextColor="White" />
+			</Grid>
+		</DataTemplate>
+
+		<local:ChatListTemplateSelector x:Key="ChatListSelector"
+    MessageTemplate="{StaticResource MessageTemplate}"
+    ConversationTemplate="{StaticResource ConversationTemplate}" />
+	</ContentPage.Resources>
+
     <!-- Whole-window layout: chat panel (hidden until opened) beside the ring, which sits in the
          center column. The panel opens into the left or right side column depending on available
          screen space (see OverlayPage.ApplyChatSide); the unused side column is collapsed to 0 so
          the ring stays flush against the window edge that the resize anchors. Everything outside the
          drawn pixels is transparent so the desktop shows through. -->
-    <Grid RowDefinitions="Auto"
+	<Grid RowDefinitions="Auto"
         BackgroundColor="Transparent">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="LeftSpace" Width="0" />
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition x:Name="RightSpace" Width="*" />
-        </Grid.ColumnDefinitions>
+		<Grid.ColumnDefinitions>
+			<ColumnDefinition x:Name="LeftSpace" Width="0" />
+			<ColumnDefinition Width="Auto" />
+			<ColumnDefinition x:Name="RightSpace" Width="*" />
+		</Grid.ColumnDefinitions>
 
-        <!-- Slide-out chat panel: scrollable message list above, input box at the bottom.
+		<!-- Slide-out chat panel: scrollable message list above, input box at the bottom.
              Collapsed by default; toggled by tapping the ring. Grid.Column and Margin are set at
              runtime to place it on the correct side of the ring. -->
-        <Border x:Name="ChatPanel"
+		<Border x:Name="ChatPanel"
             Grid.Column="2"
             IsVisible="False"
             VerticalOptions="Start"
@@ -34,19 +195,27 @@
             Padding="14,8,8,8"
             StrokeShape="RoundRectangle 10"
             SizeChanged="OnChatPanelSizeChanged">
-            <!-- Content + a right-edge resize grip overlaid on top of it. -->
-            <Grid>
-                <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
+			<!-- Content + a corner resize grip overlaid on top of it. -->
+			<Grid>
+				<!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
-                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="0">
+				<Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="0">
 
-                    <CollectionView x:Name="MessagesList"
+					<CollectionView x:Name="MessagesList"
                         Grid.Row="0"
                         VerticalScrollBarVisibility="Never"
                         IsVisible="False"
                         MaximumHeightRequest="240"
                         ItemTemplate="{StaticResource ChatListSelector}" />
-                    <Border x:Name="SlashSuggestionsPanel"
+					<CollectionView x:Name="ConversationList"
+                        Grid.Row="0"
+                        SelectionMode="Single"
+                        SelectionChanged="OnConversationSelectionChanged"
+                        VerticalScrollBarVisibility="Never"
+                        IsVisible="False"
+                        MaximumHeightRequest="240"
+                        ItemTemplate="{StaticResource ConversationTemplate}" />
+					<Border x:Name="SlashSuggestionsPanel"
                         Grid.Row="1"
                         Margin="-5,0,15,0"
                         IsVisible="False"
@@ -56,46 +225,193 @@
                         StrokeThickness="1"
                         StrokeShape="RoundRectangle 10"
                         Padding="6,4">
-                        <CollectionView x:Name="SlashSuggestionsList"
+						<CollectionView x:Name="SlashSuggestionsList"
                             SelectionMode="Single"
                             SelectionChanged="OnSlashSuggestionsSelectionChanged"
                             VerticalScrollBarVisibility="Never"
                             ItemsLayout="VerticalList">
-                            <CollectionView.ItemTemplate>
-                                <DataTemplate x:DataType="{x:Null}">
-                                    <Grid Padding="6,4" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
-                                        <Label Grid.Column="0"
+							<CollectionView.ItemTemplate>
+								<DataTemplate x:DataType="{x:Null}">
+									<Grid Padding="6,4" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+										<Label Grid.Column="0"
                                             Text="{Binding Icon}"
                                             FontFamily="TablerIconsLine"
-                                            TextColor="#9FC5FF"
+                                            TextColor="{DynamicResource AccentIconOnDarkColor}"
                                             FontSize="15"
                                             VerticalOptions="Center"
                                             WidthRequest="18"
                                             HorizontalTextAlignment="Center" />
-                                        <Label Grid.Column="1"
+										<Label Grid.Column="1"
                                             Text="{Binding Token}"
                                             TextColor="White"
                                             FontSize="13"
                                             FontAttributes="Bold"
                                             VerticalOptions="Center" />
-                                        <Label Grid.Column="2"
+										<Label Grid.Column="2"
                                             Text="{Binding Description}"
                                             TextColor="#CCFFFFFF"
                                             FontSize="12"
                                             VerticalOptions="Center"
                                             LineBreakMode="TailTruncation" />
-                                    </Grid>
-                                </DataTemplate>
-                            </CollectionView.ItemTemplate>
-                        </CollectionView>
-                    </Border>
-                    <Grid Grid.Row="2"
+									</Grid>
+								</DataTemplate>
+							</CollectionView.ItemTemplate>
+						</CollectionView>
+					</Border>
+					<!-- Open-window picker shown while the user types an @-mention; mutually
+                         exclusive with SlashSuggestionsPanel (visibility managed in code). -->
+					<Border x:Name="WindowSuggestionsPanel"
+                        Grid.Row="1"
+                        Margin="-5,0,15,0"
+                        IsVisible="False"
+                        MaximumHeightRequest="132"
+                        BackgroundColor="#CC151517"
+                        Stroke="#33FFFFFF"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 10"
+                        Padding="6,4">
+						<CollectionView x:Name="WindowSuggestionsList"
+                            SelectionMode="Single"
+                            SelectionChanged="OnWindowSuggestionsSelectionChanged"
+                            VerticalScrollBarVisibility="Never"
+                            ItemsLayout="VerticalList">
+							<CollectionView.ItemTemplate>
+								<DataTemplate x:DataType="{x:Null}">
+									<Grid Padding="6,4" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+										<Label Grid.Column="0"
+                                            Text="{x:Static icons:TablerLine.AppWindow}"
+                                            FontFamily="TablerIconsLine"
+                                            TextColor="{DynamicResource AccentIconOnDarkColor}"
+                                            FontSize="15"
+                                            VerticalOptions="Center"
+                                            WidthRequest="18"
+                                            HorizontalTextAlignment="Center" />
+										<Label Grid.Column="1"
+                                            Text="{Binding Title}"
+                                            TextColor="White"
+                                            FontSize="13"
+                                            VerticalOptions="Center"
+                                            LineBreakMode="TailTruncation" />
+										<Label Grid.Column="2"
+                                            Text="{Binding ProcessName}"
+                                            TextColor="#CCFFFFFF"
+                                            FontSize="12"
+                                            VerticalOptions="Center" />
+									</Grid>
+								</DataTemplate>
+							</CollectionView.ItemTemplate>
+						</CollectionView>
+					</Border>
+					<!-- Windows attached to the pending prompt via @, shown as removable chips. -->
+					<HorizontalStackLayout x:Name="AttachmentChipsPanel"
+                        Grid.Row="2"
+                        IsVisible="False"
+                        Spacing="6"
+                        Margin="-6,4,0,4">
+						<BindableLayout.ItemTemplate>
+							<DataTemplate x:DataType="{x:Null}">
+								<Border BackgroundColor="#33FFFFFF"
+                                    Stroke="Transparent"
+                                    Padding="8,3"
+                                    StrokeShape="RoundRectangle 9">
+									<HorizontalStackLayout Spacing="6">
+										<Label Text="{x:Static icons:TablerLine.AppWindow}"
+                                            FontFamily="TablerIconsLine"
+                                            TextColor="{DynamicResource AccentIconOnDarkColor}"
+                                            FontSize="12"
+                                            VerticalOptions="Center" />
+										<Label Text="{Binding Title}"
+                                            TextColor="White"
+                                            FontSize="11"
+                                            VerticalOptions="Center"
+                                            LineBreakMode="TailTruncation"
+                                            MaximumWidthRequest="140" />
+										<Label Text="✕"
+                                            TextColor="#CCFFFFFF"
+                                            FontSize="11"
+                                            VerticalOptions="Center"
+                                            SemanticProperties.Description="Remove attachment">
+											<Label.GestureRecognizers>
+												<TapGestureRecognizer Command="{Binding RemoveCommand}" />
+											</Label.GestureRecognizers>
+										</Label>
+									</HorizontalStackLayout>
+								</Border>
+							</DataTemplate>
+						</BindableLayout.ItemTemplate>
+					</HorizontalStackLayout>
+					<!-- Exec approval: shown while the model is waiting for the user to approve a shell
+                         command proposed by the exec tool. Populated and toggled in code-behind
+                         (ApproveExecAsync); Run/Cancel complete the pending approval. -->
+					<Border x:Name="ExecApprovalPanel"
+                        Grid.Row="3"
+                        IsVisible="False"
+                        Margin="-6,4,-6,6"
+                        Padding="10"
+                        BackgroundColor="#22FFFFFF"
+                        Stroke="#33FFFFFF"
+                        StrokeShape="RoundRectangle 8">
+						<VerticalStackLayout Spacing="6">
+							<HorizontalStackLayout Spacing="6">
+								<Label Text="{x:Static icons:TablerLine.Terminal2}"
+                                    FontFamily="TablerIconsLine"
+                                    TextColor="{DynamicResource AccentIconOnDarkColor}"
+                                    FontSize="13"
+                                    VerticalOptions="Center" />
+								<Label x:Name="ExecApprovalHeaderLabel"
+                                    Text="Run this command?"
+                                    TextColor="White"
+                                    FontSize="12"
+                                    FontAttributes="Bold"
+                                    VerticalOptions="Center" />
+							</HorizontalStackLayout>
+							<Border BackgroundColor="#33000000"
+                                Stroke="Transparent"
+                                Padding="8,6"
+                                StrokeShape="RoundRectangle 6">
+								<Label x:Name="ExecApprovalCommandLabel"
+                                    Text=""
+                                    TextColor="#EEFFFFFF"
+                                    FontFamily="Consolas"
+                                    FontSize="12"
+                                    LineBreakMode="CharacterWrap" />
+							</Border>
+							<Label x:Name="ExecApprovalDirLabel"
+                                Text=""
+                                IsVisible="False"
+                                TextColor="#99FFFFFF"
+                                FontSize="10" />
+							<HorizontalStackLayout Spacing="8" HorizontalOptions="End">
+								<Button x:Name="ExecApprovalCancelButton"
+                                    Text="Cancel"
+                                    Clicked="OnExecApprovalCancelClicked"
+                                    SemanticProperties.Description="Decline running the command"
+                                    HeightRequest="30"
+                                    Padding="12,0"
+                                    FontSize="12"
+                                    CornerRadius="6"
+                                    BackgroundColor="#33FFFFFF"
+                                    TextColor="White" />
+								<Button x:Name="ExecApprovalRunButton"
+                                    Text="Run"
+                                    Clicked="OnExecApprovalRunClicked"
+                                    SemanticProperties.Description="Approve running the command"
+                                    HeightRequest="30"
+                                    Padding="16,0"
+                                    FontSize="12"
+                                    CornerRadius="6"
+                                    BackgroundColor="{DynamicResource AccentColor}"
+                                    TextColor="White" />
+							</HorizontalStackLayout>
+						</VerticalStackLayout>
+					</Border>
+					<Grid Grid.Row="4"
                         ColumnDefinitions="Auto,*,Auto"
                         HorizontalOptions="Fill"
                         Margin="-6,0,-6,0">
-                        <!-- Chevron: collapse the chat panel entirely. Column + glyph are set at
+						<!-- Chevron: collapse the chat panel entirely. Column + glyph are set at
                              runtime so it points toward the ring on whichever side the panel opened. -->
-                        <Button x:Name="CollapseButton"
+						<Button x:Name="CollapseButton"
                             Text="{x:Static icons:TablerLine.CaretLeft}"
                             FontFamily="TablerIconsLine"
                             Clicked="OnCollapseChatClicked"
@@ -108,13 +424,13 @@
                             VerticalOptions="Fill"
                             BackgroundColor="#55FFFFFF"
                             TextColor="White" />
-                        <Border
+						<Border
                             Grid.Column="1"
                             BackgroundColor="#22FFFFFF"
                             Stroke="Transparent"
                             StrokeShape="RoundRectangle 6">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <Entry x:Name="ChatEntry"
+							<Grid ColumnDefinitions="*,Auto,Auto">
+								<Entry x:Name="ChatEntry"
                                     Grid.Column="0"
                                     Placeholder="Ask Floaty…"
                                     PlaceholderColor="#99FFFFFF"
@@ -123,7 +439,23 @@
                                     ReturnType="Send"
                                     TextChanged="OnChatEntryTextChanged"
                                     Completed="OnSendClicked" />
-                                <Button Grid.Column="1"
+								<!-- Voice input: hidden until a downloaded speech-to-text model is
+                                     selected in settings (see UpdateMicVisibility). -->
+								<Button x:Name="MicButton"
+                                    Grid.Column="1"
+                                    Text="{x:Static icons:TablerLine.Microphone}"
+                                    FontFamily="TablerIconsLine"
+                                    Clicked="OnMicClicked"
+                                    SemanticProperties.Description="Voice input"
+                                    IsVisible="False"
+                                    WidthRequest="36"
+                                    HeightRequest="36"
+                                    Padding="0"
+                                    CornerRadius="0"
+                                    FontSize="16"
+                                    BackgroundColor="#33FFFFFF"
+                                    TextColor="White" />
+								<Button Grid.Column="2"
                                     Text="{x:Static icons:TablerLine.Send}"
                                     FontFamily="TablerIconsLine"
                                     Clicked="OnSendClicked"
@@ -133,85 +465,95 @@
                                     Padding="0"
                                     CornerRadius="0"
                                     FontSize="16"
-                                    BackgroundColor="#3A6DF0"
+                                    BackgroundColor="{DynamicResource AccentColor}"
                                     TextColor="White" />
-                            </Grid>
-                        </Border>
-                        <!-- Resize grip: drag to change the chat panel width. The transparent strip
-                        is the hit area; the thin bar is the visible affordance. Sits on the panel's
-                        outer edge — its column is set at runtime to match the panel's side. -->
-                        <Border x:Name="ResizeGrip"
-                            WidthRequest="12"
-                            Margin="0,0,0,0"
-                            Grid.Column="2"
-								VerticalOptions="Fill"
-                            BackgroundColor="Transparent"
-                            Stroke="Transparent">
-                            <Border WidthRequest="4"
-                                HeightRequest="34"
-                                HorizontalOptions="Center"
-                                VerticalOptions="Center"
-                                BackgroundColor="#55FFFFFF"
-                                Stroke="Transparent"
-                                StrokeShape="RoundRectangle 2" />
-                            <Border.GestureRecognizers>
-                                <PanGestureRecognizer PanUpdated="OnResizeHandlePanUpdated" />
-                            </Border.GestureRecognizers>
-                        </Border>
-                    </Grid>
+							</Grid>
+						</Border>
+					</Grid>
 
-                </Grid>
-            </Grid>
-        </Border>
+				</Grid>
 
-        <!-- Ring + transient capture toast, stacked so the toast sits just below the ring. The ring
+				<!-- Corner resize grip: drag to change the chat panel width and height. The
+                     transparent square is the hit area; the quarter-arc "L" is the visible
+                     affordance, drawn for the top-right corner and mirrored (ScaleX = -1) when the
+                     panel sits left of the ring. HorizontalOptions/Margin are set at runtime so the
+                     grip hugs the panel's outer top corner (see ApplyChatSide). -->
+				<Border x:Name="ResizeCornerGrip"
+                    WidthRequest="26"
+                    HeightRequest="26"
+                    HorizontalOptions="End"
+                    VerticalOptions="Start"
+                    Margin="0,-8,-8,0"
+                    BackgroundColor="Transparent"
+                    Stroke="Transparent"
+                    SemanticProperties.Description="Resize chat">
+					<Path x:Name="ResizeCornerGlyph"
+                        Data="M6,6 L13,6 A7,7 0 0 1 20,13 L20,20"
+                        Stroke="#33FFFFFF"
+                        StrokeThickness="2"
+                        StrokeLineCap="Round"
+                        HorizontalOptions="Center"
+                        VerticalOptions="Center" />
+					<Border.GestureRecognizers>
+						<PanGestureRecognizer PanUpdated="OnResizeCornerPanUpdated" />
+					</Border.GestureRecognizers>
+				</Border>
+			</Grid>
+		</Border>
+
+		<!-- Ring + transient capture toast, stacked so the toast sits just below the ring. The ring
              lives in the center column; the chat panel opens into the left or right side column. -->
-        <VerticalStackLayout Grid.Column="1" HorizontalOptions="Center" VerticalOptions="End">
+		<VerticalStackLayout Grid.Column="1" HorizontalOptions="Center" VerticalOptions="End">
 
-            <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
-            <Image x:Name="Ring"
+			<!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
+			<Image x:Name="Ring"
                 Source="ring1.png"
                 Aspect="AspectFit"
                 HeightRequest="148"
                 WidthRequest="148"
                 HorizontalOptions="Fill"
                 VerticalOptions="Fill">
-                <FlyoutBase.ContextFlyout>
-                    <MenuFlyout>
-                        <MenuFlyoutItem Text="Float to taskbar"
+				<FlyoutBase.ContextFlyout>
+					<MenuFlyout>
+						<MenuFlyoutItem Text="Float to taskbar"
                             Clicked="OnFloatToTaskbarClicked">
-                            <MenuFlyoutItem.IconImageSource>
-                                <FontImageSource FontFamily="TablerIconsLine"
+							<MenuFlyoutItem.IconImageSource>
+								<FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.LayoutBottombar}"
                                     Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-                            </MenuFlyoutItem.IconImageSource>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem Text="Settings"
+							</MenuFlyoutItem.IconImageSource>
+						</MenuFlyoutItem>
+						<MenuFlyoutSeparator />
+						<MenuFlyoutItem x:Name="AlwaysOnTopMenuItem"
+                            Text="Always on Top"
+                            IconImageSource="{StaticResource AlwaysOnTopOnIcon}"
+                            Clicked="OnAlwaysOnTopClicked" />
+						<MenuFlyoutSeparator />
+						<MenuFlyoutItem Text="Settings"
                             Clicked="OnSettingsClicked">
-                            <MenuFlyoutItem.IconImageSource>
-                                <FontImageSource FontFamily="TablerIconsLine"
+							<MenuFlyoutItem.IconImageSource>
+								<FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.Settings}"
                                     Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-                            </MenuFlyoutItem.IconImageSource>
-                        </MenuFlyoutItem>
-                        <MenuFlyoutSeparator />
-                        <MenuFlyoutItem Text="Close Floaty"
+							</MenuFlyoutItem.IconImageSource>
+						</MenuFlyoutItem>
+						<MenuFlyoutSeparator />
+						<MenuFlyoutItem Text="Close Floaty"
                             Clicked="OnCloseClicked">
-                            <MenuFlyoutItem.IconImageSource>
-                                <FontImageSource FontFamily="TablerIconsLine"
+							<MenuFlyoutItem.IconImageSource>
+								<FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.CircleX}"
                                     Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-                            </MenuFlyoutItem.IconImageSource>
-                        </MenuFlyoutItem>
-                    </MenuFlyout>
-                </FlyoutBase.ContextFlyout>
-                <Image.GestureRecognizers>
-                    <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
-                    <TapGestureRecognizer Tapped="OnRingTapped" />
-                </Image.GestureRecognizers>
-            </Image>
-            <Label x:Name="CaptureToast"
+							</MenuFlyoutItem.IconImageSource>
+						</MenuFlyoutItem>
+					</MenuFlyout>
+				</FlyoutBase.ContextFlyout>
+				<Image.GestureRecognizers>
+					<PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
+					<TapGestureRecognizer Tapped="OnRingTapped" />
+				</Image.GestureRecognizers>
+			</Image>
+			<Label x:Name="CaptureToast"
                 IsVisible="False"
                 Opacity="0"
                 Text=""
@@ -222,139 +564,8 @@
                 MaximumWidthRequest="148"
                 Padding="8,3"
                 BackgroundColor="#CC202020" />
-        </VerticalStackLayout>
+		</VerticalStackLayout>
 
-    </Grid>
-
-    <ContentPage.Resources>
-        <Style x:Key="OverlayButton" TargetType="Button">
-            <Setter Property="WidthRequest" Value="36" />
-            <Setter Property="HeightRequest" Value="36" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="CornerRadius" Value="18" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="BackgroundColor" Value="#CC202020" />
-            <Setter Property="TextColor" Value="White" />
-        </Style>
-
-        <!-- Chat message bubble (also used by the message list). -->
-        <DataTemplate x:Key="MessageTemplate" x:DataType="local:ChatMessageVm">
-            <Grid Padding="0,3">
-                <Border HorizontalOptions="{Binding Alignment}"
-                    MaximumWidthRequest="420"
-                    BackgroundColor="{Binding BubbleColor}"
-                    Stroke="Transparent"
-                    Padding="10,7"
-                    StrokeShape="RoundRectangle 12">
-                    <VerticalStackLayout Spacing="6">
-                        <Label Text="{Binding Text}"
-                            TextColor="White"
-                            FontSize="13"
-                            LineBreakMode="WordWrap" />
-
-                        <!-- Memory sources cited for this answer (RAG provenance). -->
-                        <VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">
-                            <Label Text="Sources"
-                                TextColor="#99FFFFFF"
-                                FontSize="10"
-                                FontAttributes="Bold" />
-                            <VerticalStackLayout Spacing="3"
-                                BindableLayout.ItemsSource="{Binding Citations}">
-                                <BindableLayout.ItemTemplate>
-                                    <DataTemplate x:DataType="local:CitationVm">
-                                        <HorizontalStackLayout Spacing="4">
-                                            <Label Text="{Binding Title}"
-                                                TextColor="#DDFFFFFF"
-                                                FontSize="11"
-                                                VerticalOptions="Center"
-                                                LineBreakMode="TailTruncation"
-                                                MaximumWidthRequest="150" />
-                                            <Border IsVisible="{Binding HasImage}"
-                                                BackgroundColor="#55FFFFFF"
-                                                Stroke="Transparent"
-                                                Padding="6,1"
-                                                StrokeShape="RoundRectangle 7">
-                                                <Border.GestureRecognizers>
-                                                    <TapGestureRecognizer Command="{Binding OpenImageCommand}" />
-                                                </Border.GestureRecognizers>
-                                                <Label TextColor="White" FontSize="11">
-                                                    <Label.FormattedText>
-                                                        <FormattedString>
-                                                            <Span Text="{x:Static icons:TablerLine.Photo}"
-                                                                FontFamily="TablerIconsLine" />
-                                                            <Span Text=" image" />
-                                                        </FormattedString>
-                                                    </Label.FormattedText>
-                                                </Label>
-                                            </Border>
-                                            <Border IsVisible="{Binding HasText}"
-                                                BackgroundColor="#55FFFFFF"
-                                                Stroke="Transparent"
-                                                Padding="6,1"
-                                                StrokeShape="RoundRectangle 7">
-                                                <Border.GestureRecognizers>
-                                                    <TapGestureRecognizer Command="{Binding OpenTextCommand}" />
-                                                </Border.GestureRecognizers>
-                                                <Label TextColor="White" FontSize="11">
-                                                    <Label.FormattedText>
-                                                        <FormattedString>
-                                                            <Span Text="{x:Static icons:TablerLine.FileText}"
-                                                                FontFamily="TablerIconsLine" />
-                                                            <Span Text=" text" />
-                                                        </FormattedString>
-                                                    </Label.FormattedText>
-                                                </Label>
-                                            </Border>
-                                        </HorizontalStackLayout>
-                                    </DataTemplate>
-                                </BindableLayout.ItemTemplate>
-                            </VerticalStackLayout>
-                        </VerticalStackLayout>
-                    </VerticalStackLayout>
-                </Border>
-            </Grid>
-        </DataTemplate>
-
-        <!-- Conversation switcher row (shown in the message list under /chats). -->
-        <DataTemplate x:Key="ConversationTemplate" x:DataType="local:ConversationItemVm">
-            <Grid Padding="0,3" ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                <Border Grid.Column="0"
-                    BackgroundColor="#2EFFFFFF"
-                    Stroke="Transparent"
-                    Padding="10,7"
-                    StrokeShape="RoundRectangle 10">
-                    <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding OpenCommand}" />
-                    </Border.GestureRecognizers>
-                    <VerticalStackLayout Spacing="1">
-                        <Label Text="{Binding Title}"
-                            TextColor="White"
-                            FontSize="13"
-                            LineBreakMode="TailTruncation" />
-                        <Label Text="{Binding Subtitle}"
-                            TextColor="#99FFFFFF"
-                            FontSize="11"
-                            LineBreakMode="TailTruncation" />
-                    </VerticalStackLayout>
-                </Border>
-                <Button Grid.Column="1"
-                    IsVisible="{Binding HasDelete}"
-                    Command="{Binding DeleteCommand}"
-                    Text="✕"
-                    WidthRequest="30"
-                    HeightRequest="30"
-                    Padding="0"
-                    CornerRadius="15"
-                    FontSize="12"
-                    VerticalOptions="Center"
-                    BackgroundColor="#33FFFFFF"
-                    TextColor="White" />
-            </Grid>
-        </DataTemplate>
-
-        <local:ChatListTemplateSelector x:Key="ChatListSelector"
-            MessageTemplate="{StaticResource MessageTemplate}"
-            ConversationTemplate="{StaticResource ConversationTemplate}" />
-    </ContentPage.Resources>
+	</Grid>
 
 </ContentPage>

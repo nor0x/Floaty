@@ -19,7 +19,9 @@ public partial class App : MauiWinUIApplication
 		// Must run before any UI: handles Velopack's install/update/uninstall hooks and may
 		// exit the process early during those lifecycle events. This is the logical equivalent
 		// of main(), so it precedes MAUI bootstrapping.
-		Velopack.VelopackApp.Build().Run();
+		Velopack.VelopackApp.Build()
+			.OnBeforeUninstallFastCallback(_ => Floaty.Platforms.Windows.WindowsAutostartService.RemoveRunValue())
+			.Run();
 
 		this.InitializeComponent();
 	}
