@@ -1,4 +1,9 @@
 # Floaty 🛟
+
+<p align="center">
+  <img src="website/ring-spin.svg" alt="Floaty spinning ring" width="200" />
+</p>
+
 floaty is an app that lives in your menubar / taskbar and can also be always on top of your other windows. It's an AI-powered assistant that has local memory which is automatically filled by interacting with the floating overlay - via the accessibility APIs it can read the content of your screen and also can capture screenshots.
 
 In addition to the floating overlay, it also has a chat interface where you can ask questions and have conversations with the assistant. The chat interface also has a memory section where you can see all the information that the assistant has gathered from your interactions.
