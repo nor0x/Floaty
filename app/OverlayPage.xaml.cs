@@ -77,6 +77,14 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     // the gesture settles rather than on every wheel notch.
     private IDispatcherTimer? _ringSizePersistTimer;
 
+    // Debounces persisting the overlay window position while the ring is moved.
+    private IDispatcherTimer? _overlayPositionPersistTimer;
+
+    // One-shot startup restore for the overlay window position from persisted config.
+    private IDispatcherTimer? _overlayPositionRestoreTimer;
+    private bool _overlayPositionRestored;
+    private int _overlayPositionRestoreAttempts;
+
 #if WINDOWS
     // Mouse wheel tuning: each wheel delta unit rotates this many degrees, then idle spin
     // resumes after a short period without wheel activity.
@@ -109,6 +117,10 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
 
     // Subtle pause after the summon glide finishes before the chat input auto-appears.
     private const int SummonRevealDelayMs = 180;
+
+    // Position restore retries briefly while the native window reports zero size/work area.
+    private const int OverlayRestoreRetryMs = 100;
+    private const int OverlayRestoreMaxAttempts = 20;
 
     // While waiting for the first model token, the ring does a "spin, pause, spin" loader loop.
     private CancellationTokenSource? _chatWaitingSpinCts;
@@ -150,6 +162,24 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         _windowController.SetInteractiveHitTest(IsInteractiveAt);
 
         StartIdleSpin();
+
+        Loaded += OnLoaded;
+    }
+
+    private void OnLoaded(object? sender, EventArgs e)
+    {
+        BeginOverlayPositionRestore();
+    }
+
+    private void BeginOverlayPositionRestore()
+    {
+        if (_overlayPositionRestored || _placement == ChatPanelPlacement.Fixed)
+            return;
+
+        _overlayPositionRestoreTimer ??= CreateOverlayPositionRestoreTimer();
+        _overlayPositionRestoreTimer.Stop();
+        _overlayPositionRestoreAttempts = 0;
+        _overlayPositionRestoreTimer.Start();
     }
 
     // --- Chat host lifecycle (placement) ---
@@ -232,6 +262,9 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
                 TearDownChatHost();
                 _placement = placement;
                 BuildChatHost();
+
+                if (_placement == ChatPanelPlacement.Floating)
+                    BeginOverlayPositionRestore();
             }
 
             ApplyRingImage();
@@ -341,6 +374,90 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         return timer;
     }
 
+    // Persist the overlay top-left position to config, debounced so drag frames do not spam writes.
+    private void SchedulePersistOverlayPosition()
+    {
+        _overlayPositionPersistTimer ??= CreateOverlayPositionPersistTimer();
+        _overlayPositionPersistTimer.Stop();
+        _overlayPositionPersistTimer.Start();
+    }
+
+    private IDispatcherTimer CreateOverlayPositionPersistTimer()
+    {
+        var timer = Dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(500);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+
+            // In fixed placement the ring is hidden and the chat owns placement persistence.
+            //if (_placement == ChatPanelPlacement.Fixed)
+            //    return;
+
+            var (x, y) = _windowController.GetPosition();
+            var wa = _windowController.GetWorkArea();
+            if (wa.Width <= 0 || wa.Height <= 0)
+                return;
+
+            var config = _settings.Current;
+            if (config.OverlayWindowX == x && config.OverlayWindowY == y)
+                return;
+
+            config.OverlayWindowX = x;
+            config.OverlayWindowY = y;
+            _settings.Save(config);
+        };
+        return timer;
+    }
+
+    private IDispatcherTimer CreateOverlayPositionRestoreTimer()
+    {
+        var timer = Dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(OverlayRestoreRetryMs);
+        timer.IsRepeating = true;
+        timer.Tick += (_, _) =>
+        {
+            if (_overlayPositionRestored)
+            {
+                timer.Stop();
+                return;
+            }
+
+            _overlayPositionRestoreAttempts++;
+            if (TryRestoreOverlayPosition() || _overlayPositionRestoreAttempts >= OverlayRestoreMaxAttempts)
+            {
+                _overlayPositionRestored = true;
+                timer.Stop();
+            }
+        };
+        return timer;
+    }
+
+    private bool TryRestoreOverlayPosition()
+    {
+        var savedX = _settings.Current.OverlayWindowX;
+        var savedY = _settings.Current.OverlayWindowY;
+        if (!savedX.HasValue || !savedY.HasValue)
+            return true;
+
+        var wa = _windowController.GetWorkArea();
+        var (width, height) = _windowController.GetSize();
+        if (wa.Width <= 0 || wa.Height <= 0 || width <= 0 || height <= 0)
+            return false;
+
+        var maxX = wa.X + Math.Max(0, wa.Width - width);
+        var maxY = wa.Y + Math.Max(0, wa.Height - height);
+        var x = Math.Clamp(savedX.Value, wa.X, maxX);
+        var y = Math.Clamp(savedY.Value, wa.Y, maxY);
+        _windowController.MoveTo(x, y);
+
+        if (x != savedX.Value || y != savedY.Value)
+            SchedulePersistOverlayPosition();
+
+        return true;
+    }
+
     // Continuously rotate the ring by a small amount each tick, unless a drag/summon is in control.
     private void StartIdleSpin()
     {
@@ -399,6 +516,7 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
                 _ringBusy = false;
                 // The ring (and any open panel) just moved; flip sides if the panel no longer fits.
                 ReevaluateChatSide();
+                SchedulePersistOverlayPosition();
                 break;
         }
     }
@@ -437,7 +555,10 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
             {
                 // Once it lands, reveal the chat input after a subtle beat.
                 if (!cancelled)
+                {
+                    SchedulePersistOverlayPosition();
                     _ = RevealChatAfterSummonAsync();
+                }
             });
     }
 
@@ -623,7 +744,11 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     void IChatPanelHost.KeepInteractiveFor(TimeSpan duration) => _windowController.KeepInteractiveFor(duration);
 
     // The floating panel is positioned by the ring, so its drag bar is hidden and this never fires.
-    void IChatPanelHost.MoveWindowBy(double dxDip, double dyDip) => _windowController.MoveBy(dxDip, dyDip);
+    void IChatPanelHost.MoveWindowBy(double dxDip, double dyDip)
+    {
+        _windowController.MoveBy(dxDip, dyDip);
+        SchedulePersistOverlayPosition();
+    }
 
     void IChatPanelHost.CollapseRequested() => CollapseChat();
 
@@ -771,6 +896,7 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
             ? ring.Right - winW // ring becomes flush-right: window right edge = old ring right
             : ring.Left;        // ring becomes flush-left:  window left edge  = old ring left
         _windowController.MoveTo((int)Math.Round(newWinX), winY);
+        SchedulePersistOverlayPosition();
     }
 
     // --- Ring platform hooks (Windows) ---

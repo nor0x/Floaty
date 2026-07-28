@@ -62,13 +62,23 @@ public partial class App : Application
         var x = (display.Width / display.Density) - width - 40;
         var y = (display.Height / display.Density) - height - 80;
 
+        // Use the last known native window pixel position as an initial DIP estimate to avoid a
+        // visible jump on startup. OverlayPage restores/clamps the exact native coordinates once
+        // the controller reports the real work area.
+        var launchX = settings.Current.OverlayWindowX.HasValue
+            ? settings.Current.OverlayWindowX.Value / display.Density
+            : (x > 0 ? x : 100);
+        var launchY = settings.Current.OverlayWindowY.HasValue
+            ? settings.Current.OverlayWindowY.Value / display.Density
+            : (y > 0 ? y : 100);
+
         return new Window(overlay)
         {
             Title = "Floaty",
             Width = width,
             Height = height,
-            X = x > 0 ? x : 100,
-            Y = y > 0 ? y : 100,
+            X = launchX,
+            Y = launchY,
         };
     }
 }

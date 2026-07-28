@@ -165,6 +165,16 @@ public sealed class FloatyConfig
     public bool AlwaysOnTop { get; set; } = true;
 
     /// <summary>
+    /// Top-left corner of the floating ring overlay window in physical screen pixels. Null until
+    /// the ring has been moved at least once; restored on startup and clamped into a visible work
+    /// area so monitor changes cannot strand it off-screen.
+    /// </summary>
+    public int? OverlayWindowX { get; set; }
+
+    /// <inheritdoc cref="OverlayWindowX"/>
+    public int? OverlayWindowY { get; set; }
+
+    /// <summary>
     /// Whether the chat panel is glued to the ring or lives in its own independently placed window.
     /// Stored as a string ("Floating") so config.json stays hand-editable.
     /// </summary>

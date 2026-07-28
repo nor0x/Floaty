@@ -116,22 +116,22 @@ public sealed class ChatService : IChatService
         // Always expose memory search + save; add the scoped MCP server's tools when invoked via /server.
         var tools = new List<AITool> { _searchTool, _saveTool };
 
-                // Only expose the shell tool when the user has opted in.
+        // Only expose the shell tool when the user has opted in.
         if (config.ExecEnabled)
         {
             tools.Add(_execTool);
-                        var requiresApproval = config.ExecApprovalMode == ExecApprovalMode.AlwaysRequire;
-                        messages.Add(new ChatMessage(ChatRole.System, requiresApproval
-                                ? "You can run shell commands on the user's computer with the exec tool — use it to create, " +
-                                    "read, or edit files, run programs, inspect the system, or automate tasks. Call exec directly " +
-                                    "when execution is needed; do not ask the user to type an approval keyword. The UI handles " +
-                                    "approval before execution. Prefer the smallest, safest command that accomplishes the goal " +
-                                    "and briefly explain anything destructive before running it."
-                                : "You can run shell commands on the user's computer with the exec tool — use it to create, " +
-                                    "read, or edit files, run programs, inspect the system, or automate tasks. Call exec directly " +
-                                    "when execution is needed; do not ask the user to type an approval keyword. Prefer the " +
-                                    "smallest, safest command that accomplishes the goal and briefly explain anything destructive " +
-                                    "before running it."));
+            var requiresApproval = config.ExecApprovalMode == ExecApprovalMode.AlwaysRequire;
+            messages.Add(new ChatMessage(ChatRole.System, requiresApproval
+                    ? "You can run shell commands on the user's computer with the exec tool — use it to create, " +
+                        "read, or edit files, run programs, inspect the system, or automate tasks. Call exec directly " +
+                        "when execution is needed; do not ask the user to type an approval keyword. The UI handles " +
+                        "approval before execution. Prefer the smallest, safest command that accomplishes the goal " +
+                        "and briefly explain anything destructive before running it."
+                    : "You can run shell commands on the user's computer with the exec tool — use it to create, " +
+                        "read, or edit files, run programs, inspect the system, or automate tasks. Call exec directly " +
+                        "when execution is needed; do not ask the user to type an approval keyword. Prefer the " +
+                        "smallest, safest command that accomplishes the goal and briefly explain anything destructive " +
+                        "before running it."));
         }
 
         if (!string.IsNullOrWhiteSpace(mcpServer))
