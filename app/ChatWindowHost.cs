@@ -85,11 +85,15 @@ public sealed class ChatWindowHost : IChatPanelHost
 	/// <summary>
 	/// Opens the chat window (creating it if needed) and attaches files dropped on the ring to the
 	/// pending prompt. The panel only exists once the window has been built, hence the Show() first.
+	/// With <paramref name="memorize"/> the files are embedded into memory instead (Alt-drop).
 	/// </summary>
-	public void DropFiles(IReadOnlyList<string> paths)
+	public void DropFiles(IReadOnlyList<string> paths, bool memorize = false)
 	{
 		Show();
-		_panel?.AttachFiles(paths);
+		if (memorize)
+			_panel?.MemorizeFiles(paths);
+		else
+			_panel?.AttachFiles(paths);
 	}
 
 	/// <summary>Surfaces the "folders aren't supported" hint in the panel's inline toast.</summary>

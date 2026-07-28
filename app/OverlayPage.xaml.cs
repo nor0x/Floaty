@@ -996,7 +996,8 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
         if (e.DragUIOverride is { } overlay)
         {
-            overlay.Caption = "Add to Floaty";
+            // Alt swaps the drop from "context for my next message" to "remember this".
+            overlay.Caption = ChatPanelView.IsMemorizeDrop(e) ? "Remember in Floaty" : "Add to Floaty";
             overlay.IsCaptionVisible = true;
             overlay.IsGlyphVisible = false;
         }
@@ -1020,6 +1021,9 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
             if (!HasFiles(e))
                 return;
 
+            // Sampled before the first await: the key state belongs to the moment of the drop.
+            var memorize = ChatPanelView.IsMemorizeDrop(e);
+
             var items = await e.DataView.GetStorageItemsAsync();
             var paths = items
                 .OfType<Windows.Storage.StorageFile>()
@@ -1028,7 +1032,7 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
                 .ToList();
 
             var hadFolders = items.Any(i => i is Windows.Storage.StorageFolder);
-            await AttachDroppedFilesAsync(paths, hadFolders);
+            await AttachDroppedFilesAsync(paths, hadFolders, memorize);
         }
         catch
         {
@@ -1083,8 +1087,10 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     }
 
     // Routes dropped files into the chat panel for whichever placement is active, opening it first.
-    // Shared by the ring and (via the host) the panel itself.
-    private async Task AttachDroppedFilesAsync(IReadOnlyList<string> paths, bool hadFolders)
+    // Shared by the ring and (via the host) the panel itself. <paramref name="memorize"/> is the
+    // Alt-drop mode: the files go straight into memory instead of onto the pending prompt. The panel
+    // still opens, because its inline toast is the only place that outcome can be reported.
+    private async Task AttachDroppedFilesAsync(IReadOnlyList<string> paths, bool hadFolders, bool memorize = false)
     {
         if (paths.Count == 0)
         {
@@ -1098,7 +1104,7 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
 
         if (_placement == ChatPanelPlacement.Fixed)
         {
-            _chatWindow?.DropFiles(paths);
+            _chatWindow?.DropFiles(paths, memorize);
             return;
         }
 
@@ -1106,7 +1112,11 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
             return;
 
         await ShowChatAsync();
-        _panel.AttachFiles(paths);
+        if (memorize)
+            _panel.MemorizeFiles(paths);
+        else
+            _panel.AttachFiles(paths);
+
         if (hadFolders)
             await ShowFolderDropHintAsync();
     }

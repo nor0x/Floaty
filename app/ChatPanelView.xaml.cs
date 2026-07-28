@@ -1108,10 +1108,71 @@ public partial class ChatPanelView : ContentView
     }
 
     /// <summary>
+    /// Embeds dropped files straight into memory instead of attaching them to the pending prompt —
+    /// the Alt-drop mode. Nothing touches the prompt or the conversation: the files are copied into
+    /// <c>~/.floaty/drops</c> and embedded exactly as the persist toggle would have done at send
+    /// time, and the only trace in the panel is the inline toast reporting the outcome.
+    /// </summary>
+    public void MemorizeFiles(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+            return;
+
+        if (string.IsNullOrWhiteSpace(_settings.Current.OpenAiApiKey))
+        {
+            _ = ShowInlineToastAsync("Memory needs an OpenAI API key");
+            return;
+        }
+
+        _ = MemorizeFilesAsync(paths.Take(IFileIngestService.MaxFilesPerDrop).ToList());
+    }
+
+    /// <summary>
     /// Tells the user a dropped folder was ignored. Folders are deliberately not expanded: one
     /// careless drag of a source tree would attach thousands of files.
     /// </summary>
     public void ShowFolderDropHint() => _ = ShowInlineToastAsync("Folders aren't supported — drop files");
+
+    // Ingest + embed sequentially: each file costs a vision call and an embedding call, and running
+    // them in parallel would only trade a bounded wait for rate-limit errors.
+    private async Task MemorizeFilesAsync(IReadOnlyList<string> paths)
+    {
+        _ = ShowInlineToastAsync(paths.Count == 1
+            ? $"Remembering {Path.GetFileName(paths[0])}…"
+            : $"Remembering {paths.Count} files…");
+
+        var remembered = 0;
+        foreach (var path in paths)
+        {
+            try
+            {
+                var file = await _fileIngest.IngestAsync(path);
+                if (file is not null && await MemorizeDropAsync(file))
+                    remembered++;
+            }
+            catch
+            {
+                // Counted as a failure below; one bad file must not abort the rest of the drop.
+            }
+        }
+
+        if (remembered == paths.Count)
+        {
+            await ShowInlineToastAsync(paths.Count == 1
+                ? $"Remembered {Path.GetFileName(paths[0])}"
+                : $"Remembered {paths.Count} files");
+        }
+        else if (remembered > 0)
+        {
+            await ShowInlineToastAsync($"Remembered {remembered} of {paths.Count} files");
+        }
+        else
+        {
+            await ShowInlineToastAsync(paths.Count == 1
+                ? $"Couldn't remember {Path.GetFileName(paths[0])}"
+                : "Couldn't remember those files");
+        }
+    }
 
     // Chip glyph by file type, so a mixed drop is readable at a glance.
     private static string GlyphForFile(string path)
@@ -1953,7 +2014,7 @@ public partial class ChatPanelView : ContentView
         e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
         if (e.DragUIOverride is { } overlay)
         {
-            overlay.Caption = "Add to this chat";
+            overlay.Caption = IsMemorizeDrop(e) ? "Remember in Floaty" : "Add to this chat";
             overlay.IsCaptionVisible = true;
             overlay.IsGlyphVisible = false;
         }
@@ -1975,6 +2036,10 @@ public partial class ChatPanelView : ContentView
             if (!PanelDragHasFiles(e))
                 return;
 
+            // Read the modifiers before the first await — the deferral keeps the DataView alive, but
+            // the key state is only meaningful at the moment of the drop.
+            var memorize = IsMemorizeDrop(e);
+
             var items = await e.DataView.GetStorageItemsAsync();
             var paths = items
                 .OfType<Windows.Storage.StorageFile>()
@@ -1982,10 +2047,19 @@ public partial class ChatPanelView : ContentView
                 .Where(p => !string.IsNullOrEmpty(p))
                 .ToList();
 
-            if (paths.Count > 0)
+            if (paths.Count == 0)
+            {
+                if (items.Any(i => i is Windows.Storage.StorageFolder))
+                    ShowFolderDropHint();
+            }
+            else if (memorize)
+            {
+                MemorizeFiles(paths);
+            }
+            else
+            {
                 AttachFiles(paths);
-            else if (items.Any(i => i is Windows.Storage.StorageFolder))
-                ShowFolderDropHint();
+            }
         }
         catch
         {
@@ -2000,6 +2074,14 @@ public partial class ChatPanelView : ContentView
 
     private static bool PanelDragHasFiles(Microsoft.UI.Xaml.DragEventArgs e) =>
         e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems);
+
+    /// <summary>
+    /// Alt held during the drag switches the drop from prompt context to memory. Alt is the one
+    /// modifier the shell doesn't already spend on the drop effect (Ctrl copy, Shift move), so it
+    /// can't be confused with asking the source app for a different operation.
+    /// </summary>
+    internal static bool IsMemorizeDrop(Microsoft.UI.Xaml.DragEventArgs e) =>
+        e.Modifiers.HasFlag(Windows.ApplicationModel.DataTransfer.DragDrop.DragDropModifiers.Alt);
 #endif
 
     // Highlights the panel's border while a file hovers it. Border-only on purpose: anything that
@@ -2567,18 +2649,26 @@ public partial class ChatPanelView : ContentView
             try
             {
                 var file = attachment.IngestTask is null ? null : await attachment.IngestTask;
-                if (file is null)
-                    continue;
-
-                var capture = WriteDropToDisk(file);
-                if (capture is not null)
-                    await _memoryService.RememberCaptureAsync(capture, IMemoryService.DroppedFileSource);
+                if (file is not null)
+                    await MemorizeDropAsync(file);
             }
             catch
             {
                 // Memory persistence is best-effort; the file already rode along on the prompt.
             }
         }
+    }
+
+    // Writes one dropped file into ~/.floaty/drops and embeds it. Returns false when there was
+    // nothing worth keeping or memory declined it (no API key). Throws on hard failures so the
+    // Alt-drop path can report them; PersistDropsAsync swallows them by design.
+    private async Task<bool> MemorizeDropAsync(DroppedFile file)
+    {
+        var capture = WriteDropToDisk(file);
+        if (capture is null)
+            return false;
+
+        return await _memoryService.RememberCaptureAsync(capture, IMemoryService.DroppedFileSource);
     }
 
     // Copies a dropped file into ~/.floaty/drops alongside a .txt holding its extracted text, shaped
