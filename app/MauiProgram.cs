@@ -45,10 +45,13 @@ public static class MauiProgram
 
 		// The floating overlay page (native MAUI UI) and the settings window.
 		builder.Services.AddTransient<OverlayPage>();
+		builder.Services.AddTransient<ChatPanelView>();
 		builder.Services.AddTransient<SettingsPage>();
 
 #if WINDOWS
+		builder.Services.AddSingleton<Floaty.Platforms.Windows.NativeWindowBinder>();
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.Windows.WindowsOverlayWindowController>();
+		builder.Services.AddSingleton<IChatWindowController, Floaty.Platforms.Windows.WindowsChatWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, Floaty.Platforms.Windows.WindowsScreenCaptureService>();
 		// Automatic screen history: captures the foreground window into memory on window/tab switches.
 		builder.Services.AddSingleton<IScreenHistoryService, Floaty.Platforms.Windows.WindowsScreenHistoryService>();
@@ -59,6 +62,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAutostartService, Floaty.Platforms.Windows.WindowsAutostartService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
+		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
 		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
@@ -66,6 +70,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
+		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
 		builder.Services.AddSingleton<IScreenCaptureService, NullScreenCaptureService>();
 		builder.Services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
 		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
@@ -91,6 +96,13 @@ public static class MauiProgram
 #if WINDOWS
 			events.AddWindows(windows => windows.OnWindowCreated(nativeWindow =>
 			{
+				if (IPlatformApplication.Current?.Services.GetService<Floaty.Platforms.Windows.NativeWindowBinder>()
+					is { } binder
+					&& binder.TryConsume(nativeWindow))
+				{
+					return;
+				}
+
 				if (IPlatformApplication.Current?.Services.GetService<IOverlayWindowController>()
 					is Floaty.Platforms.Windows.WindowsOverlayWindowController controller)
 				{

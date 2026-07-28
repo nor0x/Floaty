@@ -24,6 +24,8 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 
     private NSObject? _nsWindow;
 
+    public bool IsVisible { get; private set; } = true;
+
     /// <summary>
     /// Resolves the backing NSWindow for the given Catalyst UIWindow and applies the overlay styling.
     /// Safe to call repeatedly; only the first successful resolution takes effect.
@@ -116,11 +118,13 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 
     public void Activate()
     {
+        IsVisible = true;
         // Not implemented on macOS yet.
     }
 
     public void Hide()
     {
+        IsVisible = false;
         if (_nsWindow is null)
             return;
 
@@ -132,6 +136,7 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 
     public void FloatToTaskbarAndHide()
     {
+        IsVisible = false;
         if (_nsWindow is null)
             return;
 

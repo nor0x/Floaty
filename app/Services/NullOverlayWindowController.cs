@@ -21,6 +21,8 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
     public event Action<int, int>? SummonRequested;
 #pragma warning restore CS0067
 
+    public bool IsVisible => false;
+
     public (int X, int Y) GetPosition() => (0, 0);
 
     public (int Width, int Height) GetSize() => (0, 0);

@@ -15,11 +15,9 @@ public enum WindowAnchor
 }
 
 /// <summary>
-/// Abstraction over the native top-level window that hosts the floating swim-ring overlay.
-/// Platform implementations (Windows / macOS) translate the shared, device-independent
-/// drag deltas coming from the MAUI gesture layer into native window moves.
+/// Common capabilities every borderless floating window host needs.
 /// </summary>
-public interface IOverlayWindowController
+public interface IFloatingWindowController
 {
     /// <summary>
     /// Moves the overlay window by the given delta, expressed in device-independent
@@ -35,12 +33,6 @@ public interface IOverlayWindowController
     /// keep the respective edge fixed so the ring on that side stays put as the chat panel grows.
     /// </summary>
     void Resize(double widthDip, double heightDip, WindowAnchor anchor = WindowAnchor.Center);
-
-    /// <summary>
-    /// Raised when the user presses the global summon hotkey (Alt+F). Carries the mouse cursor
-    /// position in physical screen pixels so the overlay can animate toward it.
-    /// </summary>
-    event Action<int, int>? SummonRequested;
 
     /// <summary>Current top-left position of the overlay window, in physical screen pixels.</summary>
     (int X, int Y) GetPosition();
@@ -64,11 +56,8 @@ public interface IOverlayWindowController
     /// <summary>Hides the overlay window while keeping the app process running.</summary>
     void Hide();
 
-    /// <summary>
-    /// Animates the overlay to the platform taskbar/menu-bar corner and then hides it,
-    /// keeping the process alive so summon can bring it back.
-    /// </summary>
-    void FloatToTaskbarAndHide();
+    /// <summary>Whether the native window is currently visible.</summary>
+    bool IsVisible { get; }
 
     /// <summary>
     /// Supplies the hit-test the platform uses to decide whether the point under the mouse cursor
@@ -86,4 +75,29 @@ public interface IOverlayWindowController
 
     /// <summary>Sets whether the overlay window stays above other windows.</summary>
     void SetAlwaysOnTop(bool alwaysOnTop);
+}
+
+/// <summary>
+/// Abstraction over the native top-level window that hosts the floating swim-ring overlay.
+/// </summary>
+public interface IOverlayWindowController : IFloatingWindowController
+{
+    /// <summary>
+    /// Raised when the user presses the global summon hotkey (Alt+F). Carries the mouse cursor
+    /// position in physical screen pixels so the overlay can animate toward it.
+    /// </summary>
+    event Action<int, int>? SummonRequested;
+
+    /// <summary>
+    /// Animates the overlay to the platform taskbar/menu-bar corner and then hides it,
+    /// keeping the process alive so summon can bring it back.
+    /// </summary>
+    void FloatToTaskbarAndHide();
+}
+
+/// <summary>
+/// Abstraction over the optional standalone chat window used when chat placement is fixed.
+/// </summary>
+public interface IChatWindowController : IFloatingWindowController
+{
 }

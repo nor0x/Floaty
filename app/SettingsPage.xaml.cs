@@ -15,6 +15,23 @@ public partial class SettingsPage : ContentPage
 		blazorWebView.WebResourceRequested += OnWebResourceRequested;
 	}
 
+	/// <summary>
+	/// Opens the settings window. Shared by the ring's context menu and the <c>/settings</c> slash
+	/// command, which live in different views once the chat panel can be hosted on its own.
+	/// </summary>
+	public static void OpenWindow(IServiceProvider services)
+	{
+		var settingsPage = services.GetRequiredService<SettingsPage>();
+		Application.Current?.OpenWindow(new Window(settingsPage)
+		{
+			Title = "Floaty Settings",
+			Width = 790,
+			Height = 640,
+			MinimumWidth = 790,
+			MinimumHeight = 560,
+		});
+	}
+
 	private void OnWebResourceRequested(object? sender, WebViewWebResourceRequestedEventArgs e)
 	{
 		if (!e.Uri.Host.Equals("localfiles", StringComparison.OrdinalIgnoreCase))

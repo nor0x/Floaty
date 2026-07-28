@@ -61,6 +61,33 @@ public enum ExecShellKind
 }
 
 /// <summary>
+/// Whether shell commands run immediately or require explicit user confirmation first.
+/// </summary>
+public enum ExecApprovalMode
+{
+    /// <summary>Every shell command must be approved by the user in the chat overlay.</summary>
+    AlwaysRequire,
+
+    /// <summary>Shell commands run immediately without a human-in-the-loop confirmation step.</summary>
+    NeverRequire,
+}
+
+/// <summary>
+/// Where the chat panel lives on screen.
+/// </summary>
+public enum ChatPanelPlacement
+{
+    /// <summary>The panel opens flush against the ring and travels with it (the classic behavior).</summary>
+    Floating,
+
+    /// <summary>
+    /// The panel is its own borderless window, placed independently of the ring (bottom-left of the
+    /// work area until the user drags it elsewhere).
+    /// </summary>
+    Fixed,
+}
+
+/// <summary>
 /// How dictated text is sent once it lands in the chat entry.
 /// </summary>
 public enum VoiceSendMode
@@ -130,6 +157,32 @@ public sealed class FloatyConfig
     public bool AlwaysOnTop { get; set; } = true;
 
     /// <summary>
+    /// Whether the chat panel is glued to the ring or lives in its own independently placed window.
+    /// Stored as a string ("Floating") so config.json stays hand-editable.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ChatPanelPlacement ChatPanelPlacement { get; set; } = ChatPanelPlacement.Floating;
+
+    /// <summary>
+    /// Top-left corner of the fixed chat window in physical screen pixels. Null until the window has
+    /// been placed once; it then defaults to the bottom-left of the work area. Clamped back into a
+    /// visible work area on show, so a display that went away can't strand it off-screen.
+    /// </summary>
+    public int? ChatWindowX { get; set; }
+
+    /// <inheritdoc cref="ChatWindowX"/>
+    public int? ChatWindowY { get; set; }
+
+    /// <summary>
+    /// Size of the fixed chat panel in device-independent units, set by the corner resize grip.
+    /// Clamped to the panel's own min/max on use.
+    /// </summary>
+    public double ChatWindowWidth { get; set; } = 360;
+
+    /// <inheritdoc cref="ChatWindowWidth"/>
+    public double ChatWindowHeight { get; set; } = 420;
+
+    /// <summary>
     /// Whether Floaty starts automatically on OS sign-in, and if so whether it starts hidden or
     /// visible. Windows-only; mirrored into the HKCU Run registry key on save.
     /// </summary>
@@ -157,9 +210,16 @@ public sealed class FloatyConfig
 
     /// <summary>
     /// Whether the <c>exec</c> agent tool is exposed to the model. Off by default: shell execution is a
-    /// powerful capability, and even when on, every command still requires explicit user approval.
+    /// powerful capability, and when on it follows <see cref="ExecApprovalMode"/>.
     /// </summary>
     public bool ExecEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Whether shell commands require approval in the overlay before execution.
+    /// Stored as a string so config.json stays hand-editable.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ExecApprovalMode ExecApprovalMode { get; set; } = ExecApprovalMode.AlwaysRequire;
 
     /// <summary>Which shell the <c>exec</c> tool launches. Defaults to PowerShell on Windows, zsh elsewhere.</summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]

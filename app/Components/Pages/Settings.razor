@@ -141,6 +141,15 @@
                 </div>
 
                 <div class="field">
+                    <label for="chatPanelPlacement">Chat panel</label>
+                    <select id="chatPanelPlacement" @bind="_config.ChatPanelPlacement">
+                        <option value="@ChatPanelPlacement.Floating">Floating (next to the ring)</option>
+                        <option value="@ChatPanelPlacement.Fixed">Fixed (own window)</option>
+                    </select>
+                    <span class="hint">@ChatPanelPlacementHint(_config.ChatPanelPlacement)</span>
+                </div>
+
+                <div class="field">
                     <label>Accent color</label>
                     <div class="accent-row" role="list" aria-label="Accent color options">
                         @foreach (var preset in AccentPresets)
@@ -429,7 +438,7 @@
                 <div class="card-head">
                     <h2>Shell</h2>
                     <p>Let Floaty run shell commands to create and edit files, launch apps, and automate your
-                        computer. Off by default; every command must be approved by you before it runs.</p>
+                        computer. Off by default.</p>
                 </div>
 
                 <div class="field">
@@ -438,13 +447,23 @@
                         <input type="checkbox" @bind="_config.ExecEnabled" />
                         Enable the shell command tool
                     </label>
-                    <span class="hint">When enabled, Floaty can propose shell commands. Each one appears in the
-                        overlay with the exact command and a Run / Cancel prompt — nothing executes until you
-                        approve it.</span>
+                    <span class="hint">When enabled, Floaty can run shell commands from chat based on the
+                        approval mode below.</span>
                 </div>
 
                 @if (_config.ExecEnabled)
                 {
+                    <div class="field">
+                        <label for="execApprovalMode">Approval mode</label>
+                        <select id="execApprovalMode" @bind="_config.ExecApprovalMode">
+                            <option value="@ExecApprovalMode.AlwaysRequire">Always require human in the loop</option>
+                            <option value="@ExecApprovalMode.NeverRequire">Never require human in the loop</option>
+                        </select>
+                        <span class="hint">@(_config.ExecApprovalMode == ExecApprovalMode.AlwaysRequire
+                            ? "Each command opens a Run / Cancel approval prompt in the overlay."
+                            : "Commands run immediately without an approval prompt. Use with caution.")</span>
+                    </div>
+
                     <div class="field">
                         <label for="execShell">Default shell</label>
                         <select id="execShell" @bind="_config.ExecShell">
@@ -740,6 +759,14 @@
             AccentColor = current.AccentColor,
             ScreenHistoryMode = current.ScreenHistoryMode,
             AutostartMode = current.AutostartMode,
+            // Set from the ring's context menu, not this page — but the clone is saved wholesale, so
+            // anything left out here is silently reset to its default on Save.
+            AlwaysOnTop = current.AlwaysOnTop,
+            ChatPanelPlacement = current.ChatPanelPlacement,
+            ChatWindowX = current.ChatWindowX,
+            ChatWindowY = current.ChatWindowY,
+            ChatWindowWidth = current.ChatWindowWidth,
+            ChatWindowHeight = current.ChatWindowHeight,
             RememberTaggedCaptures = current.RememberTaggedCaptures,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
@@ -747,6 +774,7 @@
             VoiceSendMode = current.VoiceSendMode,
             AutoSendPauseSeconds = current.AutoSendPauseSeconds,
             ExecEnabled = current.ExecEnabled,
+            ExecApprovalMode = current.ExecApprovalMode,
             ExecShell = current.ExecShell,
             ExecCustomShellPath = current.ExecCustomShellPath,
             ExecCustomShellArgs = current.ExecCustomShellArgs,
@@ -1118,6 +1146,13 @@
         AutostartMode.Disabled => "Floaty only runs when you launch it yourself.",
         AutostartMode.Minimized => "Floaty starts hidden when you sign in — summon it with Alt+F or the tray icon.",
         _ => "The floating ring appears as soon as you sign in.",
+    };
+
+    private static string ChatPanelPlacementHint(ChatPanelPlacement placement) => placement switch
+    {
+        ChatPanelPlacement.Floating => "The chat opens right beside the ring and follows it around the screen.",
+        _ => "The chat gets its own window, starting bottom-left. Drag it by the bar above the messages; " +
+            "the ring just shows and hides it.",
     };
 
     private static string ScreenHistoryModeHint(ScreenHistoryMode mode) => mode switch

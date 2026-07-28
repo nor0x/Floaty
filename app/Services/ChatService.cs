@@ -54,9 +54,8 @@ public sealed class ChatService : IChatService
     // from GetStreamingResponseAsync into the function-invocation middleware.
     private static readonly AsyncLocal<ICollection<MemoryCitation>?> _citationSink = new();
 
-    // Per-turn callback the exec tool uses to ask the UI to approve a command before running it. Flows via
-    // the async call chain just like the citation sink. Null when the caller offers no approval channel
-    // (e.g. background summarization), in which case the exec tool refuses to run anything.
+    // Per-turn callback the exec tool uses to ask the UI to approve a command before running it when
+    // approval mode is enabled. Flows via the async call chain just like the citation sink.
     private static readonly AsyncLocal<Func<ExecApprovalRequest, Task<bool>>?> _execApprovalSink = new();
 
     private readonly SettingsService _settings;
@@ -117,16 +116,22 @@ public sealed class ChatService : IChatService
         // Always expose memory search + save; add the scoped MCP server's tools when invoked via /server.
         var tools = new List<AITool> { _searchTool, _saveTool };
 
-        // Only expose the shell tool when the user has opted in. Every command it runs is still gated on an
-        // explicit approval prompt in the overlay.
+                // Only expose the shell tool when the user has opted in.
         if (config.ExecEnabled)
         {
             tools.Add(_execTool);
-            messages.Add(new ChatMessage(ChatRole.System,
-                "You can run shell commands on the user's computer with the exec tool — use it to create, " +
-                "read, or edit files, run programs, inspect the system, or automate tasks. Every command is " +
-                "shown to the user for approval before it runs, so prefer the smallest, safest command that " +
-                "accomplishes the goal and briefly explain anything destructive before running it."));
+                        var requiresApproval = config.ExecApprovalMode == ExecApprovalMode.AlwaysRequire;
+                        messages.Add(new ChatMessage(ChatRole.System, requiresApproval
+                                ? "You can run shell commands on the user's computer with the exec tool — use it to create, " +
+                                    "read, or edit files, run programs, inspect the system, or automate tasks. Call exec directly " +
+                                    "when execution is needed; do not ask the user to type an approval keyword. The UI handles " +
+                                    "approval before execution. Prefer the smallest, safest command that accomplishes the goal " +
+                                    "and briefly explain anything destructive before running it."
+                                : "You can run shell commands on the user's computer with the exec tool — use it to create, " +
+                                    "read, or edit files, run programs, inspect the system, or automate tasks. Call exec directly " +
+                                    "when execution is needed; do not ask the user to type an approval keyword. Prefer the " +
+                                    "smallest, safest command that accomplishes the goal and briefly explain anything destructive " +
+                                    "before running it."));
         }
 
         if (!string.IsNullOrWhiteSpace(mcpServer))
@@ -209,8 +214,8 @@ public sealed class ChatService : IChatService
     }
 
     [Description("Run a shell command on the user's computer and return its output. Use to create, read, or " +
-                 "edit files, run programs, inspect the system, or automate tasks. The user must approve " +
-                 "every command before it executes; if they decline, the command does not run.")]
+                 "edit files, run programs, inspect the system, or automate tasks. Depending on settings, " +
+                 "commands may require user approval before execution.")]
     private async Task<string> Exec(
         [Description("The command to run, exactly as it would be typed into the configured shell.")] string command,
         [Description("Optional working directory for the command; defaults to the user's home folder.")] string? workingDirectory = null)
@@ -222,8 +227,10 @@ public sealed class ChatService : IChatService
         if (string.IsNullOrWhiteSpace(command))
             return "No command was provided.";
 
-        // Refuse rather than run un-approved: the sink is only set on interactive turns that wired an
-        // approval channel, so background callers (e.g. summarization) can never trigger execution.
+        if (config.ExecApprovalMode == ExecApprovalMode.NeverRequire)
+            return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
+
+        // Refuse rather than run un-approved when approval mode requires a prompt and no callback is wired.
         var approve = _execApprovalSink.Value;
         if (approve is null)
             return "Cannot run a command: no approval channel is available in this context.";

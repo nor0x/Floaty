@@ -12,6 +12,12 @@
                 https://go.microsoft.com/fwlink/?linkid=2282329
             -->
 
+            <!-- Accent colors, replaced at runtime from the configured accent (see
+                 OverlayPage.ApplyAccentColor). They live on the Application (not a page) so both the
+                 ring window and the fixed chat window resolve the same DynamicResource. -->
+            <Color x:Key="AccentColor">#2b7fff</Color>
+            <Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>
