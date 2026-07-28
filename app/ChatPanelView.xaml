@@ -149,32 +149,61 @@
             BackgroundColor="#E61C1C1E"
             Padding="14,8,8,8"
             StrokeShape="RoundRectangle 10">
-        <!-- Content + a corner resize grip overlaid on top of it. -->
+        <!-- Unified content grid: drag bar and resize grip share the top row with non-overlapping hit areas. -->
         <Grid>
             <!-- Messages area sizes to content (collapsed when empty) up to MessagesList's
                  MaximumHeightRequest; beyond that the CollectionView scrolls. Input row is always shown. -->
             <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="0">
 
-                <!-- Drag handle: only shown when the panel has its own window (fixed placement), where
-                     there is no ring to drag it by. Panning it moves the window. -->
-                <Border x:Name="DragBar"
+                <Grid x:Name="TopGripRow"
                         Grid.Row="0"
-                        IsVisible="False"
-                        Margin="-6,-2,-6,4"
-                        Padding="0,4"
-                        BackgroundColor="Transparent"
-                        Stroke="Transparent"
-                        SemanticProperties.Description="Move chat panel">
-                    <Border WidthRequest="38"
-                            HeightRequest="4"
-                            HorizontalOptions="Center"
-                            BackgroundColor="#33FFFFFF"
+                        ColumnDefinitions="Auto,*,Auto"
+                      BackgroundColor="Transparent"
+                        Margin="-12,-6,-12,4"
+                        HeightRequest="18">
+                    <!-- Drag handle: only shown when the panel has its own window (fixed placement), where
+                         there is no ring to drag it by. Panning it moves the window. -->
+                    <Border x:Name="DragBar"
+                            Grid.Column="1"
+                            IsVisible="False"
+                            Padding="0"
+                            BackgroundColor="Transparent"
                             Stroke="Transparent"
-                            StrokeShape="RoundRectangle 2" />
-                    <Border.GestureRecognizers>
-                        <PanGestureRecognizer PanUpdated="OnDragBarPanUpdated" />
-                    </Border.GestureRecognizers>
-                </Border>
+                            SemanticProperties.Description="Move chat panel">
+                        <Border WidthRequest="38"
+                                HeightRequest="4"
+                                VerticalOptions="Start"
+                                HorizontalOptions="Center"
+                                BackgroundColor="#33FFFFFF"
+                                Stroke="Transparent"
+                                StrokeShape="RoundRectangle 2" />
+                        <Border.GestureRecognizers>
+                            <PanGestureRecognizer PanUpdated="OnDragBarPanUpdated" />
+                        </Border.GestureRecognizers>
+                    </Border>
+
+                    <!-- Corner resize grip: drag to change panel width/height. Kept in the same row as
+                         the drag bar, but in a dedicated edge cell to avoid gesture overlap. -->
+                    <Border x:Name="ResizeCornerGrip"
+                            Grid.Column="2"
+                            WidthRequest="26"
+                            HeightRequest="26"
+                            HorizontalOptions="End"
+                            VerticalOptions="Start"
+                            BackgroundColor="Transparent"
+                            Stroke="Transparent"
+                            SemanticProperties.Description="Resize chat">
+                        <Label x:Name="ResizeCornerGlyph"
+                               FontFamily="TablerIconsLine"
+                               TextColor="#33ffffff"
+                               FontSize="20"
+                               HorizontalOptions="Center"
+                               VerticalOptions="Center" />
+                        <Border.GestureRecognizers>
+                            <PanGestureRecognizer PanUpdated="OnResizeCornerPanUpdated" />
+                        </Border.GestureRecognizers>
+                    </Border>
+                </Grid>
 
                 <CollectionView x:Name="MessagesList"
                         Grid.Row="1"
@@ -477,31 +506,6 @@
                 </Border>
 
             </Grid>
-
-            <!-- Corner resize grip: drag to change the chat panel width and height. The
-                 transparent square is the hit area; the quarter-arc "L" is the visible
-                 affordance, drawn for the top-right corner and mirrored (ScaleX = -1) when the
-                 panel sits left of the ring. HorizontalOptions/Margin are set at runtime so the
-                 grip hugs the panel's outer top corner (see ApplyPanelSide). -->
-            <Border x:Name="ResizeCornerGrip"
-                    WidthRequest="26"
-                    HeightRequest="26"
-                    HorizontalOptions="End"
-                    VerticalOptions="Start"
-                    Margin="0,-9,-9,0"
-                    BackgroundColor="Transparent"
-                    Stroke="Transparent"
-                    SemanticProperties.Description="Resize chat">
-                <Label x:Name="ResizeCornerGlyph"                  
-                       FontFamily="TablerIconsLine"
-                       TextColor="#33ffffff"
-                       FontSize="20"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center" />
-                <Border.GestureRecognizers>
-                    <PanGestureRecognizer PanUpdated="OnResizeCornerPanUpdated" />
-                </Border.GestureRecognizers>
-            </Border>
         </Grid>
     </Border>
 

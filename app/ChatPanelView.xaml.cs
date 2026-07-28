@@ -321,9 +321,8 @@ public partial class ChatPanelView : ContentView
 
     /// <summary>
     /// Places the panel on the given side of the ring: mirrors the collapse chevron and the corner resize
-    /// grip. The grip hugs the panel's outer top corner; its glyph is drawn for the top-right corner and
-    /// mirrored via ScaleX when the panel sits on the left. The negative margins reach into the panel's
-    /// padding (14 left / 8 right) so the grip sits visually on the corner.
+    /// grip. The resize handle shares the top row with the drag bar but stays in its own edge cell so the
+    /// gestures don't compete: column 0 when the panel sits left of the ring, column 2 otherwise.
     /// </summary>
     public void ApplyPanelSide(bool onLeft)
     {
@@ -333,8 +332,9 @@ public partial class ChatPanelView : ContentView
             CollapseButton.Text = IconFont.TablerLine.CaretRight;
 			CollapseButton.Margin = new Thickness(0, 0, 6, 0);
             Grid.SetColumn(CollapseButton, 2);
-            ResizeCornerGrip.HorizontalOptions = LayoutOptions.Start;
-            ResizeCornerGrip.Margin = new Thickness(-14, -8, 0, 0);
+			Grid.SetColumn(ResizeCornerGrip, 0);
+			ResizeCornerGrip.HorizontalOptions = LayoutOptions.Start;
+			ResizeCornerGrip.Margin = new Thickness(-5, -5, 0, 0);
 			ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopLeft;
 
 		}
@@ -343,8 +343,9 @@ public partial class ChatPanelView : ContentView
             CollapseButton.Text = IconFont.TablerLine.CaretLeft;
             CollapseButton.Margin = new Thickness(6, 0, 0, 0);
             Grid.SetColumn(CollapseButton, 0);
+            Grid.SetColumn(ResizeCornerGrip, 2);
             ResizeCornerGrip.HorizontalOptions = LayoutOptions.End;
-            ResizeCornerGrip.Margin = new Thickness(0, -8, -8, 0);
+            ResizeCornerGrip.Margin = new Thickness(0, -5, 2, 0);
             ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopRight;
 
 		}
