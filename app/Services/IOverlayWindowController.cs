@@ -73,6 +73,15 @@ public interface IFloatingWindowController
     /// </summary>
     void SetForceInteractive(bool force);
 
+    /// <summary>
+    /// Keeps the window input-opaque until <paramref name="duration"/> from now, refreshed by each
+    /// call. Used while a file drag hovers the window: an OLE drop target must not be click-through,
+    /// and the hit-test poll would otherwise drop the drag the moment the pointer strays a few pixels
+    /// off the ring. Unlike <see cref="SetForceInteractive"/> this expires on its own, so a drag that
+    /// ends outside the app — which delivers no leave event — can't strand the overlay opaque.
+    /// </summary>
+    void KeepInteractiveFor(TimeSpan duration);
+
     /// <summary>Sets whether the overlay window stays above other windows.</summary>
     void SetAlwaysOnTop(bool alwaysOnTop);
 }

@@ -17,6 +17,12 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/captures</c> — screenshot + accessibility-content pairs from the 📷 button.</summary>
     public static string Captures => EnsureDir(Path.Combine(Home, "captures"));
 
+    /// <summary>
+    /// <c>~/.floaty/drops</c> — copies of files the user dropped on Floaty and chose to keep in memory.
+    /// One-shot drops are never written here; only the persisted ones (see <c>RememberDroppedFiles</c>).
+    /// </summary>
+    public static string Drops => EnsureDir(Path.Combine(Home, "drops"));
+
     /// <summary><c>~/.floaty/ring</c> — user-provided ring images available in Appearance settings.</summary>
     public static string RingImages => EnsureDir(Path.Combine(Home, "ring"));
 

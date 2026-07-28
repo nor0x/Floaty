@@ -26,6 +26,10 @@ public static class MauiProgram
 		// Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/floaty.db).
 		builder.Services.AddSingleton<IMemoryService, MemoryService>();
 
+		// Dropped files: the size caps, classification and fallbacks are cross-platform; the document
+		// text extractor behind it is platform-conditional (registered in the #if blocks below).
+		builder.Services.AddSingleton<IFileIngestService, FileIngestService>();
+
 		// MCP servers: connected on demand, tools exposed to chat via /server slash commands.
 		builder.Services.AddSingleton<IMcpService, McpService>();
 
@@ -60,6 +64,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IVoiceInputService, Floaty.Platforms.Windows.WindowsVoiceInputService>();
 		// Autostart on sign-in: mirrors config.AutostartMode into the HKCU Run registry key.
 		builder.Services.AddSingleton<IAutostartService, Floaty.Platforms.Windows.WindowsAutostartService>();
+		// Text out of dropped documents (PDF/Office/…) via the Xberg native runtime.
+		builder.Services.AddSingleton<ITextExtractionService, Floaty.Platforms.Windows.WindowsTextExtractionService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -68,6 +74,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
 		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
+		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -76,6 +83,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAudioCaptureService, NullAudioCaptureService>();
 		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
+		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
 #endif
 
 		ConfigureOverlayWindow(builder);

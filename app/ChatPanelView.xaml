@@ -361,7 +361,9 @@
                         </CollectionView.ItemTemplate>
                     </CollectionView>
                 </Border>
-                <!-- Windows attached to the pending prompt via @, shown as removable chips. -->
+                <!-- Attached to the pending prompt — windows tagged with @ and dropped files — shown
+                     as removable chips. Dropped files also carry a toggle deciding whether they are
+                     written to memory on send (see PromptAttachmentVm.Persist). -->
                 <HorizontalStackLayout x:Name="AttachmentChipsPanel"
                     Grid.Row="3"
                     IsVisible="False"
@@ -372,9 +374,10 @@
                             <Border BackgroundColor="#33FFFFFF"
                                 Stroke="Transparent"
                                 Padding="8,3"
-                                StrokeShape="RoundRectangle 9">
+                                StrokeShape="RoundRectangle 9"
+                                Opacity="{Binding ChipOpacity}">
                                 <HorizontalStackLayout Spacing="6">
-                                    <Label Text="{x:Static icons:TablerLine.AppWindow}"
+                                    <Label Text="{Binding Glyph}"
                                         FontFamily="TablerIconsLine"
                                         TextColor="{DynamicResource AccentIconOnDarkColor}"
                                         FontSize="12"
@@ -385,6 +388,20 @@
                                         VerticalOptions="Center"
                                         LineBreakMode="TailTruncation"
                                         MaximumWidthRequest="140" />
+                                    <!-- Per-file override of the "remember dropped files" setting. -->
+                                    <Label IsVisible="{Binding ShowPersistToggle}"
+                                        Text="{Binding PersistGlyph}"
+                                        FontFamily="TablerIconsLine"
+                                        TextColor="{DynamicResource AccentIconOnDarkColor}"
+                                        Opacity="{Binding PersistOpacity}"
+                                        FontSize="12"
+                                        Padding="2,0"
+                                        VerticalOptions="Center"
+                                        SemanticProperties.Description="{Binding PersistDescription}">
+                                        <Label.GestureRecognizers>
+                                            <TapGestureRecognizer Command="{Binding TogglePersistCommand}" />
+                                        </Label.GestureRecognizers>
+                                    </Label>
                                     <Label Text="✕"
                                         TextColor="#CCFFFFFF"
                                         FontSize="11"

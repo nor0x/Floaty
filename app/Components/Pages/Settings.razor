@@ -203,6 +203,19 @@
                 </div>
 
                 <div class="field">
+                    <label>Dropped files</label>
+                    <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                        <input type="checkbox" @bind="_config.RememberDroppedFiles" />
+                        Remember files dropped on Floaty
+                    </label>
+                    <span class="hint">Off by default: a file you drop on the ring or the chat panel is used
+                        once as context for that message and then forgotten. Turn this on to also copy it into
+                        <code>~/.floaty/drops</code> and embed its text so you can recall it later. Every
+                        attachment chip has its own toggle that overrides this for a single file — the choice
+                        takes effect when you send the message.</span>
+                </div>
+
+                <div class="field">
                     <label>Privacy</label>
                     <span class="hint">Everything stays on this machine: capture files in
                         <code>~/.floaty/captures</code>, the searchable index in <code>~/.floaty/floaty.db</code>.
@@ -768,6 +781,7 @@
             ChatWindowWidth = current.ChatWindowWidth,
             ChatWindowHeight = current.ChatWindowHeight,
             RememberTaggedCaptures = current.RememberTaggedCaptures,
+            RememberDroppedFiles = current.RememberDroppedFiles,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
             SttSelectedModelId = current.SttSelectedModelId,

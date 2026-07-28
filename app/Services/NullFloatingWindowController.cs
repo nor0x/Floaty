@@ -41,6 +41,10 @@ public sealed class NullFloatingWindowController : IChatWindowController
 	{
 	}
 
+	public void KeepInteractiveFor(TimeSpan duration)
+	{
+	}
+
 	public void SetAlwaysOnTop(bool alwaysOnTop)
 	{
 	}

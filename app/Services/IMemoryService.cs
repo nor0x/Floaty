@@ -30,6 +30,9 @@ public interface IMemoryService
     /// <summary>Source tag for captures of windows the user attached to a prompt via @.</summary>
     const string TaggedCaptureSource = "tagged";
 
+    /// <summary>Source tag for files the user dropped on the ring or the chat panel.</summary>
+    const string DroppedFileSource = "dropped";
+
     /// <summary>
     /// Embeds the capture's content and stores it as a graph node. Returns <c>false</c> when there's
     /// nothing to do (no API key configured or empty content); throws on hard failures so the caller

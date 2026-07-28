@@ -82,6 +82,23 @@ public sealed class ChatWindowHost : IChatPanelHost
 		SchedulePersistWindowBounds();
 	}
 
+	/// <summary>
+	/// Opens the chat window (creating it if needed) and attaches files dropped on the ring to the
+	/// pending prompt. The panel only exists once the window has been built, hence the Show() first.
+	/// </summary>
+	public void DropFiles(IReadOnlyList<string> paths)
+	{
+		Show();
+		_panel?.AttachFiles(paths);
+	}
+
+	/// <summary>Surfaces the "folders aren't supported" hint in the panel's inline toast.</summary>
+	public void ShowFolderDropHint()
+	{
+		Show();
+		_panel?.ShowFolderDropHint();
+	}
+
 	public void Close()
 	{
 		_persistTimer?.Stop();
@@ -146,6 +163,8 @@ public sealed class ChatWindowHost : IChatPanelHost
 	}
 
 	public void SetForceInteractive(bool force) => _chatController.SetForceInteractive(force);
+
+	public void KeepInteractiveFor(TimeSpan duration) => _chatController.KeepInteractiveFor(duration);
 
 	public void MoveWindowBy(double dxDip, double dyDip)
 	{

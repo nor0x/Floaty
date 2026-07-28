@@ -153,6 +153,14 @@ public sealed class FloatyConfig
     /// </summary>
     public bool RememberTaggedCaptures { get; set; } = true;
 
+    /// <summary>
+    /// Default for files dropped on the ring or the chat panel: when true they are also copied into
+    /// <c>~/.floaty/drops</c> and embedded into memory, when false they are one-shot context for the
+    /// message they ride on. Off by default — a dropped file is usually a question, not an archive —
+    /// and every attachment chip carries its own toggle that overrides this for that one file.
+    /// </summary>
+    public bool RememberDroppedFiles { get; set; }
+
     /// <summary>Keeps the ring window above other windows. Enabled by default.</summary>
     public bool AlwaysOnTop { get; set; } = true;
 

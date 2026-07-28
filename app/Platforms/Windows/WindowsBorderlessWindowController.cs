@@ -20,6 +20,8 @@ public class WindowsBorderlessWindowController : IFloatingWindowController
 	// Click-through state shared by overlay and standalone chat windows.
 	private Func<double, double, bool>? _hitTest;
 	private bool _forceInteractive;
+	// Auto-expiring counterpart to _forceInteractive, refreshed while a file drag hovers the window.
+	private DateTime _interactiveUntilUtc = DateTime.MinValue;
 	private bool _clickThroughActive;
 	private bool _layeredApplied;
 	private DispatcherQueueTimer? _hitTestTimer;
@@ -84,6 +86,18 @@ public class WindowsBorderlessWindowController : IFloatingWindowController
 		_forceInteractive = force;
 		if (force)
 			ApplyClickThrough(false);
+	}
+
+	public void KeepInteractiveFor(TimeSpan duration)
+	{
+		var until = DateTime.UtcNow + duration;
+		if (until <= _interactiveUntilUtc)
+			return;
+
+		_interactiveUntilUtc = until;
+		// Clear WS_EX_TRANSPARENT immediately rather than waiting for the next poll tick: a drag that
+		// arrives between ticks would otherwise find a window that can't accept the drop.
+		ApplyClickThrough(false);
 	}
 
 	public void MoveBy(double dxDip, double dyDip)
@@ -170,6 +184,7 @@ public class WindowsBorderlessWindowController : IFloatingWindowController
 
 		_hitTest = null;
 		_forceInteractive = false;
+		_interactiveUntilUtc = DateTime.MinValue;
 		_clickThroughActive = false;
 		_layeredApplied = false;
 
@@ -183,7 +198,7 @@ public class WindowsBorderlessWindowController : IFloatingWindowController
 		if (_appWindow is null || _hitTest is null)
 			return;
 
-		if (_forceInteractive)
+		if (_forceInteractive || DateTime.UtcNow < _interactiveUntilUtc)
 		{
 			ApplyClickThrough(false);
 			return;

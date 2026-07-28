@@ -179,4 +179,9 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
     {
         // Not implemented on macOS yet.
     }
+
+    public void KeepInteractiveFor(TimeSpan duration)
+    {
+        // Not implemented on macOS yet (no click-through, and no drop targets to protect).
+    }
 }

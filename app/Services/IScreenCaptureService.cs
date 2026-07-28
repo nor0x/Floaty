@@ -4,6 +4,11 @@ namespace Floaty.Services;
 /// Paths to a saved screenshot + accessibility-content pair, the captured window's title, and the
 /// flattened accessibility text (<see cref="Content"/>) so callers can embed it without re-reading disk.
 /// </summary>
+/// <remarks>
+/// Also used for dropped files that the user chose to persist (see <c>IMemoryService.DroppedFileSource</c>),
+/// where <see cref="WindowTitle"/> carries the file name and <see cref="ImagePath"/> the persisted copy —
+/// so drops inherit the vision description, the text-file annotation, vector search and citations.
+/// </remarks>
 public sealed record CaptureResult(string ImagePath, string TextPath, string WindowTitle, string Content);
 
 /// <summary>A top-level application window that can be captured as prompt context.</summary>

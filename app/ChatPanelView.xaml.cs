@@ -40,14 +40,91 @@ public partial class ChatPanelView : ContentView
         public string Token => $"/{Name}";
     }
 
-    // A window the user attached to the pending prompt via @. The capture starts the moment the
-    // window is picked; the send path awaits it so what you saw when tagging is what gets sent.
-    private sealed class PromptAttachmentVm
+    private enum AttachmentKind
     {
-        public nint Hwnd { get; init; }
+        Window, // a window tagged with @; captured on the spot
+        File,   // a file dropped on the ring or the panel; read and text-extracted on the spot
+    }
+
+    /// <summary>
+    /// Something riding along on the pending prompt: a window the user tagged with @, or a file they
+    /// dropped. Both start their work (capture / ingest) the moment the chip appears, and the send
+    /// path awaits it — so what you saw when you attached it is what gets sent, even if the window
+    /// closes or the file moves in between.
+    /// </summary>
+    /// <remarks>
+    /// Implements INPC because the per-file persist toggle mutates the chip after it is realized. The
+    /// window-only predecessor never changed once created and didn't need change notification.
+    /// </remarks>
+    private sealed class PromptAttachmentVm : System.ComponentModel.INotifyPropertyChanged
+    {
+        public AttachmentKind Kind { get; init; }
         public string Title { get; init; } = string.Empty;
-        public Task<CaptureResult?>? CaptureTask { get; set; }
+        public string Glyph { get; init; } = IconFont.TablerLine.AppWindow;
         public Command? RemoveCommand { get; set; }
+
+        // Window attachments.
+        public nint Hwnd { get; init; }
+        public Task<CaptureResult?>? CaptureTask { get; set; }
+
+        // File attachments. SourcePath doubles as the de-duplication key.
+        public string? SourcePath { get; init; }
+        public Task<DroppedFile?>? IngestTask { get; set; }
+        public Command? TogglePersistCommand { get; set; }
+
+        /// <summary>
+        /// Only dropped files show the toggle: @-tagged windows follow <c>RememberTaggedCaptures</c>
+        /// and are already written to memory by the time their chip settles.
+        /// </summary>
+        public bool ShowPersistToggle => Kind == AttachmentKind.File;
+
+        private bool _persist;
+
+        /// <summary>
+        /// Whether this file is also written to memory on send. Seeded from
+        /// <c>FloatyConfig.RememberDroppedFiles</c> and overridable per chip.
+        /// </summary>
+        public bool Persist
+        {
+            get => _persist;
+            set
+            {
+                if (_persist == value)
+                    return;
+                _persist = value;
+                Raise(nameof(Persist), nameof(PersistGlyph), nameof(PersistOpacity), nameof(PersistDescription));
+            }
+        }
+
+        private bool _isReady;
+
+        /// <summary>False until the capture/ingest finishes, which dims the chip.</summary>
+        public bool IsReady
+        {
+            get => _isReady;
+            set
+            {
+                if (_isReady == value)
+                    return;
+                _isReady = value;
+                Raise(nameof(IsReady), nameof(ChipOpacity));
+            }
+        }
+
+        // The glyph swaps and opacity carries the on/off state; the colour stays a DynamicResource so
+        // an accent change still recolours already-rendered chips.
+        public string PersistGlyph => Persist ? IconFont.TablerLine.DatabasePlus : IconFont.TablerLine.Database;
+        public double PersistOpacity => Persist ? 1.0 : 0.4;
+        public double ChipOpacity => IsReady ? 1.0 : 0.55;
+        public string PersistDescription => Persist ? "Also save to memory" : "Use once, don't save";
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+        private void Raise(params string[] names)
+        {
+            foreach (var name in names)
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+        }
     }
 
     private readonly SettingsService _settings;
@@ -57,6 +134,7 @@ public partial class ChatPanelView : ContentView
     private readonly ConversationService _conversationStore;
     private readonly SkillService _skillService;
     private readonly IVoiceInputService _voiceInput;
+    private readonly IFileIngestService _fileIngest;
     private readonly IServiceProvider _services;
 
     // Set by Attach() before the panel is shown; every window operation goes through it.
@@ -137,7 +215,8 @@ public partial class ChatPanelView : ContentView
     // @-mention window picker. The open-window list is enumerated once per popup opening
     // (invalidated on hide) and filtered per keystroke.
     private const int MaxWindowQueryLength = 40; // longer text after @ is prose, not a filter
-    private const int MaxAttachmentChars = 12_000; // cap per-attachment text sent to the model
+    private const int MaxAttachmentChars = 12_000;      // cap per-attachment text sent to the model
+    private const int MaxTotalAttachmentChars = 40_000; // …and across every attachment on one turn
     private readonly ObservableCollection<PromptAttachmentVm> _attachments = new();
     private readonly ObservableCollection<WindowInfo> _filteredWindows = new();
     private IReadOnlyList<WindowInfo> _windowCache = Array.Empty<WindowInfo>();
@@ -149,8 +228,22 @@ public partial class ChatPanelView : ContentView
     private int _atTokenIndex = -1;          // index of the '@' driving the popup
     private int _dismissedAtTokenIndex = -1; // Escape'd '@': stay hidden until its position changes
 
+    // --- File drops ---
+
+    // How long each drag-over keeps the host window input-opaque; see IChatPanelHost.KeepInteractiveFor.
+    private static readonly TimeSpan DragInteractiveGrace = TimeSpan.FromMilliseconds(400);
+
+    // A drag that ends outside the app doesn't reliably report a leave, so a watchdog restarted on
+    // every drag-over restores the border rather than leaving it stuck highlighted.
+    private const int PanelDropFeedbackTimeoutMs = 600;
+    private static readonly Brush DefaultPanelStroke = new SolidColorBrush(Color.FromArgb("#22FFFFFF"));
+    private readonly SolidColorBrush _accentBrush = new(Colors.White);
+    private bool _panelDropActive;
+    private IDispatcherTimer? _panelDropWatchdog;
+
 #if WINDOWS
     private Microsoft.UI.Xaml.Controls.TextBox? _chatEntryTextBox;
+    private Microsoft.UI.Xaml.FrameworkElement? _panelPlatformView;
 
     // Shared brush behind the WinUI theme overrides (Entry focus underline, list selection
     // indicators); mutated in ApplyAccentColor so already-rendered controls recolor live.
@@ -176,6 +269,7 @@ public partial class ChatPanelView : ContentView
         ConversationService conversationStore,
         SkillService skillService,
         IVoiceInputService voiceInput,
+        IFileIngestService fileIngest,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -183,6 +277,7 @@ public partial class ChatPanelView : ContentView
         _chatService = chatService;
         _captureService = captureService;
         _memoryService = memoryService;
+        _fileIngest = fileIngest;
         _conversationStore = conversationStore;
         _skillService = skillService;
         _voiceInput = voiceInput;
@@ -199,6 +294,7 @@ public partial class ChatPanelView : ContentView
         SlashSuggestionsList.HandlerChanged += OnListHandlerChanged;
         WindowSuggestionsList.HandlerChanged += OnListHandlerChanged;
         ResizeCornerGrip.HandlerChanged += OnResizeGripHandlerChanged;
+        PanelBorder.HandlerChanged += OnPanelBorderHandlerChanged;
         SizeChanged += OnPanelSizeChanged;
 
         _settings.Changed += OnSettingsChanged;
@@ -465,6 +561,9 @@ public partial class ChatPanelView : ContentView
         ChatMessageVm.UserBubbleColor = Color.FromArgb(palette.Base);
         foreach (var message in Messages)
             message.RefreshBubbleColor();
+
+        // Shared with the drag-over border highlight, so it follows an accent change immediately.
+        _accentBrush.Color = Color.FromArgb(palette.Base);
 
 #if WINDOWS
         _winAccentBrush.Color = Microsoft.Maui.Platform.ColorExtensions.ToWindowsColor(Color.FromArgb(palette.Base));
@@ -936,7 +1035,7 @@ public partial class ChatPanelView : ContentView
             ChatEntry.CursorPosition = Math.Min(atIndex, newText.Length);
         }
 
-        if (_attachments.Any(a => a.Hwnd == window.Hwnd))
+        if (_attachments.Any(a => a.Kind == AttachmentKind.Window && a.Hwnd == window.Hwnd))
         {
             _ = ShowInlineToastAsync("Window already attached");
             return;
@@ -944,20 +1043,102 @@ public partial class ChatPanelView : ContentView
 
         // Capture right away (downscaled like auto-history captures) so what the user saw when
         // tagging is what gets sent, even if the window closes before send.
-        var vm = new PromptAttachmentVm { Hwnd = window.Hwnd, Title = window.Title };
+        var vm = new PromptAttachmentVm
+        {
+            Kind = AttachmentKind.Window,
+            Hwnd = window.Hwnd,
+            Title = window.Title,
+        };
         vm.RemoveCommand = new Command(() => RemoveAttachment(vm));
         vm.CaptureTask = _captureService.CaptureWindowAsync(window.Hwnd, includeScreenshot: true);
         _attachments.Add(vm);
-        AttachmentChipsPanel.IsVisible = true;
+        RefreshAttachmentChips();
 
         _ = FinishAttachmentAsync(vm);
+    }
+
+    /// <summary>
+    /// Attaches dropped files to the pending prompt. Called by whichever surface caught the drop —
+    /// the ring (routed through the host) or the panel itself. Safe to call with the panel closed;
+    /// the callers open it first.
+    /// </summary>
+    public void AttachFiles(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0)
+            return;
+
+        var accepted = 0;
+        var duplicates = 0;
+
+        foreach (var path in paths)
+        {
+            if (accepted >= IFileIngestService.MaxFilesPerDrop)
+                break;
+
+            if (_attachments.Any(a => string.Equals(a.SourcePath, path, StringComparison.OrdinalIgnoreCase)))
+            {
+                duplicates++;
+                continue;
+            }
+
+            var vm = new PromptAttachmentVm
+            {
+                Kind = AttachmentKind.File,
+                SourcePath = path,
+                Title = Path.GetFileName(path),
+                Glyph = GlyphForFile(path),
+                // The global setting is only the starting position; the chip's toggle is the truth.
+                Persist = _settings.Current.RememberDroppedFiles,
+            };
+            vm.RemoveCommand = new Command(() => RemoveAttachment(vm));
+            vm.TogglePersistCommand = new Command(() => vm.Persist = !vm.Persist);
+            vm.IngestTask = _fileIngest.IngestAsync(path);
+            _attachments.Add(vm);
+            accepted++;
+
+            _ = FinishFileAttachmentAsync(vm);
+        }
+
+        RefreshAttachmentChips();
+
+        if (accepted == 0 && duplicates > 0)
+            _ = ShowInlineToastAsync(duplicates == 1 ? "File already attached" : "Files already attached");
+        else if (accepted < paths.Count - duplicates)
+            _ = ShowInlineToastAsync($"Attached {accepted} of {paths.Count} files");
+    }
+
+    /// <summary>
+    /// Tells the user a dropped folder was ignored. Folders are deliberately not expanded: one
+    /// careless drag of a source tree would attach thousands of files.
+    /// </summary>
+    public void ShowFolderDropHint() => _ = ShowInlineToastAsync("Folders aren't supported — drop files");
+
+    // Chip glyph by file type, so a mixed drop is readable at a glance.
+    private static string GlyphForFile(string path)
+    {
+        if (MimeTypes.IsImage(path))
+            return IconFont.TablerLine.Photo;
+
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".pdf" => IconFont.TablerLine.FileTypePdf,
+            ".doc" or ".docx" or ".odt" or ".rtf" => IconFont.TablerLine.FileTypeDocx,
+            ".xls" or ".xlsx" or ".ods" or ".csv" or ".tsv" => IconFont.TablerLine.FileTypeXls,
+            ".ppt" or ".pptx" => IconFont.TablerLine.FileTypePpt,
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => IconFont.TablerLine.FileTypeZip,
+            ".txt" or ".log" or ".md" or ".markdown" => IconFont.TablerLine.FileTypeTxt,
+            _ => IconFont.TablerLine.File,
+        };
     }
 
     private void RemoveAttachment(PromptAttachmentVm vm)
     {
         _attachments.Remove(vm);
-        AttachmentChipsPanel.IsVisible = _attachments.Count > 0;
+        RefreshAttachmentChips();
     }
+
+    // The chips row only exists when something is attached.
+    private void RefreshAttachmentChips() => AttachmentChipsPanel.IsVisible = _attachments.Count > 0;
 
     private async Task FinishAttachmentAsync(PromptAttachmentVm vm)
     {
@@ -976,11 +1157,13 @@ public partial class ChatPanelView : ContentView
             // Only toast if the chip is still pending (the user may have removed it already).
             if (_attachments.Remove(vm))
             {
-                AttachmentChipsPanel.IsVisible = _attachments.Count > 0;
+                RefreshAttachmentChips();
                 await ShowInlineToastAsync($"Couldn't capture {vm.Title}");
             }
             return;
         }
+
+        vm.IsReady = true;
 
         if (_settings.Current.RememberTaggedCaptures)
         {
@@ -993,6 +1176,33 @@ public partial class ChatPanelView : ContentView
                 // Memory persistence is best-effort; the attachment still rides on the prompt.
             }
         }
+    }
+
+    // Settles a dropped-file chip once ingest completes. Unlike the window path this never persists:
+    // whether a drop is remembered is decided by its toggle at send time (see PersistDropsAsync).
+    private async Task FinishFileAttachmentAsync(PromptAttachmentVm vm)
+    {
+        DroppedFile? file = null;
+        try
+        {
+            file = vm.IngestTask is null ? null : await vm.IngestTask;
+        }
+        catch
+        {
+            // fall through: treated as an unreadable file below
+        }
+
+        if (file is null)
+        {
+            if (_attachments.Remove(vm))
+            {
+                RefreshAttachmentChips();
+                await ShowInlineToastAsync($"Couldn't read {vm.Title}");
+            }
+            return;
+        }
+
+        vm.IsReady = true;
     }
 
     private void OnWindowSuggestionsSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -1689,6 +1899,146 @@ public partial class ChatPanelView : ContentView
         }
     }
 
+    // --- File drops on the panel ---
+
+    // Dropping onto the panel itself is the other half of the ring drop target: same payload, same
+    // AttachFiles, and it works in both placements because the panel's own platform view is hooked
+    // (the host only differs in which window owns it).
+    private void OnPanelBorderHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        if (_panelPlatformView is not null)
+        {
+            _panelPlatformView.DragEnter -= OnPanelDragEnter;
+            _panelPlatformView.DragOver -= OnPanelDragOver;
+            _panelPlatformView.DragLeave -= OnPanelDragLeave;
+            _panelPlatformView.Drop -= OnPanelDrop;
+        }
+
+        _panelPlatformView = PanelBorder.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement;
+        if (_panelPlatformView is null)
+            return;
+
+        // WinUI skips hit-testing on a Panel with no Background, which would leave the panel's
+        // "empty" regions blind to drag events. A transparent brush renders nothing but is hit-testable.
+        if (_panelPlatformView is Microsoft.UI.Xaml.Controls.Panel { Background: null } panel)
+            panel.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
+        _panelPlatformView.AllowDrop = true;
+        _panelPlatformView.DragEnter += OnPanelDragEnter;
+        _panelPlatformView.DragOver += OnPanelDragOver;
+        _panelPlatformView.DragLeave += OnPanelDragLeave;
+        _panelPlatformView.Drop += OnPanelDrop;
+#endif
+    }
+
+#if WINDOWS
+    private void OnPanelDragEnter(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+    {
+        if (!PanelDragHasFiles(e))
+            return;
+
+        BeginPanelDropFeedback();
+        e.Handled = true;
+    }
+
+    private void OnPanelDragOver(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+    {
+        if (!PanelDragHasFiles(e))
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            return;
+        }
+
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        if (e.DragUIOverride is { } overlay)
+        {
+            overlay.Caption = "Add to this chat";
+            overlay.IsCaptionVisible = true;
+            overlay.IsGlyphVisible = false;
+        }
+
+        // Same reason as the ring: an OLE drop target can't be click-through.
+        _host.KeepInteractiveFor(DragInteractiveGrace);
+        BeginPanelDropFeedback();
+        e.Handled = true;
+    }
+
+    private void OnPanelDragLeave(object sender, Microsoft.UI.Xaml.DragEventArgs e) => EndPanelDropFeedback();
+
+    private async void OnPanelDrop(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+    {
+        // The DataView dies with the synchronous part of this handler; the deferral keeps it alive.
+        var deferral = e.GetDeferral();
+        try
+        {
+            if (!PanelDragHasFiles(e))
+                return;
+
+            var items = await e.DataView.GetStorageItemsAsync();
+            var paths = items
+                .OfType<Windows.Storage.StorageFile>()
+                .Select(f => f.Path)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToList();
+
+            if (paths.Count > 0)
+                AttachFiles(paths);
+            else if (items.Any(i => i is Windows.Storage.StorageFolder))
+                ShowFolderDropHint();
+        }
+        catch
+        {
+            // A malformed clipboard payload must not take down the panel.
+        }
+        finally
+        {
+            deferral.Complete();
+            EndPanelDropFeedback();
+        }
+    }
+
+    private static bool PanelDragHasFiles(Microsoft.UI.Xaml.DragEventArgs e) =>
+        e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems);
+#endif
+
+    // Highlights the panel's border while a file hovers it. Border-only on purpose: anything that
+    // changes the panel's size would trigger a window resize mid-drag.
+    private void BeginPanelDropFeedback()
+    {
+        _panelDropWatchdog ??= CreatePanelDropWatchdog();
+        _panelDropWatchdog.Stop();
+        _panelDropWatchdog.Start();
+
+        if (_panelDropActive)
+            return;
+
+        _panelDropActive = true;
+        PanelBorder.Stroke = _accentBrush;
+        PanelBorder.StrokeThickness = 2;
+    }
+
+    private void EndPanelDropFeedback()
+    {
+        _panelDropWatchdog?.Stop();
+
+        if (!_panelDropActive)
+            return;
+
+        _panelDropActive = false;
+        PanelBorder.Stroke = DefaultPanelStroke;
+        PanelBorder.StrokeThickness = 1;
+    }
+
+    private IDispatcherTimer CreatePanelDropWatchdog()
+    {
+        var timer = Dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(PanelDropFeedbackTimeoutMs);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) => EndPanelDropFeedback();
+        return timer;
+    }
+
     // Inline status toast under the input row. Height + opacity are animated together so the panel
     // grows/shrinks smoothly instead of snapping when short status messages appear.
     private async Task ShowInlineToastAsync(string message)
@@ -1801,6 +2151,10 @@ public partial class ChatPanelView : ContentView
         if (_chatEntryTextBox is not null)
         {
             _chatEntryTextBox.KeyDown += OnChatEntryTextBoxKeyDown;
+
+            // A WinUI TextBox is its own drop target and would swallow a file dropped on the input
+            // row, inserting the path as text. Let those drops bubble to the panel's handler instead.
+            _chatEntryTextBox.AllowDrop = false;
 
             // WinUI's focused underline and text-selection highlight come from theme resources
             // (system accent); repoint them at the configured accent (lightweight styling).
@@ -1958,10 +2312,15 @@ public partial class ChatPanelView : ContentView
             }
         }
 
-        // Windows attached via @ ride along on this message only; the chips clear on send.
+        // Attachments ride along on this message only; the chips clear on send.
         var attachments = _attachments.ToList();
         _attachments.Clear();
-        AttachmentChipsPanel.IsVisible = false;
+        RefreshAttachmentChips();
+
+        // Send is the commit point for the per-chip persist toggles: up to here nothing was written,
+        // so toggling off is free and there's never anything to un-remember. Fire-and-forget so the
+        // embedding round-trip doesn't sit between the user pressing Enter and the model replying.
+        _ = PersistDropsAsync(attachments);
 
         // Build the conversation to send before adding the pending placeholder.
         var history = Messages
@@ -2099,8 +2458,8 @@ public partial class ChatPanelView : ContentView
         pending?.TrySetResult(approved);
     }
 
-    // The outgoing user message: plain text, or multimodal when windows were attached via @ —
-    // each attachment contributes its accessibility text and (when captured) the screenshot bytes.
+    // The outgoing user message: plain text, or multimodal when windows were tagged with @ or files
+    // were dropped — each attachment contributes its text and, for images, the raw bytes.
     private static async Task<ChatMessage> BuildUserMessageAsync(
         string prompt,
         List<PromptAttachmentVm> attachments)
@@ -2109,8 +2468,42 @@ public partial class ChatPanelView : ContentView
             return new ChatMessage(ChatRole.User, prompt);
 
         var contents = new List<AIContent> { new TextContent(prompt) };
+
+        // Per-attachment caps aren't enough on their own: ten chips at MaxAttachmentChars each would
+        // swamp the context window, so the turn gets a shared budget too.
+        var remaining = MaxTotalAttachmentChars;
+
         foreach (var attachment in attachments)
         {
+            if (attachment.Kind == AttachmentKind.File)
+            {
+                DroppedFile? file = null;
+                try
+                {
+                    file = attachment.IngestTask is null ? null : await attachment.IngestTask;
+                }
+                catch
+                {
+                    // Unreadable files were already removed + toasted by FinishFileAttachmentAsync.
+                }
+
+                if (file is null)
+                    continue;
+
+                var header = $"[Attached file: {file.FileName} ({file.MimeType}, {FormatSize(file.SizeBytes)})]";
+                contents.Add(new TextContent(file.TextExtracted
+                    ? $"{header}\n{TakeBudget(file.Text, ref remaining)}"
+                    // Say so explicitly rather than attaching an empty body: the model can still ask
+                    // about the file, and "no text" is information.
+                    : $"{header} — text could not be extracted from this file."));
+
+                // Dropped images can be JPEG/WebP/GIF/…, so the mime has to come from the file.
+                if (file.ImageBytes is { Length: > 0 })
+                    contents.Add(new DataContent(file.ImageBytes, file.MimeType));
+
+                continue;
+            }
+
             CaptureResult? capture = null;
             try
             {
@@ -2124,16 +2517,114 @@ public partial class ChatPanelView : ContentView
             if (capture is null)
                 continue;
 
-            var body = capture.Content.Length > MaxAttachmentChars
-                ? capture.Content[..MaxAttachmentChars] + "…"
-                : capture.Content;
-            contents.Add(new TextContent($"[Attached window: {capture.WindowTitle}]\n{body}"));
+            contents.Add(new TextContent(
+                $"[Attached window: {capture.WindowTitle}]\n{TakeBudget(capture.Content, ref remaining)}"));
 
             if (!string.IsNullOrEmpty(capture.ImagePath) && File.Exists(capture.ImagePath))
-                contents.Add(new DataContent(await File.ReadAllBytesAsync(capture.ImagePath), "image/png"));
+            {
+                contents.Add(new DataContent(
+                    await File.ReadAllBytesAsync(capture.ImagePath),
+                    MimeTypes.FromPath(capture.ImagePath)));
+            }
         }
 
         return new ChatMessage(ChatRole.User, contents);
+    }
+
+    // Trims one attachment's body to its own cap and to whatever is left of the turn's shared budget.
+    private static string TakeBudget(string text, ref int remaining)
+    {
+        var limit = Math.Min(MaxAttachmentChars, Math.Max(0, remaining));
+        if (text.Length <= limit)
+        {
+            remaining -= text.Length;
+            return text;
+        }
+
+        remaining -= limit;
+        return text[..limit] + "…";
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 => $"{bytes / (1024.0 * 1024.0):0.#} MB",
+        >= 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes} B",
+    };
+
+    /// <summary>
+    /// Writes the dropped files whose chip toggle was on into <c>~/.floaty/drops</c> and embeds them
+    /// into memory. Best-effort throughout: this runs after the message has already been sent, so a
+    /// failure here must never surface as a chat error.
+    /// </summary>
+    private async Task PersistDropsAsync(List<PromptAttachmentVm> attachments)
+    {
+        foreach (var attachment in attachments)
+        {
+            if (attachment.Kind != AttachmentKind.File || !attachment.Persist)
+                continue;
+
+            try
+            {
+                var file = attachment.IngestTask is null ? null : await attachment.IngestTask;
+                if (file is null)
+                    continue;
+
+                var capture = WriteDropToDisk(file);
+                if (capture is not null)
+                    await _memoryService.RememberCaptureAsync(capture, IMemoryService.DroppedFileSource);
+            }
+            catch
+            {
+                // Memory persistence is best-effort; the file already rode along on the prompt.
+            }
+        }
+    }
+
+    // Copies a dropped file into ~/.floaty/drops alongside a .txt holding its extracted text, shaped
+    // as a CaptureResult so it flows through the same memory pipeline as screen captures. Returns
+    // null when there is nothing worth keeping.
+    private static CaptureResult? WriteDropToDisk(DroppedFile file)
+    {
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var baseName = $"drop-{stamp}-{SanitizeFileName(Path.GetFileNameWithoutExtension(file.FileName))}";
+
+        // Only images need their bytes kept — they're what the vision model describes. For everything
+        // else the extracted text is the memory, and copying a 30 MB original buys nothing.
+        var imagePath = string.Empty;
+        if (file.ImageBytes is { Length: > 0 })
+        {
+            imagePath = Path.Combine(FloatyPaths.Drops, baseName + Path.GetExtension(file.FileName));
+            File.WriteAllBytes(imagePath, file.ImageBytes);
+        }
+
+        if (string.IsNullOrWhiteSpace(file.Text) && imagePath.Length == 0)
+            return null;
+
+        // The header mirrors the capture .txt format, and carries the original path — "that PDF from
+        // my desktop" is exactly how people search for these later.
+        var textPath = Path.Combine(FloatyPaths.Drops, baseName + ".txt");
+        var body = new StringBuilder()
+            .Append("File: ").AppendLine(file.FileName)
+            .Append("Source: ").AppendLine(file.SourcePath)
+            .Append("Type: ").AppendLine(file.MimeType)
+            .Append("Dropped: ").AppendLine(DateTime.Now.ToString("u"))
+            .AppendLine("----")
+            .AppendLine(file.Text)
+            .ToString();
+        File.WriteAllText(textPath, body);
+
+        return new CaptureResult(imagePath, textPath, file.FileName, body);
+    }
+
+    // Keeps persisted names filesystem-safe and short enough that the ~/.floaty/drops path stays sane.
+    private static string SanitizeFileName(string name)
+    {
+        var cleaned = new string(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+        cleaned = cleaned.Trim();
+        if (cleaned.Length == 0)
+            return "file";
+        return cleaned.Length <= 60 ? cleaned : cleaned[..60];
     }
 
     private void ScrollToLatest()
@@ -2155,6 +2646,7 @@ internal sealed class NullChatPanelHost : IChatPanelHost
     public double AvailableWidthDip() => ChatPanelView.MaxChatWidth;
     public double AvailableListHeightDip(double chromeDip) => ChatPanelView.MaxChatListHeight;
     public void SetForceInteractive(bool force) { }
+    public void KeepInteractiveFor(TimeSpan duration) { }
     public void MoveWindowBy(double dxDip, double dyDip) { }
     public void CollapseRequested() { }
     public void SetBusy(bool busy) { }

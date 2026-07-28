@@ -92,6 +92,21 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     // True while a drag or summon spin is driving the ring, so the idle spin yields to it.
     private bool _ringBusy;
 
+    // --- File drops ---
+
+    // How long each drag-over event keeps the window input-opaque. Comfortably longer than the 50 ms
+    // click-through poll, short enough that an abandoned drag frees the window almost immediately.
+    private static readonly TimeSpan DragInteractiveGrace = TimeSpan.FromMilliseconds(400);
+
+    // How much the ring swells while a file hovers it.
+    private const double RingDropScale = 1.14;
+
+    // A drag that leaves the window (or ends in another app) doesn't reliably deliver DragLeave, so a
+    // watchdog restarted on every drag-over resets the ring rather than leaving it stuck enlarged.
+    private const int RingDropFeedbackTimeoutMs = 600;
+    private bool _ringDropActive;
+    private IDispatcherTimer? _ringDropWatchdog;
+
     // Subtle pause after the summon glide finishes before the chat input auto-appears.
     private const int SummonRevealDelayMs = 180;
 
@@ -605,6 +620,8 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
 
     void IChatPanelHost.SetForceInteractive(bool force) => _windowController.SetForceInteractive(force);
 
+    void IChatPanelHost.KeepInteractiveFor(TimeSpan duration) => _windowController.KeepInteractiveFor(duration);
+
     // The floating panel is positioned by the ring, so its drag bar is hidden and this never fires.
     void IChatPanelHost.MoveWindowBy(double dxDip, double dyDip) => _windowController.MoveBy(dxDip, dyDip);
 
@@ -766,6 +783,10 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
             _ringPlatformView.PointerEntered -= OnRingPointerEntered;
             _ringPlatformView.PointerExited -= OnRingPointerExited;
             _ringPlatformView.PointerWheelChanged -= OnRingPointerWheelChanged;
+            _ringPlatformView.DragEnter -= OnRingDragEnter;
+            _ringPlatformView.DragOver -= OnRingDragOver;
+            _ringPlatformView.DragLeave -= OnRingDragLeave;
+            _ringPlatformView.Drop -= OnRingDrop;
         }
 
         _ringPlatformView = Ring.Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement;
@@ -774,6 +795,15 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
             _ringPlatformView.PointerEntered += OnRingPointerEntered;
             _ringPlatformView.PointerExited += OnRingPointerExited;
             _ringPlatformView.PointerWheelChanged += OnRingPointerWheelChanged;
+
+            // Drop files on the ring to attach them to the next prompt. This has to be a native
+            // hookup rather than a DropGestureRecognizer: MAUI doesn't surface the payload of drags
+            // that started outside the app, and the deferral below is only reachable from here.
+            _ringPlatformView.AllowDrop = true;
+            _ringPlatformView.DragEnter += OnRingDragEnter;
+            _ringPlatformView.DragOver += OnRingDragOver;
+            _ringPlatformView.DragLeave += OnRingDragLeave;
+            _ringPlatformView.Drop += OnRingDrop;
         }
 #endif
     }
@@ -816,7 +846,159 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
 
         e.Handled = true;
     }
+
+    // --- File drops on the ring ---
+
+    private void OnRingDragEnter(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+    {
+        if (!HasFiles(e))
+            return;
+
+        BeginRingDropFeedback();
+        e.Handled = true;
+    }
+
+    private void OnRingDragOver(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+    {
+        if (!HasFiles(e))
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            return;
+        }
+
+        // Copy, never Move — Move would have the source app delete the file after the drop.
+        e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        if (e.DragUIOverride is { } overlay)
+        {
+            overlay.Caption = "Add to Floaty";
+            overlay.IsCaptionVisible = true;
+            overlay.IsGlyphVisible = false;
+        }
+
+        // An OLE drop target must not be click-through, and the hit-test poll would otherwise take
+        // the window transparent again the moment the cursor strays off the ring's rect mid-drag.
+        _windowController.KeepInteractiveFor(DragInteractiveGrace);
+        BeginRingDropFeedback();
+        e.Handled = true;
+    }
+
+    private void OnRingDragLeave(object sender, Microsoft.UI.Xaml.DragEventArgs e) => EndRingDropFeedback();
+
+    private async void OnRingDrop(object sender, Microsoft.UI.Xaml.DragEventArgs e)
+    {
+        // The DataView is torn down as soon as this handler returns synchronously, so anything
+        // awaited below has to happen inside a deferral.
+        var deferral = e.GetDeferral();
+        try
+        {
+            if (!HasFiles(e))
+                return;
+
+            var items = await e.DataView.GetStorageItemsAsync();
+            var paths = items
+                .OfType<Windows.Storage.StorageFile>()
+                .Select(f => f.Path)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToList();
+
+            var hadFolders = items.Any(i => i is Windows.Storage.StorageFolder);
+            await AttachDroppedFilesAsync(paths, hadFolders);
+        }
+        catch
+        {
+            // A malformed clipboard payload must not take down the overlay.
+        }
+        finally
+        {
+            deferral.Complete();
+            EndRingDropFeedback();
+        }
+    }
+
+    private static bool HasFiles(Microsoft.UI.Xaml.DragEventArgs e) =>
+        e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems);
 #endif
+
+    // The ring "notices" a file hovering it: it swells and stops idling. Idempotent — drag-over fires
+    // continuously, and the watchdog is refreshed on each call.
+    private void BeginRingDropFeedback()
+    {
+        _ringDropWatchdog ??= CreateRingDropWatchdog();
+        _ringDropWatchdog.Stop();
+        _ringDropWatchdog.Start();
+
+        if (_ringDropActive)
+            return;
+
+        _ringDropActive = true;
+        _ringBusy = true;
+        _ = Ring.ScaleToAsync(RingDropScale, 140, Easing.CubicOut);
+    }
+
+    private void EndRingDropFeedback()
+    {
+        _ringDropWatchdog?.Stop();
+
+        if (!_ringDropActive)
+            return;
+
+        _ringDropActive = false;
+        _ = Ring.ScaleToAsync(1.0, 160, Easing.CubicIn);
+        _ringBusy = false;
+    }
+
+    private IDispatcherTimer CreateRingDropWatchdog()
+    {
+        var timer = Dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(RingDropFeedbackTimeoutMs);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) => EndRingDropFeedback();
+        return timer;
+    }
+
+    // Routes dropped files into the chat panel for whichever placement is active, opening it first.
+    // Shared by the ring and (via the host) the panel itself.
+    private async Task AttachDroppedFilesAsync(IReadOnlyList<string> paths, bool hadFolders)
+    {
+        if (paths.Count == 0)
+        {
+            if (hadFolders)
+                await ShowFolderDropHintAsync();
+            return;
+        }
+
+        // A full roll acknowledges the catch, reusing the summon animation's vocabulary.
+        _ = Ring.RotateToAsync(Ring.Rotation + 360, 420, Easing.CubicOut);
+
+        if (_placement == ChatPanelPlacement.Fixed)
+        {
+            _chatWindow?.DropFiles(paths);
+            return;
+        }
+
+        if (_panel is null)
+            return;
+
+        await ShowChatAsync();
+        _panel.AttachFiles(paths);
+        if (hadFolders)
+            await ShowFolderDropHintAsync();
+    }
+
+    private async Task ShowFolderDropHintAsync()
+    {
+        if (_placement == ChatPanelPlacement.Fixed)
+        {
+            _chatWindow?.ShowFolderDropHint();
+            return;
+        }
+
+        if (_panel is null)
+            return;
+
+        await ShowChatAsync();
+        _panel.ShowFolderDropHint();
+    }
 
     // --- Ring context menu ---
 

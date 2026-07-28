@@ -40,6 +40,14 @@ public interface IChatPanelHost
     void SetForceInteractive(bool force);
 
     /// <summary>
+    /// Keeps the window input-opaque for a short, self-expiring window. The panel calls this while a
+    /// file drag hovers it: a click-through window is not a valid drop target, and unlike
+    /// <see cref="SetForceInteractive"/> this needs no matching "off" — a drag abandoned outside the
+    /// app never reports a leave, so a latch would strand the window opaque.
+    /// </summary>
+    void KeepInteractiveFor(TimeSpan duration);
+
+    /// <summary>
     /// Moves the panel's window by a drag delta in device-independent units (the drag bar). No-op for the
     /// overlay host, whose panel is positioned by the ring.
     /// </summary>

@@ -48,33 +48,49 @@ public sealed class MemoryService : IMemoryService
         CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
-        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(capture.Content))
+        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey))
             return false;
 
-        // Ask the vision (snapshot) model to describe the screenshot, then store its words alongside
-        // the plain accessibility text. Best-effort: a null description just means text-only memory.
-        // Text-only history captures arrive with an empty ImagePath, which skips the vision call.
+        // A dropped image has no text of its own — the vision description *is* the memory — so only
+        // bail when there's neither text to embed nor an image to describe.
+        var isDrop = source == IMemoryService.DroppedFileSource;
+        if (string.IsNullOrWhiteSpace(capture.Content)
+            && (string.IsNullOrWhiteSpace(capture.ImagePath) || !File.Exists(capture.ImagePath)))
+        {
+            return false;
+        }
+
+        // Ask the vision (snapshot) model to describe the image, then store its words alongside the
+        // plain text. Best-effort: a null description just means text-only memory. Text-only history
+        // captures (and non-image drops) arrive with an empty ImagePath, which skips the vision call.
         var description = await DescribeScreenshotAsync(capture.ImagePath, config, cancellationToken);
 
-        // Order: title -> screenshot description -> on-screen text, so the description survives the
-        // MaxEmbedChars truncation even when the accessibility text is long.
+        // Order: title -> description -> body, so the description survives the MaxEmbedChars
+        // truncation even when the extracted/accessibility text is long.
         var builder = new System.Text.StringBuilder();
         builder.Append(capture.WindowTitle);
         if (!string.IsNullOrWhiteSpace(description))
-            builder.Append("\n\n[Screenshot description]\n").Append(description);
-        builder.Append("\n\n[On-screen text]\n").Append(capture.Content);
+            builder.Append(isDrop ? "\n\n[File description]\n" : "\n\n[Screenshot description]\n").Append(description);
+        if (!string.IsNullOrWhiteSpace(capture.Content))
+            builder.Append(isDrop ? "\n\n[File contents]\n" : "\n\n[On-screen text]\n").Append(capture.Content);
 
         var text = builder.ToString();
         if (text.Length > MaxEmbedChars)
             text = text[..MaxEmbedChars];
 
-        // Append the description to the on-disk capture text file so it holds both representations.
+        // Append the description to the on-disk text file so it holds both representations.
         if (!string.IsNullOrWhiteSpace(description))
-            AppendDescriptionToFile(capture.TextPath, description);
+            AppendDescriptionToFile(capture.TextPath, description, isDrop ? "File description" : "Screenshot description");
+
+        // Drops carry a second label so a future "forget dropped files" sweep is cheap. LiteGraph
+        // matches label supersets, so search and the auto-capture maintenance queries are unaffected.
+        var labels = isDrop
+            ? new List<string> { "Capture", "Drop" }
+            : new List<string> { "Capture" };
 
         await StoreMemoryNodeAsync(
-            name: string.IsNullOrWhiteSpace(capture.WindowTitle) ? "Capture" : capture.WindowTitle,
-            labels: new List<string> { "Capture" },
+            name: string.IsNullOrWhiteSpace(capture.WindowTitle) ? (isDrop ? "Dropped file" : "Capture") : capture.WindowTitle,
+            labels: labels,
             data: new
             {
                 capture.ImagePath,
@@ -83,6 +99,7 @@ public sealed class MemoryService : IMemoryService
                 SnapshotDescription = description,
                 CapturedUtc = DateTime.UtcNow,
                 Source = source,
+                MimeType = isDrop ? MimeTypes.FromPath(capture.WindowTitle) : "image/png",
             },
             content: text,
             config: config,
@@ -155,8 +172,9 @@ public sealed class MemoryService : IMemoryService
         return firstLine.Length <= 60 ? firstLine : firstLine[..60] + "…";
     }
 
-    // Describes the screenshot using the configured vision (snapshot) model. Returns null when
-    // snapshotting is disabled, the image is missing, or the call fails — capture/embed still proceed.
+    // Describes an image using the configured vision (snapshot) model — a window screenshot, or a
+    // dropped image file. Returns null when snapshotting is disabled, the image is missing, or the
+    // call fails; capture/embed still proceed in that case.
     private async Task<string?> DescribeScreenshotAsync(string imagePath, FloatyConfig config, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(config.SnapshotModel) || !File.Exists(imagePath))
@@ -170,9 +188,11 @@ public sealed class MemoryService : IMemoryService
             var message = new ChatMessage(ChatRole.User, new List<AIContent>
             {
                 new TextContent(
-                    "Describe this screenshot: the application shown, the visible UI, and any notable " +
-                    "on-screen content. Be factual and concise."),
-                new DataContent(imageBytes, "image/png"),
+                    "Describe this image: if it's a screenshot, the application shown, the visible UI and " +
+                    "any notable on-screen content; otherwise its subject and any legible text. " +
+                    "Be factual and concise."),
+                // Screenshots are always PNG, but dropped images can be JPEG/WebP/GIF/…
+                new DataContent(imageBytes, MimeTypes.FromPath(imagePath)),
             });
 
             var response = await client.GetResponseAsync([message], cancellationToken: cancellationToken);
@@ -186,12 +206,12 @@ public sealed class MemoryService : IMemoryService
         }
     }
 
-    private static void AppendDescriptionToFile(string textPath, string description)
+    private static void AppendDescriptionToFile(string textPath, string description, string heading)
     {
         try
         {
             if (File.Exists(textPath))
-                File.AppendAllText(textPath, $"\n\n## Screenshot description\n{description}\n");
+                File.AppendAllText(textPath, $"\n\n## {heading}\n{description}\n");
         }
         catch
         {

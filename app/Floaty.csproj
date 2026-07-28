@@ -118,6 +118,12 @@
              downloaded at first use rather than packaged (see NativeRuntimeService). -->
         <PackageReference Include="NAudio" Version="2.2.1" />
         <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+        <!-- Text extraction from dropped documents (PDF, Office, e-mail, …). Ships native binaries
+             per-RID, so it stays Windows-only; other platforms fall back to NullTextExtractionService
+             plus the UTF-8 ladder in FileIngestService. The package is very new, so
+             WindowsTextExtractionService treats every failure as "no text" rather than an error.
+             Heads-up: xberg_ffi.dll is ~96 MB, which lands in every Velopack full package. -->
+        <PackageReference Include="XbergIo.Xberg" Version="1.0.1" />
     </ItemGroup>
 
 </Project>
