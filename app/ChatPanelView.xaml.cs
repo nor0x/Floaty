@@ -42,15 +42,17 @@ public partial class ChatPanelView : ContentView
 
     private enum AttachmentKind
     {
-        Window, // a window tagged with @; captured on the spot
-        File,   // a file dropped on the ring or the panel; read and text-extracted on the spot
+        Window,    // a window tagged with @; captured on the spot
+        File,      // a file dropped on the ring or the panel; read and text-extracted on the spot
+        Selection, // text selected in another app, read as the summon hotkey fired
     }
 
     /// <summary>
-    /// Something riding along on the pending prompt: a window the user tagged with @, or a file they
-    /// dropped. Both start their work (capture / ingest) the moment the chip appears, and the send
-    /// path awaits it — so what you saw when you attached it is what gets sent, even if the window
-    /// closes or the file moves in between.
+    /// Something riding along on the pending prompt: a window the user tagged with @, a file they
+    /// dropped, or the text they had selected when they summoned Floaty. Windows and files start their
+    /// work (capture / ingest) the moment the chip appears, and the send path awaits it — so what you
+    /// saw when you attached it is what gets sent, even if the window closes or the file moves in
+    /// between. A selection is already plain text by the time the chip exists and carries no task.
     /// </summary>
     /// <remarks>
     /// Implements INPC because the per-file persist toggle mutates the chip after it is realized. The
@@ -71,6 +73,11 @@ public partial class ChatPanelView : ContentView
         public string? SourcePath { get; init; }
         public Task<DroppedFile?>? IngestTask { get; set; }
         public Command? TogglePersistCommand { get; set; }
+
+        // Selection attachments: the full selected text (Title only holds a short preview of it) and
+        // the title of the window it came from, so the model is told where it is looking.
+        public string? SelectionText { get; init; }
+        public string? SourceTitle { get; init; }
 
         /// <summary>
         /// Only dropped files show the toggle: @-tagged windows follow <c>RememberTaggedCaptures</c>
@@ -1105,6 +1112,49 @@ public partial class ChatPanelView : ContentView
             _ = ShowInlineToastAsync(duplicates == 1 ? "File already attached" : "Files already attached");
         else if (accepted < paths.Count - duplicates)
             _ = ShowInlineToastAsync($"Attached {accepted} of {paths.Count} files");
+    }
+
+    /// <summary>
+    /// Attaches the text the user had selected in another app when they pressed the summon hotkey.
+    /// Routed here by whichever surface is hosting the panel, once it is on screen.
+    /// </summary>
+    public void AttachSelection(SelectedText selection)
+    {
+        var text = selection.Text.Trim();
+        if (text.Length == 0)
+            return;
+
+        // One selection chip at a time. Summoning again means the user is pointing at something new,
+        // and quietly sending the previous selection alongside it would be context they think they
+        // replaced — unlike files, where every drop is an explicit addition.
+        foreach (var stale in _attachments.Where(a => a.Kind == AttachmentKind.Selection).ToList())
+            _attachments.Remove(stale);
+
+        var vm = new PromptAttachmentVm
+        {
+            Kind = AttachmentKind.Selection,
+            Title = SelectionPreview(text),
+            Glyph = IconFont.TablerLine.Quote,
+            SelectionText = text,
+            SourceTitle = selection.SourceTitle,
+            // Already plain text: there's no capture or ingest to await, so the chip isn't dimmed.
+            IsReady = true,
+        };
+        vm.RemoveCommand = new Command(() => RemoveAttachment(vm));
+        _attachments.Add(vm);
+        RefreshAttachmentChips();
+    }
+
+    // The chip shows a one-line taste of the selection, not the selection: newlines and runs of
+    // whitespace would otherwise render as a ragged blank stripe inside the chip.
+    private const int SelectionPreviewChars = 40;
+
+    private static string SelectionPreview(string text)
+    {
+        var collapsed = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return collapsed.Length <= SelectionPreviewChars
+            ? collapsed
+            : collapsed[..SelectionPreviewChars].TrimEnd() + "…";
     }
 
     /// <summary>
@@ -2540,8 +2590,9 @@ public partial class ChatPanelView : ContentView
         pending?.TrySetResult(approved);
     }
 
-    // The outgoing user message: plain text, or multimodal when windows were tagged with @ or files
-    // were dropped — each attachment contributes its text and, for images, the raw bytes.
+    // The outgoing user message: plain text, or multimodal when windows were tagged with @, files were
+    // dropped, or a selection rode in on the summon hotkey — each attachment contributes its text and,
+    // for images, the raw bytes.
     private static async Task<ChatMessage> BuildUserMessageAsync(
         string prompt,
         List<PromptAttachmentVm> attachments)
@@ -2557,6 +2608,14 @@ public partial class ChatPanelView : ContentView
 
         foreach (var attachment in attachments)
         {
+            if (attachment.Kind == AttachmentKind.Selection)
+            {
+                contents.Add(new TextContent(
+                    $"[Selected text from {attachment.SourceTitle}]\n"
+                    + TakeBudget(attachment.SelectionText ?? string.Empty, ref remaining)));
+                continue;
+            }
+
             if (attachment.Kind == AttachmentKind.File)
             {
                 DroppedFile? file = null;

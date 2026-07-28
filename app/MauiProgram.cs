@@ -66,6 +66,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAutostartService, Floaty.Platforms.Windows.WindowsAutostartService>();
 		// Text out of dropped documents (PDF/Office/…) via the Xberg native runtime.
 		builder.Services.AddSingleton<ITextExtractionService, Floaty.Platforms.Windows.WindowsTextExtractionService>();
+		// The selection in whatever app was in front when the summon hotkey fired.
+		builder.Services.AddSingleton<ISelectionCaptureService, Floaty.Platforms.Windows.WindowsSelectionCaptureService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -75,6 +77,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
+		builder.Services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -84,6 +87,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IVoiceInputService, NullVoiceInputService>();
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
+		builder.Services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
 #endif
 
 		ConfigureOverlayWindow(builder);

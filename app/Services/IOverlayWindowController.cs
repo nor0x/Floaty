@@ -93,9 +93,12 @@ public interface IOverlayWindowController : IFloatingWindowController
 {
     /// <summary>
     /// Raised when the user presses the global summon hotkey (Alt+F). Carries the mouse cursor
-    /// position in physical screen pixels so the overlay can animate toward it.
+    /// position in physical screen pixels so the overlay can animate toward it, plus the window that
+    /// was in the foreground at that instant — the hotkey doesn't move focus, so this is the last
+    /// moment the app the user was actually working in can be identified, and
+    /// <see cref="ISelectionCaptureService"/> needs it to read their selection.
     /// </summary>
-    event Action<int, int>? SummonRequested;
+    event Action<int, int, nint>? SummonRequested;
 
     /// <summary>
     /// Animates the overlay to the platform taskbar/menu-bar corner and then hides it,

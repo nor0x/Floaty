@@ -17,7 +17,7 @@ public sealed class WindowsOverlayWindowController : WindowsBorderlessWindowCont
 	// Keep the subclass delegate alive for the window's lifetime so the GC can't collect it.
 	private SUBCLASSPROC? _hotkeyProc;
 
-	public event Action<int, int>? SummonRequested;
+	public event Action<int, int, nint>? SummonRequested;
 
 	public override void Initialize(Microsoft.UI.Xaml.Window nativeWindow)
 	{
@@ -107,8 +107,10 @@ public sealed class WindowsOverlayWindowController : WindowsBorderlessWindowCont
 
 	private nint HotkeyWndProc(nint hWnd, uint msg, nint wParam, nint lParam, nuint id, nuint refData)
 	{
+		// The hotkey doesn't change focus, so the foreground window here is still the app the user was
+		// working in — the only reliable moment to identify it, since Activate() is about to steal it.
 		if (msg == WM_HOTKEY && (int)wParam == HotkeyId && GetCursorPos(out var pt))
-			SummonRequested?.Invoke(pt.X, pt.Y);
+			SummonRequested?.Invoke(pt.X, pt.Y, GetForegroundWindow());
 
 		return DefSubclassProc(hWnd, msg, wParam, lParam);
 	}
@@ -145,6 +147,9 @@ public sealed class WindowsOverlayWindowController : WindowsBorderlessWindowCont
 
 	[DllImport("user32.dll")]
 	private static extern bool GetCursorPos(out HOTKEYPOINT lpPoint);
+
+	[DllImport("user32.dll")]
+	private static extern nint GetForegroundWindow();
 
 	[DllImport("comctl32.dll")]
 	private static extern bool SetWindowSubclass(nint hWnd, SUBCLASSPROC pfnSubclass, nuint uIdSubclass, nuint dwRefData);

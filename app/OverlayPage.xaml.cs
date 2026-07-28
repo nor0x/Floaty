@@ -11,6 +11,7 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
 {
     private readonly IOverlayWindowController _windowController;
     private readonly SettingsService _settings;
+    private readonly ISelectionCaptureService _selectionCapture;
     private readonly IServiceProvider _services;
 
     // Current ring diameter in device-independent units, driven by the user's setting (Appearance
@@ -132,11 +133,13 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     public OverlayPage(
         IOverlayWindowController windowController,
         SettingsService settings,
+        ISelectionCaptureService selectionCapture,
         IServiceProvider services)
     {
         InitializeComponent();
         _windowController = windowController;
         _settings = settings;
+        _selectionCapture = selectionCapture;
         _services = services;
 
         Ring.HandlerChanged += OnRingHandlerChanged;
@@ -529,8 +532,33 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     private const uint SummonSpinMs = 1000;
     private const double SummonSpinDegrees = 720; // whole turns so it settles back at 0°
 
-    private void OnSummonRequested(int cursorX, int cursorY) =>
-        Dispatcher.Dispatch(() => AnimateSummon(cursorX, cursorY));
+    // The selection captured on this summon, handed to the chat panel once it is on screen.
+    private SelectedText? _pendingSelection;
+
+    private void OnSummonRequested(int cursorX, int cursorY, nint foregroundHwnd)
+    {
+        if (!_settings.Current.AttachSelectionOnSummon)
+        {
+            Dispatcher.Dispatch(() =>
+            {
+                _ = SpinRingAsync();
+                AnimateSummon(cursorX, cursorY);
+            });
+            return;
+        }
+
+        // Started here, off the UI thread, while the app the user was in still owns keyboard focus:
+        // AnimateSummon's Activate() takes the foreground away and would leave us reading Floaty.
+        var capture = _selectionCapture.TryCaptureAsync(foregroundHwnd);
+
+        Dispatcher.Dispatch(async () =>
+        {
+            // Spin first so the hotkey feels instant even when the capture has to wait on the app.
+            _ = SpinRingAsync();
+            _pendingSelection = await capture;
+            AnimateSummon(cursorX, cursorY);
+        });
+    }
 
     private void AnimateSummon(int cursorX, int cursorY)
     {
@@ -543,9 +571,8 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         double dx = (cursorX - width / 2) - startX;
         double dy = (cursorY - height / 2) - startY;
 
-        // Spin the ring (outlasts the glide and winds down with deceleration).
-        _ = SpinRingAsync();
-
+        // The ring spin (which outlasts the glide and winds down with deceleration) is already
+        // running: OnSummonRequested starts it up front so it isn't held up by the selection capture.
         new Animation(
             t => _windowController.MoveTo(
                 (int)Math.Round(startX + dx * t),
@@ -566,16 +593,27 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     {
         await Task.Delay(SummonRevealDelayMs);
 
+        // Taken unconditionally: a selection that couldn't be delivered is stale by the next summon.
+        var selection = _pendingSelection;
+        _pendingSelection = null;
+
         // With its own window the panel doesn't travel with the ring: just bring it up where it lives.
         if (_placement == ChatPanelPlacement.Fixed)
         {
-            _chatWindow?.Show();
+            if (selection is not null)
+                _chatWindow?.AttachSelection(selection);
+            else
+                _chatWindow?.Show();
             return;
         }
 
         await ShowChatAsync();
         // If the chat was already open when summoned, the window moved — flip sides if needed.
         ReevaluateChatSide();
+
+        // After the panel is up, so this can't race ShowChatAsync building it.
+        if (selection is not null)
+            _panel?.AttachSelection(selection);
     }
 
     private async Task SpinRingAsync()

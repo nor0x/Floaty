@@ -161,6 +161,15 @@ public sealed class FloatyConfig
     /// </summary>
     public bool RememberDroppedFiles { get; set; }
 
+    /// <summary>
+    /// When true, the summon hotkey (Alt+F) also picks up whatever text was selected in the app the
+    /// user was in and attaches it to the pending prompt as a removable chip. Read through UI
+    /// Automation where the app exposes its selection, otherwise by briefly borrowing the clipboard
+    /// (see <c>WindowsSelectionCaptureService</c>). On by default: summoning Floaty while something is
+    /// selected is nearly always a question about that selection, and the chip is one click to drop.
+    /// </summary>
+    public bool AttachSelectionOnSummon { get; set; } = true;
+
     /// <summary>Keeps the ring window above other windows. Enabled by default.</summary>
     public bool AlwaysOnTop { get; set; } = true;
 

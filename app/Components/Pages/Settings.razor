@@ -79,6 +79,20 @@
                 @if (OperatingSystem.IsWindows())
                 {
                     <div class="field">
+                        <label>Selected text</label>
+                        <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                            <input type="checkbox" @bind="_config.AttachSelectionOnSummon" />
+                            Attach selected text when Floaty is summoned
+                        </label>
+                        <span class="hint">Pressing <code>Alt+F</code> brings the ring to your cursor. With this on, any
+                            text you had selected comes with it as a chip on the prompt — remove the chip and it is
+                            forgotten.</span>
+                        <span class="hint">Apps that expose their selection to accessibility tools are read directly.
+                            The rest (browsers, Electron apps, terminals) are read with a quick <code>Ctrl+C</code>;
+                            Floaty puts your previous clipboard text back afterwards.</span>
+                    </div>
+
+                    <div class="field">
                         <label for="autostartMode">Start with Windows</label>
                         <select id="autostartMode" @bind="_config.AutostartMode">
                             <option value="@AutostartMode.Disabled">Don't start automatically</option>
@@ -785,6 +799,7 @@
             ChatWindowHeight = current.ChatWindowHeight,
             RememberTaggedCaptures = current.RememberTaggedCaptures,
             RememberDroppedFiles = current.RememberDroppedFiles,
+            AttachSelectionOnSummon = current.AttachSelectionOnSummon,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
             SttSelectedModelId = current.SttSelectedModelId,

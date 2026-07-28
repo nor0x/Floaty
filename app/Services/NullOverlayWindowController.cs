@@ -18,7 +18,7 @@ public sealed class NullOverlayWindowController : IOverlayWindowController
 
     // The summon hotkey is desktop-only; this event never fires on mobile platforms.
 #pragma warning disable CS0067
-    public event Action<int, int>? SummonRequested;
+    public event Action<int, int, nint>? SummonRequested;
 #pragma warning restore CS0067
 
     public bool IsVisible => false;

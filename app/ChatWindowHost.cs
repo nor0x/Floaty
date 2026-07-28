@@ -96,6 +96,16 @@ public sealed class ChatWindowHost : IChatPanelHost
 			_panel?.AttachFiles(paths);
 	}
 
+	/// <summary>
+	/// Opens the chat window and attaches the text the user had selected when they hit the summon
+	/// hotkey. Same shape as <see cref="DropFiles"/>: the panel only exists once the window is built.
+	/// </summary>
+	public void AttachSelection(SelectedText selection)
+	{
+		Show();
+		_panel?.AttachSelection(selection);
+	}
+
 	/// <summary>Surfaces the "folders aren't supported" hint in the panel's inline toast.</summary>
 	public void ShowFolderDropHint()
 	{

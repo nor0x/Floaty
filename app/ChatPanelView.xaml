@@ -361,9 +361,10 @@
                         </CollectionView.ItemTemplate>
                     </CollectionView>
                 </Border>
-                <!-- Attached to the pending prompt — windows tagged with @ and dropped files — shown
-                     as removable chips. Dropped files also carry a toggle deciding whether they are
-                     written to memory on send (see PromptAttachmentVm.Persist). -->
+                <!-- Attached to the pending prompt — windows tagged with @, dropped files, and the
+                     text that was selected when Floaty was summoned — shown as removable chips.
+                     Dropped files also carry a toggle deciding whether they are written to memory on
+                     send (see PromptAttachmentVm.Persist). -->
                 <HorizontalStackLayout x:Name="AttachmentChipsPanel"
                     Grid.Row="3"
                     IsVisible="False"

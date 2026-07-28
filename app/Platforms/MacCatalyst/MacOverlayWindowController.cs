@@ -95,7 +95,7 @@ public sealed class MacOverlayWindowController : IOverlayWindowController
 
     // The global summon hotkey is not yet implemented on macOS; this event never fires there.
 #pragma warning disable CS0067
-    public event Action<int, int>? SummonRequested;
+    public event Action<int, int, nint>? SummonRequested;
 #pragma warning restore CS0067
 
     public (int X, int Y) GetPosition() => (0, 0);
