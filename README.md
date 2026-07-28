@@ -16,27 +16,27 @@
 
 ---
 
-Floaty lives in your tray / menubar and as a draggable swimming-ring overlay that stays on top of your other windows. Through the ring you can capture what's on your screen — a screenshot plus the actual text content read via accessibility APIs — and everything you capture is embedded into a local memory that the assistant can search when you chat with it.
+Floaty lives in your tray / menubar and as a draggable swimming-ring overlay that stays on top of your other windows. Through the ring you can capture what's on your screen - a screenshot plus the actual text content read via accessibility APIs - and everything you capture is embedded into a local memory that the assistant can search when you chat with it.
 
 Everything stays on your machine: memory, conversations, skills, settings, and speech-to-text all live in `~/.floaty`. The only thing that leaves your computer is what you send to the LLM provider you configure.
 
 ## ✨ Features
 
-- **Floating ring overlay** — draggable (with natural ring rotation), borderless, always on top, and click-through in its transparent regions. Buttons for screenshot capture, voice input, chat, and settings; the ring image itself is customizable.
-- **Screen capture & reading** — grabs a screenshot *and* the text content of the active window via UI Automation, so captures are searchable by meaning, not just stored as pixels.
-- **Automatic screen history** — optionally records the foreground window (title and/or content) as you work, feeding your local memory without any manual capturing.
-- **Local memory with vector search** — captures are embedded and stored in an on-device LiteGraph/SQLite database. The chat exposes a `search_captures` tool so the assistant can recall what you've seen.
-- **Chat interface** — conversations with the configured LLM, saved locally as JSON. A user-editable system prompt lives at `~/.floaty/floaty.md`.
-- **Voice input** 🎤 — fully local speech-to-text: Silero VAD segments your speech and [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) transcribes it with GGUF models (Whisper, Voxtral, …) downloaded on demand.
-- **Agent skills** — drop SKILL.md-based skills into `~/.floaty/skills` (also picks up `~/.claude/skills` and `~/.agents/skills`) and invoke them with `/name` in chat.
-- **MCP support** — connect Model Context Protocol servers and scope the chat to a server's tools with a `/server` slash command.
-- **Auto-updates** — the Windows build updates itself in place via Velopack, fed from GitHub Releases.
+- **Floating ring overlay** - draggable (with natural ring rotation), borderless, always on top, and click-through in its transparent regions. Buttons for screenshot capture, voice input, chat, and settings; the ring image itself is customizable.
+- **Screen capture & reading** - grabs a screenshot *and* the text content of the active window via UI Automation, so captures are searchable by meaning, not just stored as pixels.
+- **Automatic screen history** - optionally records the foreground window (title and/or content) as you work, feeding your local memory without any manual capturing.
+- **Local memory with vector search** - captures are embedded and stored in an on-device LiteGraph/SQLite database. The chat exposes a `search_captures` tool so the assistant can recall what you've seen.
+- **Chat interface** - conversations with the configured LLM, saved locally as JSON. A user-editable system prompt lives at `~/.floaty/floaty.md`.
+- **Voice input** 🎤 - fully local speech-to-text: Silero VAD segments your speech and [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) transcribes it with GGUF models (Whisper, Voxtral, …) downloaded on demand.
+- **Agent skills** - drop SKILL.md-based skills into `~/.floaty/skills` (also picks up `~/.claude/skills` and `~/.agents/skills`) and invoke them with `/name` in chat.
+- **MCP support** - connect Model Context Protocol servers and scope the chat to a server's tools with a `/server` slash command.
+- **Auto-updates** - the Windows build updates itself in place via Velopack, fed from GitHub Releases.
 
 ## 📥 Installation
 
 Grab the latest Windows installer from the [Releases page](https://github.com/nor0x/Floaty/releases). The app checks for updates itself after that.
 
-On first run, open Settings to add your OpenAI API key (more providers are planned — the AI layer is built on the provider-agnostic `Microsoft.Extensions.AI`).
+On first run, open Settings to add your OpenAI API key (more providers are planned - the AI layer is built on the provider-agnostic `Microsoft.Extensions.AI`).
 
 > **Platform support:** Windows is the primary platform with the full feature set. A Mac Catalyst target exists with the overlay working and other native features (screen capture, screen history, voice input, autostart) stubbed out for now.
 
@@ -48,7 +48,7 @@ Everything Floaty knows lives under `~/.floaty`:
 | --- | --- |
 | `config.json` | Settings and preferences |
 | `floaty.md` | User-editable system prompt for the assistant |
-| `floaty.db` | Local memory — capture embeddings + vector search (SQLite) |
+| `floaty.db` | Local memory - capture embeddings + vector search (SQLite) |
 | `captures/` | Screenshot + screen-content pairs |
 | `conversations/` | Saved chat threads, one JSON file each |
 | `skills/` | Agent skills, each a folder with a `SKILL.md` |
