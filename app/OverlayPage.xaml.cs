@@ -834,6 +834,21 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         ApplyAlwaysOnTopMenuState();
     }
 
+    private void OnDockedWindowClicked(object? sender, EventArgs e)
+    {
+        var config = _settings.Current;
+        if (config.ChatPanelPlacement == ChatPanelPlacement.Fixed)
+        {
+            config.ChatPanelPlacement = ChatPanelPlacement.Floating;
+        }
+        else
+        {
+            config.ChatPanelPlacement = ChatPanelPlacement.Fixed;
+        }
+
+        _settings.Save(config);
+    }
+
     private void ApplyAlwaysOnTopMenuState() =>
         AlwaysOnTopMenuItem.IconImageSource = (FontImageSource)Resources[
             _settings.Current.AlwaysOnTop ? "AlwaysOnTopOnIcon" : "AlwaysOnTopOffIcon"];

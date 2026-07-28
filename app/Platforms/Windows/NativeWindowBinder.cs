@@ -5,21 +5,21 @@ namespace Floaty.Platforms.Windows;
 /// </summary>
 public sealed class NativeWindowBinder
 {
-    private Action<Microsoft.UI.Xaml.Window>? _pending;
+	private Action<Microsoft.UI.Xaml.Window>? _pending;
 
-    public void ExpectNext(Action<Microsoft.UI.Xaml.Window> initializer)
-    {
-        _pending = initializer;
-    }
+	public void ExpectNext(Action<Microsoft.UI.Xaml.Window> initializer)
+	{
+		_pending = initializer;
+	}
 
-    public bool TryConsume(Microsoft.UI.Xaml.Window nativeWindow)
-    {
-        var pending = _pending;
-        if (pending is null)
-            return false;
+	public bool TryConsume(Microsoft.UI.Xaml.Window nativeWindow)
+	{
+		var pending = _pending;
+		if (pending is null)
+			return false;
 
-        _pending = null;
-        pending(nativeWindow);
-        return true;
-    }
+		_pending = null;
+		pending(nativeWindow);
+		return true;
+	}
 }

@@ -193,6 +193,7 @@ public partial class ChatPanelView : ContentView
         WindowSuggestionsList.ItemsSource = _filteredWindows;
         BindableLayout.SetItemsSource(AttachmentChipsPanel, _attachments);
         ChatEntry.HandlerChanged += OnChatEntryHandlerChanged;
+        ConversationTitleEntry.HandlerChanged += OnConversationTitleEntryHandlerChanged;
         MessagesList.HandlerChanged += OnListHandlerChanged;
         MessagesList.SizeChanged += OnMessagesListSizeChanged;
         SlashSuggestionsList.HandlerChanged += OnListHandlerChanged;
@@ -220,6 +221,7 @@ public partial class ChatPanelView : ContentView
     {
         _host = host;
         _chatWidth = Math.Clamp(startWidth, MinChatWidth, MaxChatWidth);
+        RefreshConversationTitle();
     }
 
     /// <summary>
@@ -254,6 +256,7 @@ public partial class ChatPanelView : ContentView
         MessagesList.IsVisible = !_listMode && Messages.Count > 0;
         _lastPanelHeight = 0;
         IsVisible = true;
+        RefreshConversationTitle();
     }
 
     /// <summary>Slides the panel up into view and focuses the input.</summary>
@@ -330,15 +333,18 @@ public partial class ChatPanelView : ContentView
         if (onLeft)
         {
             CollapseButton.Text = IconFont.TablerLine.CaretRight;
-			CollapseButton.Margin = new Thickness(0, 0, 6, 0);
+            CollapseButton.Margin = new Thickness(0, 0, 6, 0);
             Grid.SetColumn(CollapseButton, 2);
-			Grid.SetColumn(ResizeCornerGrip, 0);
-			ResizeCornerGrip.HorizontalOptions = LayoutOptions.Start;
-			ResizeCornerGrip.Margin = new Thickness(-5, -5, 0, 0);
-			ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopLeft;
+            Grid.SetColumn(ResizeCornerGrip, 0);
+            ResizeCornerGrip.HorizontalOptions = LayoutOptions.Start;
+            ResizeCornerGrip.Margin = new Thickness(-5, -5, 0, 0);
+            ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopLeft;
+            Grid.SetColumn(ConversationTitleHost, 2);
+            ConversationTitleHost.HorizontalOptions = LayoutOptions.End;
+            ConversationTitleHost.Margin = new Thickness(0, 0, 6, 0);
 
-		}
-		else
+        }
+        else
         {
             CollapseButton.Text = IconFont.TablerLine.CaretLeft;
             CollapseButton.Margin = new Thickness(6, 0, 0, 0);
@@ -347,10 +353,91 @@ public partial class ChatPanelView : ContentView
             ResizeCornerGrip.HorizontalOptions = LayoutOptions.End;
             ResizeCornerGrip.Margin = new Thickness(0, -5, 2, 0);
             ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopRight;
+            Grid.SetColumn(ConversationTitleHost, 0);
+            ConversationTitleHost.HorizontalOptions = LayoutOptions.Start;
+            ConversationTitleHost.Margin = new Thickness(6, 0, 0, 0);
 
-		}
+        }
 
         ApplyResizeGripCursor();
+    }
+
+    private static string DefaultConversationTitle => "Conversation";
+
+    private void RefreshConversationTitle()
+    {
+        var title = string.IsNullOrWhiteSpace(_currentConversation?.Title)
+            ? DefaultConversationTitle
+            : _currentConversation!.Title.Trim();
+
+        ConversationTitleLabel.Text = title;
+        if (!ConversationTitleEditorBorder.IsVisible)
+            ConversationTitleEntry.Text = title;
+    }
+
+    private void OnConversationTitleTapped(object? sender, TappedEventArgs e)
+    {
+        EnsureConversationLoaded();
+
+        ConversationTitleChip.IsVisible = false;
+        ConversationTitleEditorBorder.IsVisible = true;
+        ConversationTitleEntry.Text = string.IsNullOrWhiteSpace(_currentConversation?.Title)
+            ? string.Empty
+            : _currentConversation!.Title.Trim();
+
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            ConversationTitleEntry.Focus();
+            ConversationTitleEntry.CursorPosition = ConversationTitleEntry.Text?.Length ?? 0;
+        });
+    }
+
+    private void OnConversationTitleCompleted(object? sender, EventArgs e) => CommitConversationTitleEdit();
+
+    private void OnConversationTitleUnfocused(object? sender, FocusEventArgs e) => CommitConversationTitleEdit();
+
+    private void OnConversationTitleEntryHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        if (ConversationTitleEntry.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.TextBox titleTextBox)
+        {
+            titleTextBox.BorderThickness = new Microsoft.UI.Xaml.Thickness(0);
+            titleTextBox.Padding = new Microsoft.UI.Xaml.Thickness(0);
+            titleTextBox.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            titleTextBox.MinHeight = 0;
+
+            var transparent = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            foreach (var key in new[]
+            {
+                "TextControlBackground", "TextControlBackgroundPointerOver",
+                "TextControlBackgroundFocused", "TextControlBackgroundDisabled",
+                "TextControlBorderBrush", "TextControlBorderBrushPointerOver",
+                "TextControlBorderBrushFocused", "TextControlBorderBrushDisabled",
+            })
+            {
+                titleTextBox.Resources[key] = transparent;
+            }
+        }
+#endif
+    }
+
+    private void CommitConversationTitleEdit()
+    {
+        if (!ConversationTitleEditorBorder.IsVisible)
+            return;
+
+        EnsureConversationLoaded();
+        if (_currentConversation is null)
+            return;
+
+        var edited = (ConversationTitleEntry.Text ?? string.Empty).Trim();
+        _currentConversation.Title = edited;
+
+        ConversationTitleEditorBorder.IsVisible = false;
+        ConversationTitleChip.IsVisible = true;
+        RefreshConversationTitle();
+
+        PersistCurrentConversation();
     }
 
     // --- Settings / accent ---
@@ -1314,6 +1401,8 @@ public partial class ChatPanelView : ContentView
         {
             _currentConversation = new Conversation();
         }
+
+        RefreshConversationTitle();
     }
 
     // Saves the current thread to disk. Skips empty threads (no real user/assistant messages).
@@ -1330,13 +1419,15 @@ public partial class ChatPanelView : ContentView
             Citations = m.CitationSources.Count > 0 ? m.CitationSources.ToList() : null,
         }).ToList();
 
-        if (!stored.Any(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text)))
+        var hasRealMessages = stored.Any(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text));
+        if (!hasRealMessages && string.IsNullOrWhiteSpace(_currentConversation.Title))
             return;
 
-        if (string.IsNullOrWhiteSpace(_currentConversation.Title))
+        if (string.IsNullOrWhiteSpace(_currentConversation.Title) && hasRealMessages)
         {
             var firstUser = Messages.FirstOrDefault(m => m.IsUser && !string.IsNullOrWhiteSpace(m.Text));
             _currentConversation.Title = firstUser is not null ? Ellipsize(firstUser.Text, 40) : "Conversation";
+            RefreshConversationTitle();
         }
 
         _currentConversation.Messages = stored;
@@ -1375,6 +1466,7 @@ public partial class ChatPanelView : ContentView
         Messages.Clear();
         ExitListMode();
         MessagesList.IsVisible = false;
+        RefreshConversationTitle();
     }
 
     // Show the conversation switcher inside the message list.
@@ -1435,6 +1527,7 @@ public partial class ChatPanelView : ContentView
         _currentConversation = conversation;
         LoadMessagesFrom(conversation);
         ExitListMode();
+        RefreshConversationTitle();
     }
 
     private void DeleteConversation(string id)
@@ -1444,6 +1537,7 @@ public partial class ChatPanelView : ContentView
         {
             _currentConversation = new Conversation();
             Messages.Clear();
+            RefreshConversationTitle();
         }
 
         BuildConversationItems(); // refresh the visible list

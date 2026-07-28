@@ -8,7 +8,8 @@
     BackgroundColor="Transparent">
 
     <ContentPage.Resources>
-        <!-- Swapped onto AlwaysOnTopMenuItem.IconImageSource in code-behind (ApplyAlwaysOnTopMenuState):
+        <!-- Swapped onto AlwaysOnTopMenuItem.IconImageSource in code-behind
+        (ApplyAlwaysOnTopMenuState):
              mutating FontImageSource.Glyph in place doesn't propagate to the already-realized native
              menu icon, so a fresh instance is assigned instead. -->
         <FontImageSource x:Key="AlwaysOnTopOnIcon"
@@ -20,88 +21,100 @@
             Glyph="{x:Static icons:TablerLine.PinnedOff}"
             Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
 
-		<Style x:Key="OverlayButton" TargetType="Button">
-			<Setter Property="WidthRequest" Value="36" />
-			<Setter Property="HeightRequest" Value="36" />
-			<Setter Property="Padding" Value="0" />
-			<Setter Property="CornerRadius" Value="18" />
-			<Setter Property="FontSize" Value="16" />
-			<Setter Property="BackgroundColor" Value="#CC202020" />
-			<Setter Property="TextColor" Value="White" />
-		</Style>
-	</ContentPage.Resources>
+        <Style x:Key="OverlayButton" TargetType="Button">
+            <Setter Property="WidthRequest" Value="36" />
+            <Setter Property="HeightRequest" Value="36" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="18" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="BackgroundColor" Value="#CC202020" />
+            <Setter Property="TextColor" Value="White" />
+        </Style>
+    </ContentPage.Resources>
 
-    <!-- Whole-window layout: the ring sits in the center column. With the floating chat placement the
+    <!-- Whole-window layout: the ring sits in the center column. With the floating chat placement
+    the
          chat panel is added at runtime into the left or right side column depending on available screen
          space (see OverlayPage.ApplyChatSide); the unused side column is collapsed to 0 so the ring stays
          flush against the window edge that the resize anchors. With the fixed placement the panel lives
          in its own window and the side columns stay empty. Everything outside the drawn pixels is
          transparent so the desktop shows through. -->
-	<Grid x:Name="RootGrid"
+    <Grid x:Name="RootGrid"
         RowDefinitions="Auto"
         BackgroundColor="Transparent">
-		<Grid.ColumnDefinitions>
-			<ColumnDefinition x:Name="LeftSpace" Width="0" />
-			<ColumnDefinition Width="Auto" />
-			<ColumnDefinition x:Name="RightSpace" Width="*" />
-		</Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="LeftSpace" Width="0" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition x:Name="RightSpace" Width="*" />
+        </Grid.ColumnDefinitions>
 
-		<!-- Ring host. Floating chat placement adds the panel in a side column at runtime. -->
-		<VerticalStackLayout Grid.Column="1"
-        ZIndex="10"
-        HorizontalOptions="Center"
-        VerticalOptions="End">
+        <!-- Ring host. Floating chat placement adds the panel in a side column at runtime. -->
+        <VerticalStackLayout Grid.Column="1"
+            ZIndex="10"
+            HorizontalOptions="Center"
+            VerticalOptions="End">
 
-			<!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
-			<Image x:Name="Ring"
+            <!-- Draggable swim ring. Pan moves the window and rolls the ring. -->
+            <Image x:Name="Ring"
                 Source="ring1.png"
                 Aspect="AspectFit"
                 HeightRequest="148"
                 WidthRequest="148"
                 HorizontalOptions="Fill"
                 VerticalOptions="Fill">
-				<FlyoutBase.ContextFlyout>
-					<MenuFlyout>
-						<MenuFlyoutItem Text="Float to taskbar"
-                            Clicked="OnFloatToTaskbarClicked">
-							<MenuFlyoutItem.IconImageSource>
-								<FontImageSource FontFamily="TablerIconsLine"
-                                    Glyph="{x:Static icons:TablerLine.LayoutBottombar}"
+                <FlyoutBase.ContextFlyout>
+                    <MenuFlyout>
+
+                        <MenuFlyoutItem x:Name="DockedWindowTopMenuItem"
+                            Text="Dock Window"
+                            Clicked="OnDockedWindowClicked">
+                            <MenuFlyoutItem.IconImageSource>
+                                <FontImageSource FontFamily="TablerIconsLine"
+                                    Glyph="{x:Static icons:TablerLine.DragDrop2}"
                                     Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-							</MenuFlyoutItem.IconImageSource>
-						</MenuFlyoutItem>
-						<MenuFlyoutSeparator />
-						<MenuFlyoutItem x:Name="AlwaysOnTopMenuItem"
+                            </MenuFlyoutItem.IconImageSource>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="AlwaysOnTopMenuItem"
                             Text="Always on Top"
                             IconImageSource="{StaticResource AlwaysOnTopOnIcon}"
                             Clicked="OnAlwaysOnTopClicked" />
-						<MenuFlyoutSeparator />
-						<MenuFlyoutItem Text="Settings"
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Settings"
                             Clicked="OnSettingsClicked">
-							<MenuFlyoutItem.IconImageSource>
-								<FontImageSource FontFamily="TablerIconsLine"
+                            <MenuFlyoutItem.IconImageSource>
+                                <FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.Settings}"
                                     Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-							</MenuFlyoutItem.IconImageSource>
-						</MenuFlyoutItem>
-						<MenuFlyoutSeparator />
-						<MenuFlyoutItem Text="Close Floaty"
+                            </MenuFlyoutItem.IconImageSource>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Float to taskbar"
+                            Clicked="OnFloatToTaskbarClicked">
+                            <MenuFlyoutItem.IconImageSource>
+                                <FontImageSource FontFamily="TablerIconsLine"
+                                    Glyph="{x:Static icons:TablerLine.LayoutBottombar}"
+                                    Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
+                            </MenuFlyoutItem.IconImageSource>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem Text="Close Floaty"
                             Clicked="OnCloseClicked">
-							<MenuFlyoutItem.IconImageSource>
-								<FontImageSource FontFamily="TablerIconsLine"
+                            <MenuFlyoutItem.IconImageSource>
+                                <FontImageSource FontFamily="TablerIconsLine"
                                     Glyph="{x:Static icons:TablerLine.CircleX}"
                                     Color="{AppThemeBinding Light=#1C1C1E, Dark=White}" />
-							</MenuFlyoutItem.IconImageSource>
-						</MenuFlyoutItem>
-					</MenuFlyout>
-				</FlyoutBase.ContextFlyout>
-				<Image.GestureRecognizers>
-					<PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
-					<TapGestureRecognizer Tapped="OnRingTapped" />
-				</Image.GestureRecognizers>
-			</Image>
-		</VerticalStackLayout>
+                            </MenuFlyoutItem.IconImageSource>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </FlyoutBase.ContextFlyout>
+                <Image.GestureRecognizers>
+                    <PanGestureRecognizer PanUpdated="OnRingPanUpdated" />
+                    <TapGestureRecognizer Tapped="OnRingTapped" />
+                </Image.GestureRecognizers>
+            </Image>
+        </VerticalStackLayout>
 
-	</Grid>
+    </Grid>
 
 </ContentPage>
