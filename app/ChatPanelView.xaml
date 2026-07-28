@@ -494,7 +494,7 @@
                     SemanticProperties.Description="Resize chat">
                 <Label x:Name="ResizeCornerGlyph"                  
                        FontFamily="TablerIconsLine"
-                       TextColor="#44ffffff"
+                       TextColor="#33ffffff"
                        FontSize="20"
                        HorizontalOptions="Center"
                        VerticalOptions="Center" />
