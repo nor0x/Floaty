@@ -488,17 +488,16 @@
                     HeightRequest="26"
                     HorizontalOptions="End"
                     VerticalOptions="Start"
-                    Margin="0,-12,-8,0"
+                    Margin="0,-9,-9,0"
                     BackgroundColor="Transparent"
                     Stroke="Transparent"
                     SemanticProperties.Description="Resize chat">
-                <Path x:Name="ResizeCornerGlyph"
-                        Data="M6,6 L13,6 A7,7 0 0 1 20,13 L20,20"
-                        Stroke="#33FFFFFF"
-                        StrokeThickness="2"
-                        StrokeLineCap="Round"
-                        HorizontalOptions="Center"
-                        VerticalOptions="Center" />
+                <Label x:Name="ResizeCornerGlyph"                  
+                       FontFamily="TablerIconsLine"
+                       TextColor="#44ffffff"
+                       FontSize="20"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center" />
                 <Border.GestureRecognizers>
                     <PanGestureRecognizer PanUpdated="OnResizeCornerPanUpdated" />
                 </Border.GestureRecognizers>

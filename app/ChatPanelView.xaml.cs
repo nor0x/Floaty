@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Text;
+using AsyncAwaitBestPractices;
 using Floaty.Services;
 using Microsoft.Extensions.AI;
 
@@ -330,21 +331,23 @@ public partial class ChatPanelView : ContentView
         if (onLeft)
         {
             CollapseButton.Text = IconFont.TablerLine.CaretRight;
-            CollapseButton.Margin = new Thickness(0, 0, 6, 0);
+			CollapseButton.Margin = new Thickness(0, 0, 6, 0);
             Grid.SetColumn(CollapseButton, 2);
             ResizeCornerGrip.HorizontalOptions = LayoutOptions.Start;
             ResizeCornerGrip.Margin = new Thickness(-14, -8, 0, 0);
-            ResizeCornerGlyph.ScaleX = -1;
-        }
-        else
+			ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopLeft;
+
+		}
+		else
         {
             CollapseButton.Text = IconFont.TablerLine.CaretLeft;
             CollapseButton.Margin = new Thickness(6, 0, 0, 0);
             Grid.SetColumn(CollapseButton, 0);
             ResizeCornerGrip.HorizontalOptions = LayoutOptions.End;
             ResizeCornerGrip.Margin = new Thickness(0, -8, -8, 0);
-            ResizeCornerGlyph.ScaleX = 1;
-        }
+            ResizeCornerGlyph.Text = IconFont.TablerLine.RadiusTopRight;
+
+		}
 
         ApplyResizeGripCursor();
     }
