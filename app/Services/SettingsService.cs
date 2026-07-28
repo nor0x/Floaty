@@ -32,7 +32,7 @@ public sealed class SettingsService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>Smallest allowed ring diameter (device-independent units).</summary>
-    public const double RingMinSize = 96;
+    public const double RingMinSize = 50;
 
     /// <summary>Largest allowed ring diameter (device-independent units).</summary>
     public const double RingMaxSize = 288;
