@@ -47,8 +47,18 @@ public sealed class ChatService : IChatService
         "between them (screen history); both are stored in local memory. When the user asks about " +
         "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
         "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
-        "it returns. When the user asks you to remember a durable fact, call the save_memory tool to " +
-        "persist it. Be concise.";
+        "it returns. Search results show only the passage that matched; if it looks cut off or doesn't " +
+        "contain the detail you need, call read_capture with that result's 'file:' value before " +
+        "concluding the information isn't there. When the user asks you to remember a durable fact, " +
+        "call the save_memory tool to persist it. Be concise.";
+
+    // Characters of a capture shown per search hit. Matches TextChunker.ChunkChars so a chunk lands
+    // in the result whole rather than being cut in half a second time.
+    private const int SnippetChars = 1000;
+
+    // Characters returned per read_capture call. Generous, because the model only asks for this once
+    // it has decided a specific capture is worth reading in full.
+    private const int ReadCaptureChars = 6000;
 
     // Per-turn sink the search_captures tool writes its sources into; flows via the async call chain
     // from GetStreamingResponseAsync into the function-invocation middleware.
@@ -62,6 +72,7 @@ public sealed class ChatService : IChatService
     private readonly IMemoryService _memory;
     private readonly IMcpService _mcp;
     private readonly AIFunction _searchTool;
+    private readonly AIFunction _readCaptureTool;
     private readonly AIFunction _saveTool;
     private readonly AIFunction _execTool;
 
@@ -78,6 +89,7 @@ public sealed class ChatService : IChatService
         _settings.Changed += (_, _) => _client = null;
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
+        _readCaptureTool = AIFunctionFactory.Create(ReadCapture, name: "read_capture");
         _saveTool = AIFunctionFactory.Create(SaveMemory, name: "save_memory");
         _execTool = AIFunctionFactory.Create(Exec, name: "exec");
     }
@@ -113,8 +125,8 @@ public sealed class ChatService : IChatService
             messages.Add(new ChatMessage(ChatRole.System,
                 $"You are using a Floaty skill. Follow its instructions:\n\n{skillInstructions}"));
 
-        // Always expose memory search + save; add the scoped MCP server's tools when invoked via /server.
-        var tools = new List<AITool> { _searchTool, _saveTool };
+        // Always expose memory search + read + save; add the scoped MCP server's tools via /server.
+        var tools = new List<AITool> { _searchTool, _readCaptureTool, _saveTool };
 
         // Only expose the shell tool when the user has opted in.
         if (config.ExecEnabled)
@@ -177,9 +189,10 @@ public sealed class ChatService : IChatService
                  "saw, viewed, read, or captured on their screen.")]
     private async Task<string> SearchCaptures(
         [Description("What to look for, described in natural language.")] string query,
-        [Description("Maximum number of captures to return (default 5).")] int topK = 5)
+        [Description("Maximum number of captures to return, 1-10 (default 5).")] int topK = 5)
     {
-        var results = await _memory.SearchCapturesAsync(query, topK);
+        // Clamp: the model picks this, and every extra hit costs ~1000 characters of context.
+        var results = await _memory.SearchCapturesAsync(query, Math.Clamp(topK, 1, 10));
         if (results.Count == 0)
             return "No matching captures found.";
 
@@ -195,13 +208,57 @@ public sealed class ChatService : IChatService
             var score = r.Score is { } s ? $", score {s:F2}" : string.Empty;
             sb.AppendLine();
             sb.AppendLine($"[{index}] {r.Title} ({when}{score})");
-            sb.AppendLine(Snippet(r.Content, 600));
+            sb.AppendLine(TextChunker.BestWindow(r.Content, query, SnippetChars));
+
+            // Name the saved text file so read_capture can pull the rest when the snippet isn't enough.
+            if (!string.IsNullOrWhiteSpace(r.TextPath))
+                sb.AppendLine($"file: {Path.GetFileName(r.TextPath)}");
             if (!string.IsNullOrWhiteSpace(r.ImagePath))
                 sb.AppendLine($"image: {r.ImagePath}");
             index++;
         }
 
         return sb.ToString();
+    }
+
+    [Description("Read the full saved text of one capture, for when a search_captures snippet is " +
+                 "cut off or lacks the detail needed to answer. Pass the 'file:' value from a " +
+                 "search_captures result. Read further into a long capture by raising 'offset'.")]
+    private Task<string> ReadCapture(
+        [Description("The capture's file name, exactly as given by search_captures.")] string file,
+        [Description("Character offset to start reading from (default 0).")] int offset = 0)
+    {
+        if (string.IsNullOrWhiteSpace(file))
+            return Task.FromResult("No capture file was specified.");
+
+        // GetFileName strips any directory the model may have prepended, so this can only ever open
+        // something inside Floaty's own capture folders — never an arbitrary path on the machine.
+        var name = Path.GetFileName(file.Trim());
+        var path = new[] { FloatyPaths.Captures, FloatyPaths.Drops }
+            .Select(dir => Path.Combine(dir, name))
+            .FirstOrDefault(File.Exists);
+
+        if (path is null)
+            return Task.FromResult($"No saved capture named '{name}'. Use the 'file:' value from a search_captures result.");
+
+        string text;
+        try
+        {
+            text = File.ReadAllText(path);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult($"Could not read '{name}': {ex.Message}");
+        }
+
+        offset = Math.Clamp(offset, 0, Math.Max(0, text.Length - 1));
+        var window = text.Substring(offset, Math.Min(ReadCaptureChars, text.Length - offset));
+        var end = offset + window.Length;
+
+        var header = $"{name} — characters {offset}-{end} of {text.Length}";
+        return Task.FromResult(end < text.Length
+            ? $"{header}\n\n{window}\n\n[truncated — call read_capture again with offset {end} for more]"
+            : $"{header}\n\n{window}");
     }
 
     [Description("Save a durable fact or note to the user's local memory so it can be recalled later. " +
@@ -263,11 +320,6 @@ public sealed class ChatService : IChatService
         }
     }
 
-    private static string Snippet(string text, int max)
-    {
-        text = text.Trim();
-        return text.Length <= max ? text : text[..max] + "…";
-    }
 
     private IChatClient GetOrCreateClient(FloatyConfig config)
     {

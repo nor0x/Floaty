@@ -52,13 +52,15 @@ When adding platform functionality, follow this triple exactly: interface, Windo
 
 Key services:
 
-- `ChatService` - builds an `IChatClient` from settings, rebuilds on config change; exposes the `search_captures` AI tool and, when the user scopes chat with `/server`, that MCP server's tools.
-- `MemoryService` - OpenAI embeddings persisted to LiteGraph; one node per capture with embedding + metadata.
+- `ChatService` - builds an `IChatClient` from settings, rebuilds on config change; exposes the `search_captures` and `read_capture` AI tools and, when the user scopes chat with `/server`, that MCP server's tools. Search hits show the passage that matched (`TextChunker.BestWindow`), not the opening; `read_capture` reads the rest from the saved file, resolved by name inside Floaty's own capture folders only.
+- `MemoryService` - OpenAI embeddings persisted to LiteGraph. One node per capture carrying **one vector per chunk** (`TextChunker`), embedded in batches; nothing is truncated. Search over-fetches, groups hits by capture, and re-scores the capture's chunks locally to return the passage that matched — LiteGraph's result names the node but not which vector won. Enables an HNSW vector index (`~/.floaty/floaty.vectors.db`) after the first store; auto-capture count/delete filter `Source` through LiteGraph rather than reading every node. `ReindexCapturesAsync` re-chunks existing captures from their saved `.txt` (Settings → Screen History).
 - `McpService` - connects/caches MCP clients per configured server; cache cleared on settings change.
 - `SkillService` - scans `~/.floaty/skills`, `~/.claude/skills`, `~/.agents/skills` for SKILL.md folders (YAML frontmatter + markdown body); invoked via `/name` slash commands in chat.
 - `SettingsService` / `FloatyConfig` - loads/persists `~/.floaty/config.json`; other services subscribe to change notifications.
 - `FloatyPaths` - static accessors for every `~/.floaty` subdirectory (ensures dirs exist). Always use this instead of composing paths manually.
-- `WindowsScreenHistoryService` - foreground-window/title watcher that auto-records into memory per `FloatyConfig.ScreenHistoryMode`.
+- `WindowsScreenHistoryService` - foreground-window/title watcher that auto-records into memory per `FloatyConfig.ScreenHistoryMode`. Tunables (dwell, per-window cooldown, global floor) are constants at the top.
+- `CaptureDedupe` - bounded LRU ledger of recently captured windows plus a SimHash content fingerprint, so screen history doesn't re-embed screens it already stored when the user cycles between windows.
+- `TextChunker` - splits capture text into overlapping line-aware chunks for embedding, and picks the query-relevant window to display. Pure and dependency-free, so it can be exercised in isolation.
 - `NativeRuntimeService` / `ModelDownloadService` / `SttModelCatalog` - download transcribe.cpp native runtime (version pinned in `NativeRuntimeService.Version`) and GGUF STT models into `~/.floaty/native` and `~/.floaty/models` at first use; they are not packaged with the app.
 - `UpdateService` - Velopack-based self-update from GitHub Releases; only active when running as an installed app.
 

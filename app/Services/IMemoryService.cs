@@ -55,6 +55,20 @@ public interface IMemoryService
     Task<int> DeleteAutoCapturesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Re-embeds stored captures from their saved text files, replacing each one's vectors with a
+    /// chunked set. Captures written before chunking existed hold a single vector covering only
+    /// their first few thousand characters, so the rest of what was on screen can't be found;
+    /// this makes all of it searchable. Skips captures whose text file is gone, reports progress as
+    /// (done, total), and returns how many were re-indexed.
+    ///
+    /// Costs one embedding call per ~64 chunks across the whole history, so it's a deliberate
+    /// user-triggered action rather than something that runs on startup.
+    /// </summary>
+    Task<int> ReindexCapturesAsync(
+        IProgress<(int Done, int Total)>? progress = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Embeds <paramref name="query"/> and returns the most semantically similar stored captures.
     /// Returns an empty list when there's no API key or the query is blank.
     /// </summary>

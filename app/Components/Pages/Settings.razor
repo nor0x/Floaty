@@ -266,6 +266,28 @@
                     <span class="hint">Deletes all automatic snapshots and their files. Captures you took
                         yourself (📷 or <code>/capture</code>) and saved notes are kept.</span>
                 </div>
+
+                <div class="field">
+                    <label>Search index</label>
+                    <div class="actions sub-actions">
+                        <button class="reload" @onclick="ReindexCaptures" disabled="@(_reindexing || _clearingHistory)">
+                            <i class="ti ti-refresh" aria-hidden="true"></i>
+                            <span>@(_reindexing ? "Re-indexing…" : "Re-index stored captures")</span>
+                        </button>
+                        @if (_reindexProgress is (int done, int total) && total > 0)
+                        {
+                            <span class="hint">@done / @total</span>
+                        }
+                        else if (_reindexResult is string msg)
+                        {
+                            <span class="hint">@msg</span>
+                        }
+                    </div>
+                    <span class="hint">Older snapshots were indexed only by their first few thousand
+                        characters, so anything further down couldn't be found. This re-reads each saved
+                        capture in full and re-indexes it in pieces. It re-sends that text to your
+                        embedding model, so it costs a little — run it once.</span>
+                </div>
             }
             else if (_activeSection == SettingsSection.VoiceInput)
             {
@@ -756,6 +778,9 @@
     private int? _autoCaptureCount;
     private bool _confirmClearHistory;
     private bool _clearingHistory;
+    private bool _reindexing;
+    private (int Done, int Total)? _reindexProgress;
+    private string? _reindexResult;
 
     // Voice input section state. Downloads mutate disk immediately; selection/mode commit on Save.
     private readonly HashSet<string> _sttDownloading = new();
@@ -1226,6 +1251,34 @@
 
         _clearingHistory = false;
         _confirmClearHistory = false;
+    }
+
+    private async Task ReindexCaptures()
+    {
+        _reindexing = true;
+        _reindexResult = null;
+        _reindexProgress = (0, 0);
+
+        // Marshalled back onto the UI thread: the reporter fires from the background sweep.
+        var progress = new Progress<(int Done, int Total)>(p =>
+        {
+            _reindexProgress = p;
+            _ = InvokeAsync(StateHasChanged);
+        });
+
+        try
+        {
+            var count = await MemoryService.ReindexCapturesAsync(progress);
+            _reindexResult = $"Re-indexed {count} capture(s).";
+        }
+        catch (Exception ex)
+        {
+            _reindexResult = $"Re-index failed: {ex.Message}";
+        }
+
+        _reindexProgress = null;
+        _reindexing = false;
+        await InvokeAsync(StateHasChanged);
     }
 
     private string TabClass(SettingsSection section) => section == _activeSection ? "active" : string.Empty;

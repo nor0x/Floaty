@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using Floaty.Services;
 using Microsoft.UI.Dispatching;
@@ -16,20 +15,24 @@ namespace Floaty.Platforms.Windows;
 ///
 /// Dedupe layers keep API spend and noise down, cheapest check first:
 /// <list type="number">
-///   <item><description>global floor: at most one capture per <see cref="MinCaptureInterval"/> (deferred, not dropped);</description></item>
-///   <item><description>same window+title within <see cref="SameWindowCooldown"/> is skipped;</description></item>
-///   <item><description>identical accessibility content (hash) to the previous capture is skipped.</description></item>
+///   <item><description>global floor: at most one capture attempt per <see cref="MinCaptureInterval"/> (deferred, not dropped);</description></item>
+///   <item><description>any window+title captured within <see cref="SameWindowCooldown"/> is skipped;</description></item>
+///   <item><description>content matching any recently stored screen is skipped.</description></item>
 /// </list>
+/// The last two consult <see cref="CaptureDedupe"/>, which tracks a window of recent captures rather
+/// than only the previous one — switching is round-robin, so a depth-one memory would re-store every
+/// window the user comes back to.
 /// </summary>
 public sealed class WindowsScreenHistoryService : IScreenHistoryService
 {
     // How long the user must stay on a window before it's considered "settled" and captured.
     private static readonly TimeSpan Dwell = TimeSpan.FromSeconds(2);
 
-    // Returning to the same window+title within this span doesn't re-capture.
+    // Returning to any window+title captured within this span doesn't re-capture.
     private static readonly TimeSpan SameWindowCooldown = TimeSpan.FromMinutes(5);
 
-    // Hard floor between any two captures; caps worst-case embedding/vision spend at ~3/min.
+    // Hard floor between any two capture attempts; caps worst-case embedding/vision spend at ~3/min
+    // and, because it counts attempts rather than stores, also caps the UI Automation tree walks.
     private static readonly TimeSpan MinCaptureInterval = TimeSpan.FromSeconds(20);
 
     // Windows whose accessibility text is shorter than this aren't worth remembering.
@@ -38,6 +41,7 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
     private readonly SettingsService _settings;
     private readonly IScreenCaptureService _capture;
     private readonly IMemoryService _memory;
+    private readonly CaptureDedupe _dedupe = new();
 
     private DispatcherQueue? _dispatcher;
     private DispatcherQueueTimer? _dwellTimer;
@@ -49,13 +53,10 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
     private bool _initialized;
 
     // All of the state below lives on the dispatcher thread (WINEVENT_OUTOFCONTEXT delivers the
-    // callback via the installing thread's message loop), except _lastContentHash which is only
-    // touched by the single-flight background capture task.
+    // callback via the installing thread's message loop); cross-thread dedupe state lives in
+    // _dedupe, which locks internally.
     private nint _pendingHwnd;
-    private nint _lastHwnd;
-    private string _lastTitle = string.Empty;
-    private DateTime _lastCaptureUtc = DateTime.MinValue;
-    private string _lastContentHash = string.Empty;
+    private DateTime _lastAttemptUtc = DateTime.MinValue;
     private int _captureInFlight;
 
     public WindowsScreenHistoryService(SettingsService settings, IScreenCaptureService capture, IMemoryService memory)
@@ -106,6 +107,7 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
         {
             _dwellTimer?.Stop();
             _pendingHwnd = nint.Zero;
+            _dedupe.Clear();
             RemoveHooks();
         }
     }
@@ -152,6 +154,8 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
 
         _pendingHwnd = hwnd;
         _dwellTimer!.Stop();
+        // Restore the dwell interval in case the last tick left it stretched to wait out the floor.
+        _dwellTimer.Interval = Dwell;
         _dwellTimer.Start();
     }
 
@@ -168,23 +172,32 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
             return; // nothing downstream would store it
 
         var now = DateTime.UtcNow;
-        if (now - _lastCaptureUtc < MinCaptureInterval)
+        var sinceAttempt = now - _lastAttemptUtc;
+        if (sinceAttempt < MinCaptureInterval)
         {
-            // Defer rather than drop: re-check after another dwell so a window the user settles on
-            // right after a capture still gets recorded once the floor passes.
-            _dwellTimer!.Start();
+            // Defer rather than drop: wait out the remainder of the floor so a window the user
+            // settles on right after a capture still gets recorded, without polling every 2s.
+            _dwellTimer!.Interval = MinCaptureInterval - sinceAttempt + Dwell;
+            _dwellTimer.Start();
             return;
         }
 
         var title = GetWindowText(hwnd);
-        if (hwnd == _lastHwnd && title == _lastTitle && now - _lastCaptureUtc < SameWindowCooldown)
+        if (_dedupe.IsInCooldown(WindowKey(hwnd, title), now, SameWindowCooldown))
             return;
 
         if (Interlocked.CompareExchange(ref _captureInFlight, 1, 0) != 0)
             return; // a capture is already running; drop this one
 
+        // Count the attempt, not just a successful store: otherwise a window that keeps being
+        // skipped (too little text, unchanged content) never advances the floor and we pay for a
+        // full UI Automation walk — and in screenshot mode a PrintWindow — every couple of seconds.
+        _lastAttemptUtc = now;
+
         _ = Task.Run(() => CaptureAndStoreAsync(hwnd, title, mode));
     }
+
+    private static string WindowKey(nint hwnd, string title) => $"{hwnd} {title}";
 
     private async Task CaptureAndStoreAsync(nint hwnd, string title, ScreenHistoryMode mode)
     {
@@ -200,23 +213,22 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
             if (result.Content.Trim().Length < MinContentChars)
                 return;
 
-            // Title flickered but the content didn't (or the event was pure noise): don't pay for
-            // another embedding of the same text.
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(result.Content)));
-            if (hash == _lastContentHash)
+            // The title flickered but the screen didn't, or we're back on something already stored:
+            // don't pay for another embedding of the same content.
+            var fingerprint = CaptureDedupe.Fingerprint(result.Content);
+            if (_dedupe.IsDuplicate(fingerprint))
+            {
+                // This screen is already in memory, so put the window on cooldown regardless: it
+                // stops us re-walking its accessibility tree every time the user comes back.
+                _dedupe.Record(WindowKey(hwnd, title), fingerprint, DateTime.UtcNow);
                 return;
+            }
 
             stored = await _memory.RememberCaptureAsync(result, IMemoryService.AutoCaptureSource);
             if (!stored)
                 return;
 
-            _lastContentHash = hash;
-            _dispatcher?.TryEnqueue(() =>
-            {
-                _lastHwnd = hwnd;
-                _lastTitle = title;
-                _lastCaptureUtc = DateTime.UtcNow;
-            });
+            _dedupe.Record(WindowKey(hwnd, title), fingerprint, DateTime.UtcNow);
         }
         catch (Exception ex)
         {
