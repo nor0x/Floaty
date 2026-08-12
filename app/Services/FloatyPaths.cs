@@ -26,6 +26,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/ring</c> — user-provided ring images available in Appearance settings.</summary>
     public static string RingImages => EnsureDir(Path.Combine(Home, "ring"));
 
+    /// <summary><c>~/.floaty/sounds</c> — user-provided sound effects available in Sounds settings.</summary>
+    public static string Sounds => EnsureDir(Path.Combine(Home, "sounds"));
+
     /// <summary><c>~/.floaty/conversations</c> — one JSON file per saved chat thread.</summary>
     public static string Conversations => EnsureDir(Path.Combine(Home, "conversations"));
 

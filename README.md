@@ -22,7 +22,8 @@ Everything stays on your machine: memory, conversations, skills, settings, and s
 
 ## ✨ Features
 
-- **Floating ring overlay** - draggable (with natural ring rotation), borderless, always on top, and click-through in its transparent regions. Buttons for screenshot capture, voice input, chat, and settings; the ring image itself is customizable.
+- **Floating ring overlay** - draggable (with natural ring rotation), borderless, always on top, and click-through in its transparent regions. Buttons for screenshot capture, voice input, chat, and settings; the ring image itself is customizable. Capturing snaps the ring shut like a camera shutter.
+- **Sound effects** 🔊 - a shutter sound on capture and a chime when a reply finishes, each toggleable and swappable for a built-in or your own file in `~/.floaty/sounds`.
 - **Screen capture & reading** - grabs a screenshot *and* the text content of the active window via UI Automation, so captures are searchable by meaning, not just stored as pixels.
 - **Automatic screen history** - optionally records the foreground window (title and/or content) as you work, feeding your local memory without any manual capturing.
 - **Local memory with vector search** - captures are embedded and stored in an on-device LiteGraph/SQLite database. The chat exposes a `search_captures` tool so the assistant can recall what you've seen.
@@ -55,6 +56,7 @@ Everything Floaty knows lives under `~/.floaty`:
 | `models/` | Downloaded speech-to-text models |
 | `native/` | Downloaded native runtimes (transcribe.cpp) |
 | `ring/` | Custom ring images for the overlay |
+| `sounds/` | Custom sound effects for capture / reply-finished |
 
 ## 🛠️ Building from source
 

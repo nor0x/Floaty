@@ -77,6 +77,11 @@
                via FileSystem.OpenAppPackageFileAsync and render base64 previews. -->
         <MauiAsset Include="Resources\Images\ring*.png" LogicalName="%(Filename)%(Extension)" />
 
+        <!-- Built-in sound effects (capture shutter, assistant-reply chime). Packaged the same way
+               as the ring images so ISoundService can open them by bare filename; see
+               Resources\Sounds\CREDITS.md for their CC0 provenance. -->
+        <MauiAsset Include="Resources\Sounds\*.wav" LogicalName="%(Filename)%(Extension)" />
+
         <!-- Custom Fonts -->
         <MauiFont Include="Resources\Fonts\*" />
 

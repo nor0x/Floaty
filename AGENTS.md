@@ -62,6 +62,7 @@ Key services:
 - `CaptureDedupe` - bounded LRU ledger of recently captured windows plus a SimHash content fingerprint, so screen history doesn't re-embed screens it already stored when the user cycles between windows.
 - `TextChunker` - splits capture text into overlapping line-aware chunks for embedding, and picks the query-relevant window to display. Pure and dependency-free, so it can be exercised in isolation.
 - `NativeRuntimeService` / `ModelDownloadService` / `SttModelCatalog` - download transcribe.cpp native runtime (version pinned in `NativeRuntimeService.Version`) and GGUF STT models into `~/.floaty/native` and `~/.floaty/models` at first use; they are not packaged with the app.
+- `ISoundService` / `WindowsSoundService` - Floaty's own feedback sounds (capture shutter, assistant-reply finished). One long-lived NAudio `WaveOutEvent` + `MixingSampleProvider` with decoded clips cached per selection; built-ins ship in `app/Resources/Sounds` (CC0, see its CREDITS.md) and users can drop their own into `~/.floaty/sounds`. Fire-and-forget and failure-swallowing by design — audio must never break a capture or a chat turn. Also serves the Settings audition button via `SettingsService.SoundPreviewRequested`.
 - `UpdateService` - Velopack-based self-update from GitHub Releases; only active when running as an installed app.
 
 ### Windows overlay specifics
@@ -74,7 +75,7 @@ Key services:
 
 ## Data: `~/.floaty`
 
-All user data is local-first under the home directory: `config.json`, `floaty.md` (user system prompt), `floaty.db`, `captures/`, `conversations/` (one JSON per thread), `skills/`, `models/`, `native/`, `ring/`. Never hardcode these paths - go through `FloatyPaths`.
+All user data is local-first under the home directory: `config.json`, `floaty.md` (user system prompt), `floaty.db`, `captures/`, `conversations/` (one JSON per thread), `skills/`, `models/`, `native/`, `ring/`, `sounds/`. Never hardcode these paths - go through `FloatyPaths`.
 
 ## Build & run
 

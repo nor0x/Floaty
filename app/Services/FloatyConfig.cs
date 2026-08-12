@@ -141,6 +141,31 @@ public sealed class FloatyConfig
     public string AccentColor { get; set; } = AccentPalette.DefaultHex;
 
     /// <summary>
+    /// Whether the shutter sound plays when the user captures a window (<c>/capture</c> or an
+    /// <c>@</c> attachment). The ring's shutter animation is not affected by this — only the audio.
+    /// </summary>
+    public bool CaptureSoundEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Sound played on capture: a built-in name or a filename from <c>~/.floaty/sounds</c>. Empty
+    /// uses <see cref="SettingsService.DefaultCaptureSound"/>, mirroring <see cref="RingImageFileName"/>.
+    /// </summary>
+    public string CaptureSoundFileName { get; set; } = string.Empty;
+
+    /// <summary>Whether a sound plays once an assistant reply has finished streaming.</summary>
+    public bool AssistantDoneSoundEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Sound played when an assistant reply finishes. Empty uses
+    /// <see cref="SettingsService.DefaultAssistantDoneSound"/>. Draws from the same pool as
+    /// <see cref="CaptureSoundFileName"/>.
+    /// </summary>
+    public string AssistantDoneSoundFileName { get; set; } = string.Empty;
+
+    /// <summary>Playback volume for Floaty's own sounds, 0–1. Clamped on use.</summary>
+    public double SoundVolume { get; set; } = 0.7;
+
+    /// <summary>
     /// What gets auto-captured into memory when the user switches windows (or tabs, via title
     /// changes). Stored as a string ("TextOnly") so config.json stays hand-editable.
     /// </summary>

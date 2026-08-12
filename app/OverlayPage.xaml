@@ -48,8 +48,9 @@
             <ColumnDefinition x:Name="RightSpace" Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- Ring host. Floating chat placement adds the panel in a side column at runtime. -->
-        <VerticalStackLayout Grid.Column="1"
+        <!-- Ring host. Floating chat placement adds the panel in a side column at runtime. A Grid
+             rather than a stack so the shutter flash can layer over the ring. -->
+        <Grid Grid.Column="1"
             ZIndex="10"
             HorizontalOptions="Center"
             VerticalOptions="End">
@@ -113,7 +114,17 @@
                     <TapGestureRecognizer Tapped="OnRingTapped" />
                 </Image.GestureRecognizers>
             </Image>
-        </VerticalStackLayout>
+
+            <!-- The capture "flash frame": invisible at rest, blinks white while the shutter is shut
+                 (see OverlayPage.RunShutterAsync). InputTransparent so it can never steal the ring's
+                 gestures, and sized to the ring, whose bounds are what the click-through hit test
+                 reads. -->
+            <Ellipse x:Name="ShutterFlash"
+                Fill="White"
+                Opacity="0"
+                IsVisible="False"
+                InputTransparent="True" />
+        </Grid>
 
     </Grid>
 
