@@ -62,6 +62,12 @@ public interface IChatPanelHost
     /// </summary>
     void SetBusy(bool busy);
 
+    /// <summary>
+    /// The user just captured a window. Like <see cref="SetBusy"/>, this lands on the ring, so the
+    /// standalone host forwards it back to the overlay page.
+    /// </summary>
+    void SignalCapture();
+
 }
 
 /// <summary>
@@ -72,4 +78,16 @@ public interface IRingFeedback
 {
     /// <summary>Runs (or stops) the ring's "waiting for the first model token" spin loader.</summary>
     void SetBusy(bool busy);
+
+    /// <summary>
+    /// Acknowledges a capture the user asked for (<c>/capture</c> or an <c>@</c> attachment): the ring
+    /// runs its camera-shutter flourish and the configured capture sound plays. Deliberately one call
+    /// for both halves — they are a single piece of feedback, and the overlay owns the sound service
+    /// so it exists from startup rather than waiting for a chat panel to be built.
+    /// </summary>
+    /// <remarks>
+    /// Automatic screen history never calls this: it captures on every window dwell, and would turn
+    /// the ring into a strobe.
+    /// </remarks>
+    void SignalCapture();
 }

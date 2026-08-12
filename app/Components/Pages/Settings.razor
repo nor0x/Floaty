@@ -24,6 +24,11 @@
                 <i class="ti ti-palette" aria-hidden="true"></i>
                 <span>Appearance</span>
             </button>
+            <button class="tab @TabClass(SettingsSection.Sounds)"
+                    @onclick="() => SelectSection(SettingsSection.Sounds)">
+                <i class="ti ti-volume" aria-hidden="true"></i>
+                <span>Sounds</span>
+            </button>
             <button class="tab @TabClass(SettingsSection.ModelProvider)"
                     @onclick="() => SelectSection(SettingsSection.ModelProvider)">
                 <i class="ti ti-cpu" aria-hidden="true"></i>
@@ -189,6 +194,78 @@
                         image(s).</span>
                     </div>
                 }
+            else if (_activeSection == SettingsSection.Sounds)
+            {
+                <div class="card-head">
+                    <h2>Sounds</h2>
+                    <p>Floaty's own sound effects. Each one can be turned off or swapped for another sound.</p>
+                </div>
+
+                @foreach (var slot in SoundSlots)
+                {
+                    <div class="field">
+                        <label>@slot.Label</label>
+                        <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                            <input type="checkbox" checked="@slot.GetEnabled(_config)"
+                                   @onchange="e => SetSoundEnabled(slot, e.Value as bool? == true)" />
+                            @slot.ToggleText
+                        </label>
+
+                        <div class="mcp-list">
+                            @foreach (var option in _soundOptions)
+                            {
+                                <div class="mcp-row">
+                                    <input type="radio" name="@slot.Key"
+                                           checked="@IsSelectedSound(slot, option.Value)"
+                                           @onchange="() => SelectSound(slot, option.Value)"
+                                           title="Use this sound" />
+                                    <div class="mcp-info">
+                                        <span class="mcp-name">
+                                            <i class="ti ti-music" aria-hidden="true"></i> @option.Label
+                                        </span>
+                                        <span class="mcp-meta">@(option.IsBuiltIn ? "Built-in" : "Custom")</span>
+                                    </div>
+                                    <button class="mcp-remove" @onclick="() => PreviewSound(option.Value)"
+                                            title="Play this sound">
+                                        <i class="ti ti-player-play" aria-hidden="true"></i>
+                                        <span>Play</span>
+                                    </button>
+                                </div>
+                            }
+                        </div>
+
+                        <span class="hint">@slot.Hint</span>
+                    </div>
+                }
+
+                <div class="field">
+                    <label for="soundVolume">Volume</label>
+                    <div class="ring-size-row">
+                        <input id="soundVolume" type="range" min="0" max="100" step="1"
+                               value="@((int)Math.Round(_config.SoundVolume * 100))"
+                               @oninput="OnSoundVolumeInput" />
+                        <span class="ring-size-value">@((int)Math.Round(_config.SoundVolume * 100))%</span>
+                    </div>
+                    <span class="hint">Applies to every sound above. Press Play on any sound to hear the
+                        current setting — previews use the live value, so you can hear it before saving.</span>
+                </div>
+
+                <div class="actions sub-actions">
+                    <button class="reload" @onclick="ReloadSounds">
+                        <i class="ti ti-refresh" aria-hidden="true"></i>
+                        <span>Reload</span>
+                    </button>
+                    <button class="reload" @onclick="OpenSoundsFolder">
+                        <i class="ti ti-folder" aria-hidden="true"></i>
+                        <span>Open folder</span>
+                    </button>
+                    <span class="hint">Loaded @_soundOptions.Count sound(s), including @_customSoundCount
+                        custom.</span>
+                </div>
+                <span class="hint">Built-ins are packaged with Floaty (public-domain sounds from
+                    BigSoundBank). Drop your own <code>.wav</code> or <code>.mp3</code> files into
+                    <code>~/.floaty/sounds</code> and click Reload. Selections apply on Save.</span>
+            }
             else if (_activeSection == SettingsSection.ScreenHistory)
             {
                 <div class="card-head">
@@ -734,6 +811,7 @@
     {
         Behavior,
         Appearance,
+        Sounds,
         ModelProvider,
         ScreenHistory,
         VoiceInput,
@@ -744,6 +822,47 @@
     }
 
     private sealed record RingImageOption(string Value, string Label, bool IsBuiltIn, string? PreviewSrc = null);
+
+    private sealed record SoundOption(string Value, string Label, bool IsBuiltIn);
+
+    /// <summary>
+    /// One occasion Floaty makes a noise, paired with the config it reads and writes. Both slots draw
+    /// from the same pool of sounds, so the section is one loop over these rather than two copies of
+    /// the same markup.
+    /// </summary>
+    private sealed record SoundSlot(
+        string Key,
+        string Label,
+        string ToggleText,
+        string Hint,
+        string DefaultSound,
+        Func<FloatyConfig, bool> GetEnabled,
+        Action<FloatyConfig, bool> SetEnabled,
+        Func<FloatyConfig, string> GetSelection,
+        Action<FloatyConfig, string> SetSelection);
+
+    private static readonly SoundSlot[] SoundSlots =
+    [
+        new("captureSound",
+            "Screen capture",
+            "Play a sound when a window is captured",
+            "Fires for /capture and for windows you attach with @. Automatic screen history stays " +
+            "silent — it captures constantly. The ring's shutter animation plays either way.",
+            SettingsService.DefaultCaptureSound,
+            c => c.CaptureSoundEnabled,
+            (c, v) => c.CaptureSoundEnabled = v,
+            c => c.CaptureSoundFileName,
+            (c, v) => c.CaptureSoundFileName = v),
+        new("assistantDoneSound",
+            "Assistant reply finished",
+            "Play a sound when a reply finishes",
+            "Plays once the assistant has stopped streaming, so you can look away while it works.",
+            SettingsService.DefaultAssistantDoneSound,
+            c => c.AssistantDoneSoundEnabled,
+            (c, v) => c.AssistantDoneSoundEnabled = v,
+            c => c.AssistantDoneSoundFileName,
+            (c, v) => c.AssistantDoneSoundFileName = v),
+    ];
 
     private static readonly (string Label, string Value)[] AccentPresets =
     [
@@ -761,6 +880,8 @@
     private string _systemPrompt = string.Empty;
     private List<RingImageOption> _ringOptions = new();
     private int _customRingCount;
+    private List<SoundOption> _soundOptions = new();
+    private int _customSoundCount;
     private bool _saved;
     private SettingsSection _activeSection = SettingsSection.Behavior;
 
@@ -812,6 +933,11 @@
             RingImageFileName = current.RingImageFileName,
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
+            CaptureSoundEnabled = current.CaptureSoundEnabled,
+            CaptureSoundFileName = current.CaptureSoundFileName,
+            AssistantDoneSoundEnabled = current.AssistantDoneSoundEnabled,
+            AssistantDoneSoundFileName = current.AssistantDoneSoundFileName,
+            SoundVolume = current.SoundVolume,
             ScreenHistoryMode = current.ScreenHistoryMode,
             AutostartMode = current.AutostartMode,
             // Set from the ring's context menu, not this page — but the clone is saved wholesale, so
@@ -849,6 +975,7 @@
         }
 
         await ReloadRingImages();
+        ReloadSounds();
     }
 
     private async Task CheckForUpdates()
@@ -1153,6 +1280,84 @@
         _config.RingSize = SettingsService.ClampRingSize(size);
         _saved = false;
         ConfigService.PreviewRingSize(_config.RingSize);
+    }
+
+    // --- Sounds ---
+
+    private void ReloadSounds()
+    {
+        var customSounds = ConfigService.GetAvailableSounds().ToList();
+
+        _soundOptions =
+        [
+            .. ConfigService.GetBuiltInSounds()
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .Select(name => new SoundOption(name, name, true)),
+            .. customSounds.Select(name => new SoundOption(name, name, false)),
+        ];
+
+        _customSoundCount = customSounds.Count;
+
+        // A file deleted behind Floaty's back falls back to the slot's built-in rather than erroring.
+        foreach (var slot in SoundSlots)
+        {
+            if (!ConfigService.IsValidSoundSelection(slot.GetSelection(_config)))
+                slot.SetSelection(_config, string.Empty);
+        }
+
+        _saved = false;
+    }
+
+    // An empty selection means "the slot's default built-in", so that option shows as the selected one.
+    private bool IsSelectedSound(SoundSlot slot, string value)
+    {
+        var selection = slot.GetSelection(_config);
+        return string.IsNullOrWhiteSpace(selection)
+            ? string.Equals(value, slot.DefaultSound, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(selection, value, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void SetSoundEnabled(SoundSlot slot, bool enabled)
+    {
+        slot.SetEnabled(_config, enabled);
+        _saved = false;
+    }
+
+    private void SelectSound(SoundSlot slot, string value)
+    {
+        if (string.Equals(slot.GetSelection(_config), value, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        slot.SetSelection(_config, value);
+        _saved = false;
+    }
+
+    // Auditions through ISoundService (see SettingsService.PreviewSound) so the user hears it on the
+    // same device at the volume currently on the slider, saved or not.
+    private void PreviewSound(string fileName) => ConfigService.PreviewSound(fileName, _config.SoundVolume);
+
+    private void OnSoundVolumeInput(ChangeEventArgs e)
+    {
+        var raw = Convert.ToString(e.Value, System.Globalization.CultureInfo.InvariantCulture);
+        if (!double.TryParse(raw, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var percent))
+            return;
+
+        _config.SoundVolume = SettingsService.ClampSoundVolume(percent / 100.0);
+        _saved = false;
+    }
+
+    private async Task OpenSoundsFolder()
+    {
+        try
+        {
+            var uri = new UriBuilder(Uri.UriSchemeFile, string.Empty) { Path = FloatyPaths.Sounds }.Uri;
+            await Microsoft.Maui.ApplicationModel.Launcher.Default.OpenAsync(uri);
+        }
+        catch
+        {
+            // Opening the folder is a convenience; the path is spelled out in the hint either way.
+        }
     }
 
     private bool IsSelectedAccent(string value) =>

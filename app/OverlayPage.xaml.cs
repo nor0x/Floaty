@@ -12,6 +12,7 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
     private readonly IOverlayWindowController _windowController;
     private readonly SettingsService _settings;
     private readonly ISelectionCaptureService _selectionCapture;
+    private readonly ISoundService _sounds;
     private readonly IServiceProvider _services;
 
     // Current ring diameter in device-independent units, driven by the user's setting (Appearance
@@ -134,12 +135,14 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         IOverlayWindowController windowController,
         SettingsService settings,
         ISelectionCaptureService selectionCapture,
+        ISoundService sounds,
         IServiceProvider services)
     {
         InitializeComponent();
         _windowController = windowController;
         _settings = settings;
         _selectionCapture = selectionCapture;
+        _sounds = sounds;
         _services = services;
 
         Ring.HandlerChanged += OnRingHandlerChanged;
@@ -298,6 +301,9 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         _ringSize = SettingsService.ClampRingSize(size);
         Ring.WidthRequest = _ringSize;
         Ring.HeightRequest = _ringSize;
+        // The flash disc is only ever seen on top of the ring, so it tracks the same diameter.
+        ShutterFlash.WidthRequest = _ringSize;
+        ShutterFlash.HeightRequest = _ringSize;
         ResizeWindowToRing();
     }
 
@@ -688,6 +694,154 @@ public partial class OverlayPage : ContentPage, IChatPanelHost, IRingFeedback
         }
 
         Ring.Rotation = start + deltaDegrees;
+    }
+
+    // --- Capture shutter ---
+
+    // The shutter's five beats, in milliseconds: a hair of wind-up, a hard snap shut, a beat held
+    // closed, a spring back open past rest, then a settle. Total ~455 ms.
+    private const int ShutterWindUpMs = 70;
+    private const int ShutterCloseMs = 85;
+    private const int ShutterHoldMs = 40;
+    private const int ShutterOpenMs = 150;
+    private const int ShutterSettleMs = 110;
+
+    // How far the ring opens before snapping shut, and how far it overshoots on the way back. Both
+    // stay under RingDropScale (1.14), which is as wide as the ring can go before the compact window
+    // — only CompactWidthPadding wider than the ring — clips it.
+    private const double ShutterWindUpScale = 1.06;
+    private const double ShutterOpenScale = 1.05;
+
+    // How far the "blades" close and how dim the ring goes while shut.
+    private const double ShutterClosedScale = 0.55;
+    private const double ShutterClosedOpacity = 0.25;
+
+    // Aperture blades twist as they close. The ring twists back by the same amount on the way open,
+    // so it ends on the angle it started at and the idle spin picks up seamlessly.
+    private const double ShutterTwistDegrees = 24;
+
+    // Peak opacity of the white flash frame while the shutter is shut.
+    private const double ShutterFlashOpacity = 0.55;
+
+    // Cancels an in-flight shutter so a second capture restarts it cleanly instead of two sequences
+    // fighting over Ring.Scale.
+    private CancellationTokenSource? _shutterCts;
+
+    // The angle the ring rests at between shutters. Captured once per flourish so a restart that
+    // lands mid-twist doesn't adopt the twisted angle as its new rest position.
+    private double _shutterRestRotation;
+
+    /// <summary>
+    /// The single "a capture just happened" feedback event: the ring's camera-shutter flourish plus
+    /// the configured capture sound. Both chat placements route here, since the ring lives in this
+    /// window either way. Safe to call repeatedly — a running shutter is restarted, not stacked.
+    /// </summary>
+    public void SignalCapture()
+    {
+        _sounds.Play(FloatySound.Capture);
+        Dispatcher.Dispatch(() => _ = RunShutterAsync());
+    }
+
+    private async Task RunShutterAsync()
+    {
+        // Only cancel here; each run disposes its own token source in its finally.
+        var restarted = _shutterCts is not null;
+        _shutterCts?.Cancel();
+
+        var cts = new CancellationTokenSource();
+        _shutterCts = cts;
+        var token = cts.Token;
+
+        // The ring's resting angle: the twist is applied relative to it and unwound back to it.
+        if (!restarted)
+            _shutterRestRotation = Ring.Rotation;
+        var restRotation = _shutterRestRotation;
+
+        _ringBusy = true; // take over from the idle spin for the duration
+        ShutterFlash.Opacity = 0;
+        ShutterFlash.IsVisible = true;
+
+        try
+        {
+            await AnimateShutterAsync(
+                ShutterWindUpScale, restRotation, ringOpacity: 1, flashOpacity: 0,
+                ShutterWindUpMs, Easing.CubicOut, token);
+
+            await AnimateShutterAsync(
+                ShutterClosedScale, restRotation - ShutterTwistDegrees, ShutterClosedOpacity, ShutterFlashOpacity,
+                ShutterCloseMs, Easing.CubicIn, token);
+
+            await Task.Delay(ShutterHoldMs, token);
+
+            await AnimateShutterAsync(
+                ShutterOpenScale, restRotation, ringOpacity: 1, flashOpacity: 0,
+                ShutterOpenMs, Easing.CubicOut, token);
+
+            await AnimateShutterAsync(
+                1.0, restRotation, ringOpacity: 1, flashOpacity: 0,
+                ShutterSettleMs, Easing.CubicInOut, token);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer shutter took over; it owns the reset below via its own finally.
+        }
+        finally
+        {
+            // Never leave the ring shrunken, dimmed or twisted, whatever went wrong — the same
+            // defensiveness as the drop-feedback watchdog.
+            if (_shutterCts == cts)
+            {
+                Ring.Scale = 1;
+                Ring.Opacity = 1;
+                Ring.Rotation = restRotation;
+                ShutterFlash.Opacity = 0;
+                ShutterFlash.IsVisible = false;
+                ShutterFlash.Scale = 1;
+                _ringBusy = false;
+                _shutterCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Drives one beat of the shutter. The ring and the flash disc have to scale in lockstep (the
+    /// flash sits on top of the ring), so a single tick loop moves both — the same hand-rolled
+    /// approach as <see cref="AnimateRingByAsync"/>, which needs the same cancel-mid-frame behavior.
+    /// </summary>
+    private async Task AnimateShutterAsync(
+        double scale,
+        double rotation,
+        double ringOpacity,
+        double flashOpacity,
+        int durationMs,
+        Easing easing,
+        CancellationToken cancellationToken)
+    {
+        var startScale = Ring.Scale;
+        var startRotation = Ring.Rotation;
+        var startRingOpacity = Ring.Opacity;
+        var startFlashOpacity = ShutterFlash.Opacity;
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        while (stopwatch.ElapsedMilliseconds < durationMs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var t = easing.Ease(Math.Clamp(stopwatch.Elapsed.TotalMilliseconds / durationMs, 0, 1));
+            Ring.Scale = ShutterFlash.Scale = startScale + ((scale - startScale) * t);
+            Ring.Rotation = startRotation + ((rotation - startRotation) * t);
+            Ring.Opacity = startRingOpacity + ((ringOpacity - startRingOpacity) * t);
+            ShutterFlash.Opacity = startFlashOpacity + ((flashOpacity - startFlashOpacity) * t);
+            await Task.Delay(16, cancellationToken);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        Ring.Scale = ShutterFlash.Scale = scale;
+        Ring.Rotation = rotation;
+        Ring.Opacity = ringOpacity;
+        ShutterFlash.Opacity = flashOpacity;
     }
 
     // --- Opening / closing the chat ---

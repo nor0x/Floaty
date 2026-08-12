@@ -142,6 +142,7 @@ public partial class ChatPanelView : ContentView
     private readonly SkillService _skillService;
     private readonly IVoiceInputService _voiceInput;
     private readonly IFileIngestService _fileIngest;
+    private readonly ISoundService _sounds;
     private readonly IServiceProvider _services;
 
     // Set by Attach() before the panel is shown; every window operation goes through it.
@@ -277,6 +278,7 @@ public partial class ChatPanelView : ContentView
         SkillService skillService,
         IVoiceInputService voiceInput,
         IFileIngestService fileIngest,
+        ISoundService sounds,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -288,6 +290,7 @@ public partial class ChatPanelView : ContentView
         _conversationStore = conversationStore;
         _skillService = skillService;
         _voiceInput = voiceInput;
+        _sounds = sounds;
         _services = services;
 
         MessagesList.ItemsSource = Messages;
@@ -1276,6 +1279,9 @@ public partial class ChatPanelView : ContentView
 
         vm.IsReady = true;
 
+        // Same acknowledgement as /capture: the user asked for this window and it has been grabbed.
+        _host.SignalCapture();
+
         if (_settings.Current.RememberTaggedCaptures)
         {
             try
@@ -1988,6 +1994,10 @@ public partial class ChatPanelView : ContentView
                 return;
             }
 
+            // Shutter flourish + sound the moment the pixels are ours, not after the (slower,
+            // network-bound) embedding — the feedback is about the capture, not about storing it.
+            _host.SignalCapture();
+
             var stored = await _memoryService.RememberCaptureAsync(result);
             await ShowInlineToastAsync($"Saved ✓ — {result.WindowTitle}{(stored ? " · embedded" : " · no API key")}");
 
@@ -2523,6 +2533,9 @@ public partial class ChatPanelView : ContentView
             _host.SetBusy(false);
         }
 
+        // The turn is over — errors included, since "it stopped, come look" is the useful signal.
+        _sounds.Play(FloatySound.AssistantDone);
+
         if (citations.Count > 0)
         {
             pending.Citations = citations.Select(ToCitationVm).ToList();
@@ -2799,4 +2812,5 @@ internal sealed class NullChatPanelHost : IChatPanelHost
     public void MoveWindowBy(double dxDip, double dyDip) { }
     public void CollapseRequested() { }
     public void SetBusy(bool busy) { }
+    public void SignalCapture() { }
 }

@@ -29,7 +29,35 @@ public sealed class SettingsService
         ".bmp",
     };
 
+    /// <summary>
+    /// Sound effects packaged with the app (see <c>Resources\Sounds</c> and its CREDITS.md). One flat
+    /// pool: any of them can be assigned to either the capture or the assistant-reply slot.
+    /// </summary>
+    private static readonly string[] BuiltInSounds =
+    [
+        "shutter.wav",
+        "shutter-double.wav",
+        "camera-phone.wav",
+        "notify.wav",
+        "chime.wav",
+    ];
+
+    /// <summary>
+    /// What <see cref="ISoundService"/> can decode: WAV natively, MP3 through the platform codec.
+    /// </summary>
+    private static readonly HashSet<string> SoundExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".wav",
+        ".mp3",
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
+    /// <summary>Built-in used when <see cref="FloatyConfig.CaptureSoundFileName"/> is unset.</summary>
+    public const string DefaultCaptureSound = "shutter.wav";
+
+    /// <summary>Built-in used when <see cref="FloatyConfig.AssistantDoneSoundFileName"/> is unset.</summary>
+    public const string DefaultAssistantDoneSound = "notify.wav";
 
     /// <summary>Smallest allowed ring diameter (device-independent units).</summary>
     public const double RingMinSize = 50;
@@ -65,12 +93,27 @@ public sealed class SettingsService
     /// <summary>Requests a transient accent-color preview on the live overlay (see <see cref="AccentColorPreviewRequested"/>).</summary>
     public void PreviewAccentColor(string hex) => AccentColorPreviewRequested?.Invoke(this, hex);
 
+    /// <summary>
+    /// Raised when the Sounds settings page wants to audition a sound. Routing the preview back
+    /// through <see cref="ISoundService"/> (rather than playing it in the settings WebView) means the
+    /// user hears it on the same device, at the same volume, as the real thing.
+    /// </summary>
+    public event EventHandler<(string FileName, double Volume)>? SoundPreviewRequested;
+
+    /// <summary>Requests a one-off sound preview at an un-persisted volume (see <see cref="SoundPreviewRequested"/>).</summary>
+    public void PreviewSound(string fileName, double volume) =>
+        SoundPreviewRequested?.Invoke(this, (fileName, ClampSoundVolume(volume)));
+
     /// <summary>Normalizes an accent hex color, falling back to the default when unset/invalid.</summary>
     public static string NormalizeAccentColor(string? hex) => AccentPalette.Normalize(hex);
 
     /// <summary>Clamps a ring diameter into the supported range, falling back to the default when unset/invalid.</summary>
     public static double ClampRingSize(double size) =>
         size <= 0 ? RingDefaultSize : Math.Clamp(size, RingMinSize, RingMaxSize);
+
+    /// <summary>Clamps a playback volume to 0–1; NaN (a malformed config.json) falls back to silent-safe 0.7.</summary>
+    public static double ClampSoundVolume(double volume) =>
+        double.IsNaN(volume) ? 0.7 : Math.Clamp(volume, 0, 1);
 
     public SettingsService()
     {
@@ -212,7 +255,7 @@ public sealed class SettingsService
 
         try
         {
-            var stream = await TryOpenBuiltInRingStreamAsync(fileName);
+            var stream = await TryOpenPackagedAssetAsync(fileName, "Resources/Images");
             if (stream is null)
                 return null;
 
@@ -248,10 +291,94 @@ public sealed class SettingsService
         return File.Exists(fullPath) ? fullPath : null;
     }
 
+    // --- Sound effects (~/.floaty/sounds + packaged built-ins). Mirrors the ring image block above. ---
+
+    /// <summary>Returns sound filenames the user dropped into <c>~/.floaty/sounds</c>.</summary>
+    public IReadOnlyList<string> GetAvailableSounds()
+    {
+        try
+        {
+            return Directory
+                .EnumerateFiles(FloatyPaths.Sounds)
+                .Where(path => SoundExtensions.Contains(Path.GetExtension(path)))
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Cast<string>()
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    /// <summary>Returns the sound names packaged with the app.</summary>
+    public IReadOnlyList<string> GetBuiltInSounds() => BuiltInSounds;
+
+    /// <summary>True when a sound selection names a built-in packaged asset.</summary>
+    public bool IsBuiltInSound(string? fileName) =>
+        !string.IsNullOrWhiteSpace(fileName) &&
+        BuiltInSounds.Contains(fileName, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether a sound selection still resolves (built-in or an existing custom file). An empty
+    /// selection is valid and means "use the slot's default built-in".
+    /// </summary>
+    public bool IsValidSoundSelection(string? fileName) =>
+        string.IsNullOrWhiteSpace(fileName) || IsBuiltInSound(fileName) || GetSoundFullPath(fileName) is not null;
+
+    /// <summary>
+    /// Resolves a sound filename to a full path in <c>~/.floaty/sounds</c>, or null when it is a
+    /// built-in, escapes the folder, has an unsupported extension, or no longer exists.
+    /// </summary>
+    public string? GetSoundFullPath(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return null;
+
+        var safeName = Path.GetFileName(fileName);
+        if (!string.Equals(fileName, safeName, StringComparison.Ordinal))
+            return null;
+
+        if (!SoundExtensions.Contains(Path.GetExtension(safeName)))
+            return null;
+
+        var fullPath = Path.Combine(FloatyPaths.Sounds, safeName);
+        return File.Exists(fullPath) ? fullPath : null;
+    }
+
+    /// <summary>
+    /// Opens the bytes behind a sound selection — the packaged asset for a built-in, the file on disk
+    /// for a custom one — or null when it cannot be resolved. Callers own the returned stream.
+    /// </summary>
+    public async Task<Stream?> OpenSoundStreamAsync(string? fileName)
+    {
+        if (IsBuiltInSound(fileName))
+            return await TryOpenPackagedAssetAsync(fileName!, "Resources/Sounds");
+
+        var fullPath = GetSoundFullPath(fileName);
+        if (fullPath is null)
+            return null;
+
+        try
+        {
+            return File.OpenRead(fullPath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static string ToDataUrl(byte[] bytes, string mimeType) =>
         $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
 
-    private static async Task<Stream?> TryOpenBuiltInRingStreamAsync(string fileName)
+    /// <summary>
+    /// Opens a packaged <c>MauiAsset</c> by bare filename. <paramref name="sourceFolder"/> is the
+    /// project-relative folder it was declared in, used only for the fallback lookup.
+    /// </summary>
+    private static async Task<Stream?> TryOpenPackagedAssetAsync(string fileName, string sourceFolder)
     {
         // MauiAsset with LogicalName="%(Filename)%(Extension)" resolves with bare filename.
         try
@@ -263,7 +390,7 @@ public sealed class SettingsService
             // Some targets/package layouts may keep the source-relative path.
             try
             {
-                return await FileSystem.OpenAppPackageFileAsync($"Resources/Images/{fileName}");
+                return await FileSystem.OpenAppPackageFileAsync($"{sourceFolder}/{fileName}");
             }
             catch (FileNotFoundException)
             {

@@ -190,6 +190,8 @@ public sealed class ChatWindowHost : IChatPanelHost
 
 	public void SetBusy(bool busy) => _ringFeedback.SetBusy(busy);
 
+	public void SignalCapture() => _ringFeedback.SignalCapture();
+
 	private async Task CollapseAsync()
 	{
 		if (_panel is null || !IsOpen)

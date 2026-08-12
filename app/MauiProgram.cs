@@ -68,6 +68,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ITextExtractionService, Floaty.Platforms.Windows.WindowsTextExtractionService>();
 		// The selection in whatever app was in front when the summon hotkey fired.
 		builder.Services.AddSingleton<ISelectionCaptureService, Floaty.Platforms.Windows.WindowsSelectionCaptureService>();
+		// Capture shutter / assistant-reply sounds, played through NAudio (Settings → Sounds).
+		builder.Services.AddSingleton<ISoundService, Floaty.Platforms.Windows.WindowsSoundService>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -78,6 +80,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
 		builder.Services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
+		builder.Services.AddSingleton<ISoundService, NullSoundService>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -88,6 +91,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<IAutostartService, NullAutostartService>();
 		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
 		builder.Services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
+		builder.Services.AddSingleton<ISoundService, NullSoundService>();
 #endif
 
 		ConfigureOverlayWindow(builder);
