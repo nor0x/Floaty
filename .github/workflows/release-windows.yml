@@ -67,6 +67,7 @@ jobs:
             -p:WindowsPackageType=None \
             -p:UseMonoRuntime=false \
             -p:ApplicationDisplayVersion=${{ steps.version.outputs.version }} \
+            -p:TargetFrameworks=net10.0-windows10.0.19041.0 \
             -o publish
 
       - name: Install Velopack CLI
