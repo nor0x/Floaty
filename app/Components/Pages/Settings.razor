@@ -3,6 +3,8 @@
 @inject UpdateService UpdateService
 @inject IMemoryService MemoryService
 @inject ModelDownloadService ModelDownloads
+@inject AiClientFactory AiClients
+@inject ILocalEmbeddingFactory LocalEmbeddings
 @using Floaty.Services
 @implements IDisposable
 
@@ -737,66 +739,370 @@
                     </div>
                 }
             }
-            else
+            else if (_activeSection == SettingsSection.ModelProvider)
+            {
+                <div class="card-head">
+                    <h2>Model Provider</h2>
+                    <p>Configure one or more providers, then pick which of them does what. Chat can
+                        run on a good cloud model while embeddings and screenshot captioning — which
+                        run constantly for screen history — stay on this machine.</p>
+                </div>
+
+                @if (_config.Providers.Count == 0)
                 {
-                    <div class="card-head">
-                        <h2>AI Provider</h2>
-                        <p>Floaty uses this provider to answer your chats.</p>
+                    <p class="hint">No providers yet. Add one below to start chatting.</p>
+                }
+                else
+                {
+                    <div class="subtabs" role="tablist" aria-label="Configured providers">
+                        @foreach (var provider in _config.Providers)
+                        {
+                            // ActiveProvider, not _activeProviderId: after a removal the id can point
+                            // at nothing, and the panel falls back to the first provider — the tab
+                            // strip has to follow it rather than highlight nothing.
+                            var id = provider.Id;
+                            var isActive = id == ActiveProvider?.Id;
+                            <button type="button" role="tab" class="subtab @(isActive ? "active" : "")"
+                                    aria-selected="@isActive"
+                                    @onclick="() => SelectProvider(id)">
+                                <span>@ProviderLabel(provider)</span>
+                                @if (RoleCountFor(id) > 0)
+                                {
+                                    <span class="subtab-badge" title="Roles served by this provider">@RoleCountFor(id)</span>
+                                }
+                            </button>
+                        }
                     </div>
+                }
 
-                    <div class="field">
-                        <label>Provider</label>
-                        <select @bind="_config.Provider" disabled>
-                            <option value="OpenAI">OpenAI</option>
+                <div class="field">
+                    <label for="addProvider">Add a provider</label>
+                    <div class="row-inline">
+                        <select id="addProvider" @bind="_presetToAdd">
+                            @foreach (var option in AvailablePresets())
+                            {
+                                <option value="@option.Id">@option.DisplayName</option>
+                            }
                         </select>
-                        <span class="hint">More providers coming soon.</span>
+                        <button class="reload" @onclick="AddProvider" disabled="@(AvailablePresets().Count == 0)">
+                            <i class="ti ti-plus" aria-hidden="true"></i>
+                            <span>Add</span>
+                        </button>
                     </div>
+                    @if (ProviderPresets.Find(_presetToAdd) is { } previewPreset)
+                    {
+                        <span class="hint">@previewPreset.Blurb</span>
+                    }
+                </div>
 
-                    <div class="field">
-                        <label for="apiKey">API key</label>
-                        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-..."
-                               @bind="_config.OpenAiApiKey" @bind:event="oninput" />
-                        <span class="hint">Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine
-                            except to call OpenAI.</span>
+                @if (ActiveProvider is { } active)
+                {
+                    var preset = ProviderPresets.Find(active.PresetId);
+
+                    <div class="provider-panel">
+                        <div class="card-head">
+                            <h3>@ProviderLabel(active)</h3>
+                            @if (preset is not null)
+                            {
+                                <p>@preset.Blurb</p>
+                            }
                         </div>
 
-                        <div class="field">
-                            <label for="model">Model</label>
-                            <input id="model" type="text" autocomplete="off" spellcheck="false" @bind="_config.Model"
-                                   @bind:event="oninput" />
-                            <span class="hint">e.g. <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
-                        </div>
-
-                        <div class="field">
-                            <label for="embeddingModel">Embedding model</label>
-                            <input id="embeddingModel" type="text" autocomplete="off" spellcheck="false"
-                                   @bind="_config.EmbeddingModel" @bind:event="oninput" />
-                            <span class="hint">Used to vectorize captures for search. e.g.
-                                <code>text-embedding-3-small</code>.</span>
-                            </div>
-
-                        <div class="field">
-                            <label for="snapshotModel">Snapshot model</label>
-                            <input id="snapshotModel" type="text" autocomplete="off" spellcheck="false"
-                                   @bind="_config.SnapshotModel" @bind:event="oninput" />
-                            <span class="hint">Vision model used to describe captured screenshots. Leave
-                                blank to disable. e.g. <code>gpt-4o-mini</code>.</span>
+                        @if (preset?.AllowMultiple == true)
+                        {
+                            <div class="field">
+                                <label for="providerName">Name</label>
+                                <input id="providerName" type="text" autocomplete="off" spellcheck="false"
+                                       @bind="active.DisplayName" @bind:event="oninput" />
+                                <span class="hint">Shown on this tab and in the role pickers below.</span>
                             </div>
                         }
 
-                        <div class="actions">
-                            <button class="save" @onclick="Save">
-                                <i class="ti ti-device-floppy" aria-hidden="true"></i>
-                                <span>Save</span>
-                            </button>
-                            @if (_saved)
+                        @if (active.Kind == ProviderKind.LocalOnnx)
+                        {
+                            @if (!LocalEmbeddings.IsSupported)
                             {
-                                <span class="saved">Saved</span>
+                                <p class="hint">On-device models are not available on this platform.</p>
+                            }
+                            else
+                            {
+                                <div class="mcp-list">
+                                    @foreach (var model in LocalModelCatalog.Models)
+                                    {
+                                        var downloaded = ModelDownloads.IsDownloaded(model);
+                                        <div class="mcp-row">
+                                            <input type="radio" name="localEmbeddingModel"
+                                                   checked="@(active.EmbeddingModel == model.Id)"
+                                                   disabled="@(!downloaded)"
+                                                   @onchange="() => SelectLocalEmbeddingModel(active, model.Id)"
+                                                   title="Use this model" />
+                                            <div class="mcp-info">
+                                                <span class="mcp-name"><i class="ti ti-cpu" aria-hidden="true"></i> @model.DisplayName</span>
+                                                <span class="mcp-meta">@($"{model.SizeNote} · {model.LanguageNote} · {model.Dimensions} dims")</span>
+                                            </div>
+                                            @if (_embeddingDownloading.Contains(model.Id))
+                                            {
+                                                <button class="mcp-remove" disabled>
+                                                    <i class="ti ti-download" aria-hidden="true"></i>
+                                                    <span>@($"{(int)(_embeddingProgress.GetValueOrDefault(model.Id) * 100)}%")</span>
+                                                </button>
+                                            }
+                                            else if (!downloaded)
+                                            {
+                                                <button class="mcp-remove" @onclick="() => DownloadEmbeddingModel(model)">
+                                                    <i class="ti ti-download" aria-hidden="true"></i>
+                                                    <span>Download</span>
+                                                </button>
+                                            }
+                                            else if (_confirmDeleteEmbeddingId == model.Id)
+                                            {
+                                                <button class="mcp-remove" @onclick="() => DeleteEmbeddingModel(active, model)">
+                                                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                                                    <span>Really delete?</span>
+                                                </button>
+                                                <button class="mcp-remove" @onclick="() => _confirmDeleteEmbeddingId = null">
+                                                    <span>Cancel</span>
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="mcp-remove" @onclick="() => _confirmDeleteEmbeddingId = model.Id">
+                                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                                    <span>Delete</span>
+                                                </button>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                @if (_embeddingError is not null)
+                                {
+                                    <p class="hint">@_embeddingError</p>
+                                }
+                                <span class="hint">Models download to <code>~/.floaty/models/embed</code> and run
+                                    in-process. Nothing is sent anywhere, so screen history keeps indexing even with
+                                    no API key configured. Downloads apply immediately; the selection applies on Save.</span>
+                            }
+                        }
+                        else
+                        {
+                            @if (preset?.NeedsKey != false)
+                            {
+                                <div class="field">
+                                    <label for="providerKey">API key</label>
+                                    <input id="providerKey" type="password" autocomplete="off" spellcheck="false"
+                                           placeholder="@(active.Kind == ProviderKind.Anthropic ? "sk-ant-..." : "sk-...")"
+                                           @bind="active.ApiKey" @bind:event="oninput" />
+                                    <span class="hint">
+                                        Stored locally in <code>~/.floaty/config.json</code>. Never leaves your machine
+                                        except to call @ProviderLabel(active).
+                                        @if (preset?.KeyUrl is { } keyUrl)
+                                        {
+                                            <a href="@keyUrl" target="_blank" rel="noreferrer">Get a key</a>
+                                        }
+                                    </span>
+                                </div>
+                            }
+
+                            <div class="field">
+                                <label for="providerBaseUrl">Base URL</label>
+                                <input id="providerBaseUrl" type="text" autocomplete="off" spellcheck="false"
+                                       placeholder="@(string.IsNullOrEmpty(preset?.BaseUrl) ? "https://api.openai.com/v1" : preset!.BaseUrl)"
+                                       @bind="active.BaseUrl" @bind:event="oninput" />
+                                <span class="hint">Leave blank to use the default endpoint.</span>
+                            </div>
+
+                            @if (IsOllama(active))
+                            {
+                                <div class="actions sub-actions">
+                                    <button class="reload" @onclick="() => RefreshOllamaModels(active)" disabled="@_ollamaLoading">
+                                        <i class="ti ti-refresh" aria-hidden="true"></i>
+                                        <span>@(_ollamaLoading ? "Checking…" : "Refresh models")</span>
+                                    </button>
+                                    @if (!_ollamaLoading && _ollamaModels.Count == 0)
+                                    {
+                                        <span class="hint">Ollama is not responding. Start it, then refresh.</span>
+                                    }
+                                </div>
+                            }
+
+                            <div class="field">
+                                <label for="providerChatModel">Chat model</label>
+                                @if (ShowOllamaPicker(active))
+                                {
+                                    <select id="providerChatModel" @bind="active.ChatModel">
+                                        <option value="">— none —</option>
+                                        @foreach (var name in _ollamaModels)
+                                        {
+                                            <option value="@name">@name</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input id="providerChatModel" type="text" autocomplete="off" spellcheck="false"
+                                           placeholder="@preset?.ChatModel" @bind="active.ChatModel" @bind:event="oninput" />
+                                }
+                                <span class="hint">@(active.Kind == ProviderKind.AzureOpenAI
+                                    ? "Your deployment name, not the underlying model name."
+                                    : "Leave blank if this provider should not answer chats.")</span>
+                            </div>
+
+                            <div class="field">
+                                <label for="providerEmbeddingModel">Embedding model</label>
+                                @if (ShowOllamaPicker(active))
+                                {
+                                    <select id="providerEmbeddingModel" @bind="active.EmbeddingModel">
+                                        <option value="">— none —</option>
+                                        @foreach (var name in _ollamaModels)
+                                        {
+                                            <option value="@name">@name</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input id="providerEmbeddingModel" type="text" autocomplete="off" spellcheck="false"
+                                           placeholder="@preset?.EmbeddingModel" @bind="active.EmbeddingModel"
+                                           @bind:event="oninput" disabled="@(active.Kind == ProviderKind.Anthropic)" />
+                                }
+                                <span class="hint">@(active.Kind == ProviderKind.Anthropic
+                                    ? "Anthropic has no embedding models — use Local or another provider for memory."
+                                    : "Vectorizes captures for memory search.")</span>
+                            </div>
+
+                            <div class="field">
+                                <label for="providerVisionModel">Vision model</label>
+                                @if (ShowOllamaPicker(active))
+                                {
+                                    <select id="providerVisionModel" @bind="active.VisionModel">
+                                        <option value="">— none —</option>
+                                        @foreach (var name in _ollamaModels)
+                                        {
+                                            <option value="@name">@name</option>
+                                        }
+                                    </select>
+                                }
+                                else
+                                {
+                                    <input id="providerVisionModel" type="text" autocomplete="off" spellcheck="false"
+                                           placeholder="@preset?.VisionModel" @bind="active.VisionModel" @bind:event="oninput" />
+                                }
+                                <span class="hint">Describes captured screenshots so they are searchable by content.</span>
+                            </div>
+
+                            @if (active.Kind == ProviderKind.OpenAI)
+                            {
+                                <div class="field">
+                                    <label>API style</label>
+                                    <label class="hint" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+                                        <input type="checkbox" @bind="active.UseResponsesApi" />
+                                        Use the Responses API
+                                    </label>
+                                    <span class="hint">Off falls back to chat completions. Only turn this off if a
+                                        model you want is not available on Responses.</span>
+                                </div>
+                            }
+                        }
+
+                        <div class="actions sub-actions">
+                            <button class="reload" @onclick="() => TestProvider(active)" disabled="@_testing">
+                                <i class="ti ti-plug-connected" aria-hidden="true"></i>
+                                <span>@(_testing ? "Testing…" : "Test")</span>
+                            </button>
+                            @if (_testResults.TryGetValue(active.Id, out var testResult))
+                            {
+                                <span class="hint">@testResult</span>
+                            }
+                            @if (_confirmRemoveProviderId == active.Id)
+                            {
+                                <button class="mcp-remove" @onclick="() => RemoveProvider(active)">
+                                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                                    <span>Really remove?</span>
+                                </button>
+                                <button class="mcp-remove" @onclick="() => _confirmRemoveProviderId = null">
+                                    <span>Cancel</span>
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="mcp-remove" @onclick="() => _confirmRemoveProviderId = active.Id">
+                                    <i class="ti ti-trash" aria-hidden="true"></i>
+                                    <span>Remove</span>
+                                </button>
                             }
                         </div>
                     </div>
-                </section>
+                }
+
+                <div class="card-head roles-head">
+                    <h3>Roles</h3>
+                    <p>Which provider does what. Each list only offers providers that have a model
+                        configured for that job.</p>
+                </div>
+
+                <div class="field">
+                    <label for="roleChat">Chat</label>
+                    <select id="roleChat" value="@RoleKey(_config.ChatRole)"
+                            @onchange="e => AssignRole(_config.ChatRole, e.Value?.ToString())">
+                        <option value="">— not configured —</option>
+                        @foreach (var option in RoleOptions(ModelRole.Chat))
+                        {
+                            <option value="@option.Key">@option.Label</option>
+                        }
+                    </select>
+                    <span class="hint">Answers your messages and calls Floaty's tools.</span>
+                </div>
+
+                <div class="field">
+                    <label for="roleEmbedding">Embeddings</label>
+                    <select id="roleEmbedding" value="@RoleKey(_config.EmbeddingRole)"
+                            @onchange="e => AssignRole(_config.EmbeddingRole, e.Value?.ToString())">
+                        <option value="">— memory disabled —</option>
+                        @foreach (var option in RoleOptions(ModelRole.Embedding))
+                        {
+                            <option value="@option.Key">@option.Label</option>
+                        }
+                    </select>
+                    <span class="hint">Vectorizes every capture, so this one runs constantly. A local
+                        model keeps screen history free and offline.</span>
+                    @if (EmbeddingRoleChanged)
+                    {
+                        <span class="hint warn">
+                            <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+                            This changes the vector space. Existing captures stay unsearchable until you
+                            re-index them under Screen History.
+                        </span>
+                    }
+                </div>
+
+                <div class="field">
+                    <label for="roleVision">Screenshot captioning</label>
+                    <select id="roleVision" value="@RoleKey(_config.VisionRole)"
+                            @onchange="e => AssignRole(_config.VisionRole, e.Value?.ToString())">
+                        <option value="">— off —</option>
+                        @foreach (var option in RoleOptions(ModelRole.Vision))
+                        {
+                            <option value="@option.Key">@option.Label</option>
+                        }
+                    </select>
+                    <span class="hint">Describes screenshots so they are searchable by what was on
+                        screen. Runs on every screen-history capture in "Text + screenshot" mode.</span>
+                </div>
+            }
+
+            <div class="actions">
+                <button class="save" @onclick="Save">
+                    <i class="ti ti-device-floppy" aria-hidden="true"></i>
+                    <span>Save</span>
+                </button>
+                @if (_saved)
+                {
+                    <span class="saved">Saved</span>
+                }
             </div>
+        </div>
+    </section>
+</div>
 
 @code {
     private const string DefaultSystemPrompt =
@@ -903,6 +1209,24 @@
     private (int Done, int Total)? _reindexProgress;
     private string? _reindexResult;
 
+    // Model Provider section state. Provider edits live on the _config clone and commit on Save;
+    // local-model downloads (like the voice ones) hit disk immediately.
+    private string _activeProviderId = string.Empty;
+    private string _presetToAdd = ProviderPresets.OpenAiId;
+    private string? _confirmRemoveProviderId;
+    private readonly Dictionary<string, string> _testResults = new();
+    private bool _testing;
+    private readonly HashSet<string> _embeddingDownloading = new();
+    private readonly Dictionary<string, double> _embeddingProgress = new();
+    private string? _embeddingError;
+    private string? _confirmDeleteEmbeddingId;
+    private List<string> _ollamaModels = new();
+    private bool _ollamaLoading;
+
+    // The embedding role as it was when the page opened, so the "you must re-index" warning only
+    // appears when this visit actually changes it.
+    private string _originalEmbeddingRole = string.Empty;
+
     // Voice input section state. Downloads mutate disk immediately; selection/mode commit on Save.
     private readonly HashSet<string> _sttDownloading = new();
     private readonly Dictionary<string, double> _sttProgress = new();
@@ -925,11 +1249,10 @@
         var current = ConfigService.Current;
         _config = new FloatyConfig
         {
-            Provider = current.Provider,
-            OpenAiApiKey = current.OpenAiApiKey,
-            Model = current.Model,
-            EmbeddingModel = current.EmbeddingModel,
-            SnapshotModel = current.SnapshotModel,
+            Providers = current.Providers.Select(CloneProvider).ToList(),
+            ChatRole = CloneRole(current.ChatRole),
+            EmbeddingRole = CloneRole(current.EmbeddingRole),
+            VisionRole = CloneRole(current.VisionRole),
             RingImageFileName = current.RingImageFileName,
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
@@ -962,6 +1285,10 @@
             ExecCustomShellPath = current.ExecCustomShellPath,
             ExecCustomShellArgs = current.ExecCustomShellArgs,
         };
+
+        _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
+        _originalEmbeddingRole = RoleKey(_config.EmbeddingRole);
+        _presetToAdd = AvailablePresets().FirstOrDefault()?.Id ?? string.Empty;
 
         _systemPrompt = ConfigService.GetSystemPrompt(DefaultSystemPrompt);
         _skills = SkillService.Skills.ToList();
@@ -1184,6 +1511,286 @@
         _config.McpServers.Remove(server);
         _saved = false;
     }
+
+    // --- Model Provider section ---------------------------------------------------------------
+    //
+    // Everything here edits the _config clone, so provider changes commit with the shared Save
+    // button like the rest of the page. The one exception is downloading a local embedding model,
+    // which writes to ~/.floaty/models/embed immediately — mirroring how the voice models behave.
+
+    /// <summary>One entry in a role dropdown: a provider plus the model it would use for that role.</summary>
+    private sealed record RoleOption(string Key, string Label);
+
+    private ProviderProfile? ActiveProvider =>
+        _config.Providers.FirstOrDefault(p => p.Id == _activeProviderId) ?? _config.Providers.FirstOrDefault();
+
+    private static string ProviderLabel(ProviderProfile provider) =>
+        string.IsNullOrWhiteSpace(provider.DisplayName)
+            ? ProviderPresets.Find(provider.PresetId)?.DisplayName ?? provider.Id
+            : provider.DisplayName;
+
+    private static bool IsOllama(ProviderProfile provider) => provider.PresetId == ProviderPresets.OllamaId;
+
+    private bool ShowOllamaPicker(ProviderProfile provider) => IsOllama(provider) && _ollamaModels.Count > 0;
+
+    /// <summary>How many of the three roles this provider currently serves; shown as a tab badge.</summary>
+    private int RoleCountFor(string providerId) =>
+        new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole }
+            .Count(r => r.ProviderId == providerId);
+
+    /// <summary>
+    /// Presets still worth offering: everything the user hasn't added yet, plus the ones that can
+    /// legitimately appear more than once (custom endpoints, a second Azure resource).
+    /// </summary>
+    private List<ProviderPreset> AvailablePresets()
+    {
+        var used = _config.Providers.Select(p => p.PresetId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return ProviderPresets.All
+            .Where(p => p.AllowMultiple || !used.Contains(p.Id))
+            .Where(p => p.Kind != ProviderKind.LocalOnnx || LocalEmbeddings.IsSupported)
+            .ToList();
+    }
+
+    private void SelectProvider(string id)
+    {
+        _activeProviderId = id;
+        _confirmRemoveProviderId = null;
+        _confirmDeleteEmbeddingId = null;
+
+        // The Ollama tab is only useful with a live model list, and asking costs a 3s timeout at
+        // worst, so fetch it when the tab is opened rather than making the user press Refresh.
+        if (_config.Providers.FirstOrDefault(p => p.Id == id) is { } provider && IsOllama(provider))
+            _ = RefreshOllamaModels(provider);
+    }
+
+    private void AddProvider()
+    {
+        var preset = ProviderPresets.Find(_presetToAdd);
+        if (preset is null)
+            return;
+
+        var profile = ProviderPresets.CreateProfile(preset, _config.Providers);
+        _config.Providers.Add(profile);
+        _activeProviderId = profile.Id;
+        _saved = false;
+
+        // Adopt unfilled roles straight away: adding your first provider should leave you configured,
+        // not configured-but-unassigned.
+        AdoptEmptyRoles(profile);
+
+        _presetToAdd = AvailablePresets().FirstOrDefault()?.Id ?? string.Empty;
+
+        if (IsOllama(profile))
+            _ = RefreshOllamaModels(profile);
+    }
+
+    /// <summary>Points any still-unassigned role at this provider, when it has a model for that job.</summary>
+    private void AdoptEmptyRoles(ProviderProfile profile)
+    {
+        if (!_config.ChatRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.ChatModel))
+            _config.ChatRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.ChatModel };
+
+        if (!_config.EmbeddingRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.EmbeddingModel))
+            _config.EmbeddingRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.EmbeddingModel };
+
+        if (!_config.VisionRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.VisionModel))
+            _config.VisionRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.VisionModel };
+    }
+
+    private void RemoveProvider(ProviderProfile provider)
+    {
+        _config.Providers.Remove(provider);
+        _confirmRemoveProviderId = null;
+        _testResults.Remove(provider.Id);
+
+        // Unassign rather than silently leaving a role pointing at nothing, which would read as
+        // "configured" in the dropdown while failing on every call.
+        foreach (var role in new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole })
+        {
+            if (role.ProviderId == provider.Id)
+            {
+                role.ProviderId = string.Empty;
+                role.Model = string.Empty;
+            }
+        }
+
+        _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
+        _presetToAdd = AvailablePresets().FirstOrDefault()?.Id ?? _presetToAdd;
+        _saved = false;
+    }
+
+    private async Task TestProvider(ProviderProfile provider)
+    {
+        _testing = true;
+        _testResults.Remove(provider.Id);
+        StateHasChanged();
+
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var error = await AiClients.TestAsync(provider, timeout.Token);
+            _testResults[provider.Id] = error is null ? "Works." : $"Failed: {error}";
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+
+    // --- Role assignment ---
+
+    /// <summary>
+    /// Serializes an assignment as "providerId|model" so one &lt;select&gt; can offer several models
+    /// from the same provider without needing a second control.
+    /// </summary>
+    private static string RoleKey(ModelAssignment assignment) =>
+        assignment.IsAssigned ? $"{assignment.ProviderId}|{assignment.Model}" : string.Empty;
+
+    private List<RoleOption> RoleOptions(ModelRole role)
+    {
+        var options = new List<RoleOption>();
+
+        foreach (var provider in _config.Providers)
+        {
+            var model = role switch
+            {
+                ModelRole.Chat => provider.ChatModel,
+                ModelRole.Embedding => provider.EmbeddingModel,
+                _ => provider.VisionModel,
+            };
+
+            if (string.IsNullOrWhiteSpace(model))
+                continue;
+
+            options.Add(new RoleOption($"{provider.Id}|{model}", $"{ProviderLabel(provider)} · {model}"));
+        }
+
+        // A role can point at a model the provider no longer defaults to (hand-edited config, or a
+        // model field cleared afterwards). Keep it listed so opening Settings doesn't silently
+        // reset a working setup to "not configured".
+        var current = role switch
+        {
+            ModelRole.Chat => _config.ChatRole,
+            ModelRole.Embedding => _config.EmbeddingRole,
+            _ => _config.VisionRole,
+        };
+
+        var key = RoleKey(current);
+        if (key.Length > 0 && options.All(o => o.Key != key))
+        {
+            var provider = _config.Providers.FirstOrDefault(p => p.Id == current.ProviderId);
+            if (provider is not null)
+                options.Add(new RoleOption(key, $"{ProviderLabel(provider)} · {current.Model}"));
+        }
+
+        return options;
+    }
+
+    private void AssignRole(ModelAssignment assignment, string? key)
+    {
+        var parts = (key ?? string.Empty).Split('|', 2);
+        assignment.ProviderId = parts[0];
+        assignment.Model = parts.Length > 1 ? parts[1] : string.Empty;
+        _saved = false;
+    }
+
+    /// <summary>
+    /// Whether this visit changed the embedding role. Switching vector spaces leaves every stored
+    /// capture unsearchable until it is re-indexed, so the section says so before the user saves.
+    /// </summary>
+    private bool EmbeddingRoleChanged => RoleKey(_config.EmbeddingRole) != _originalEmbeddingRole;
+
+    // --- Local (on-device) embedding models ---
+
+    private void SelectLocalEmbeddingModel(ProviderProfile provider, string modelId)
+    {
+        provider.EmbeddingModel = modelId;
+
+        // A local provider exists to serve the embedding role, so picking a model here also points
+        // the role at it. Anything else would need two interactions to do the obvious thing.
+        _config.EmbeddingRole = new ModelAssignment { ProviderId = provider.Id, Model = modelId };
+        _saved = false;
+    }
+
+    private async Task DownloadEmbeddingModel(LocalEmbeddingModelInfo model)
+    {
+        _embeddingError = null;
+        _embeddingDownloading.Add(model.Id);
+        _embeddingProgress[model.Id] = 0;
+
+        try
+        {
+            var progress = new Progress<double>(value =>
+            {
+                _embeddingProgress[model.Id] = value;
+                InvokeAsync(StateHasChanged);
+            });
+
+            await ModelDownloads.DownloadAsync(model, progress);
+        }
+        catch (Exception ex)
+        {
+            _embeddingError = $"Download failed: {ex.Message}";
+        }
+        finally
+        {
+            _embeddingDownloading.Remove(model.Id);
+            _embeddingProgress.Remove(model.Id);
+        }
+    }
+
+    private void DeleteEmbeddingModel(ProviderProfile provider, LocalEmbeddingModelInfo model)
+    {
+        _confirmDeleteEmbeddingId = null;
+        ModelDownloads.Delete(model);
+
+        // Clear a selection that now points at nothing, so the panel and the role agree with disk.
+        if (provider.EmbeddingModel == model.Id)
+        {
+            provider.EmbeddingModel = string.Empty;
+            if (_config.EmbeddingRole.ProviderId == provider.Id)
+                _config.EmbeddingRole = new ModelAssignment();
+            _saved = false;
+        }
+    }
+
+    // --- Ollama ---
+
+    private async Task RefreshOllamaModels(ProviderProfile provider)
+    {
+        _ollamaLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            _ollamaModels = (await OllamaProbe.ListModelsAsync(provider.BaseUrl)).ToList();
+        }
+        finally
+        {
+            _ollamaLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static ProviderProfile CloneProvider(ProviderProfile p) => new()
+    {
+        Id = p.Id,
+        PresetId = p.PresetId,
+        DisplayName = p.DisplayName,
+        Kind = p.Kind,
+        ApiKey = p.ApiKey,
+        BaseUrl = p.BaseUrl,
+        ChatModel = p.ChatModel,
+        EmbeddingModel = p.EmbeddingModel,
+        VisionModel = p.VisionModel,
+        UseResponsesApi = p.UseResponsesApi,
+    };
+
+    private static ModelAssignment CloneRole(ModelAssignment a) => new()
+    {
+        ProviderId = a.ProviderId,
+        Model = a.Model,
+    };
 
     private static McpServerConfig CloneServer(McpServerConfig s) => new()
     {
@@ -1580,6 +2187,110 @@
         background: var(--accent-tint);
         border-color: var(--accent-border);
         color: var(--accent-deep);
+    }
+
+    /* Provider sub-tabs. The left rail's .tabs is a column inside a fixed-width grid track; this is
+       the same visual language laid out as a wrapping row across the top of the section. */
+    .subtabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 18px;
+    }
+
+    .subtab {
+        border: 1px solid #e4e4e8;
+        border-radius: 999px;
+        background: #f7f7fa;
+        color: #2d2d31;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 7px 14px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        transition: background .15s, border-color .15s, color .15s;
+    }
+
+    .subtab:hover {
+        background: #efeff5;
+    }
+
+    .subtab.active {
+        background: var(--accent-tint);
+        border-color: var(--accent-border);
+        color: var(--accent-deep);
+    }
+
+    /* Count of roles a provider serves, so you can see at a glance which tabs are actually in use. */
+    .subtab-badge {
+        min-width: 17px;
+        height: 17px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #fff;
+        font-size: 11px;
+        line-height: 17px;
+        text-align: center;
+    }
+
+    /* The selected provider's fields, inset so they read as belonging to the tab above them. */
+    .provider-panel {
+        border: 1px solid #e4e4e8;
+        border-radius: 10px;
+        padding: 16px 16px 4px;
+        margin-bottom: 20px;
+        background: #fcfcfd;
+    }
+
+    .provider-panel .card-head h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 2px;
+    }
+
+    .provider-panel .card-head p {
+        margin: 0 0 16px;
+        color: #6b6b70;
+        font-size: 13px;
+    }
+
+    .roles-head {
+        border-top: 1px solid #ececf0;
+        padding-top: 18px;
+    }
+
+    .roles-head h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 2px;
+    }
+
+    .roles-head p {
+        margin: 0 0 18px;
+        color: #6b6b70;
+        font-size: 13px;
+    }
+
+    /* An input paired with its action button (add a provider). */
+    .row-inline {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .row-inline select {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .hint.warn {
+        color: #8a5a00;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 
     .card {

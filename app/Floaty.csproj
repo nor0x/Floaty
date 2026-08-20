@@ -95,9 +95,16 @@
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.80" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
 
-        <!-- AI: provider-agnostic chat abstractions + OpenAI binding (Microsoft.Extensions.AI). -->
+        <!-- AI: provider-agnostic chat abstractions plus the provider bindings AiClientFactory picks
+             between. The OpenAI binding does double duty: every OpenAI-compatible endpoint (Gemini,
+             OpenRouter, Groq, Ollama, LM Studio, ...) is the same client with a different base URL. -->
         <PackageReference Include="Microsoft.Extensions.AI" Version="10.7.0" />
         <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.7.0" />
+        <!-- Azure OpenAI: AzureOpenAIClient subclasses OpenAIClient, so it drops into the same path. -->
+        <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+        <!-- Anthropic's official C# SDK. It is versioned 10+ but still flagged beta upstream, so
+             breaking changes can land in minor releases - keep this pinned. -->
+        <PackageReference Include="Anthropic" Version="12.8.0" />
 
         <!-- Local vector + graph store for capture embeddings (~/.floaty/floaty.db). -->
         <PackageReference Include="LiteGraph" Version="7.0.0" />
@@ -123,6 +130,9 @@
              downloaded at first use rather than packaged (see NativeRuntimeService). -->
         <PackageReference Include="NAudio" Version="2.2.1" />
         <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+        <!-- On-device embeddings: onnxruntime (above) runs the encoder, Tokenizers turns text into
+             WordPiece ids from the model's vocab.txt. Pure managed, no extra native dependency. -->
+        <PackageReference Include="Microsoft.ML.Tokenizers" Version="1.0.2" />
         <!-- Text extraction from dropped documents (PDF, Office, e-mail, …). Ships native binaries
              per-RID, so it stays Windows-only; other platforms fall back to NullTextExtractionService
              plus the UTF-8 ladder in FileIngestService. The package is very new, so

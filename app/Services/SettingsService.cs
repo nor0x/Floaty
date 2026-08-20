@@ -133,7 +133,13 @@ public sealed class SettingsService
                 var json = File.ReadAllText(_configPath);
                 var config = JsonSerializer.Deserialize<FloatyConfig>(json);
                 if (config is not null)
+                {
+                    // Bring an older file forward before anything else reads it. Not written back
+                    // here — the next Save persists the new shape, and until then the in-memory
+                    // config is already correct.
+                    ConfigMigration.Apply(config);
                     return config;
+                }
             }
         }
         catch
@@ -141,6 +147,8 @@ public sealed class SettingsService
             // Corrupt or unreadable config falls back to defaults rather than crashing the app.
         }
 
+        // A fresh config has no providers at all, which is exactly the "not configured yet" state
+        // the AiClientFactory and the Settings UI expect — nothing to migrate.
         return new FloatyConfig();
     }
 

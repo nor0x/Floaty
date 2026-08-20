@@ -21,6 +21,9 @@ public static class MauiProgram
 
 		// Local config (~/.floaty/config.json) and the AI chat service built on Microsoft.Extensions.AI.
 		builder.Services.AddSingleton<SettingsService>();
+		// Turns the configured providers + role assignments into IChatClient/IEmbeddingGenerator.
+		// Everything that talks to a model goes through here rather than building its own client.
+		builder.Services.AddSingleton<AiClientFactory>();
 		builder.Services.AddSingleton<IChatService, ChatService>();
 
 		// Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/floaty.db).
@@ -70,6 +73,8 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ISelectionCaptureService, Floaty.Platforms.Windows.WindowsSelectionCaptureService>();
 		// Capture shutter / assistant-reply sounds, played through NAudio (Settings → Sounds).
 		builder.Services.AddSingleton<ISoundService, Floaty.Platforms.Windows.WindowsSoundService>();
+		// On-device embedding models (ONNX Runtime), so memory and screen history can run without a cloud key.
+		builder.Services.AddSingleton<ILocalEmbeddingFactory, Floaty.Platforms.Windows.WindowsLocalEmbeddingFactory>();
 #elif MACCATALYST
 		builder.Services.AddSingleton<IOverlayWindowController, Floaty.Platforms.MacCatalyst.MacOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -81,6 +86,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
 		builder.Services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
 		builder.Services.AddSingleton<ISoundService, NullSoundService>();
+		builder.Services.AddSingleton<ILocalEmbeddingFactory, NullLocalEmbeddingFactory>();
 #else
 		builder.Services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
 		builder.Services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
@@ -92,6 +98,7 @@ public static class MauiProgram
 		builder.Services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
 		builder.Services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
 		builder.Services.AddSingleton<ISoundService, NullSoundService>();
+		builder.Services.AddSingleton<ILocalEmbeddingFactory, NullLocalEmbeddingFactory>();
 #endif
 
 		ConfigureOverlayWindow(builder);

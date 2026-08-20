@@ -1,10 +1,14 @@
 namespace Floaty.Services;
 
 /// <summary>
-/// Downloads speech-to-text models from <see cref="SttModelCatalog"/> into
-/// <see cref="FloatyPaths.SttModels"/>/&lt;model id&gt;, along with their shared dependencies:
-/// the Silero VAD model and the transcribe.cpp native runtime. Whether a model is "downloaded"
-/// is always derived from the expected files being present on disk — nothing is persisted in config.
+/// Downloads the models Floaty fetches on demand rather than packaging: speech-to-text models from
+/// <see cref="SttModelCatalog"/> into <see cref="FloatyPaths.SttModels"/>/&lt;model id&gt; along with
+/// their shared dependencies (the Silero VAD model and the transcribe.cpp native runtime), and
+/// on-device embedding models from <see cref="LocalModelCatalog"/> into
+/// <see cref="FloatyPaths.LocalEmbeddingModels"/>/&lt;model id&gt;.
+///
+/// Whether a model is "downloaded" is always derived from the expected files being present on
+/// disk — nothing is persisted in config.
 /// </summary>
 public sealed class ModelDownloadService
 {
@@ -22,23 +26,28 @@ public sealed class ModelDownloadService
 
     public string GetModelDir(string modelId) => Path.Combine(FloatyPaths.SttModels, modelId);
 
+    /// <summary>Where an embedding model's files live once downloaded.</summary>
+    public string GetEmbeddingModelDir(string modelId) =>
+        Path.Combine(FloatyPaths.LocalEmbeddingModels, modelId);
+
     /// <summary>
     /// True when every file of the model, the shared Silero VAD, and the native runtime are on disk.
     /// </summary>
     public bool IsDownloaded(SttModelInfo model) =>
         model.IsAvailable && HasAllFiles(model) && HasAllFiles(SttModelCatalog.SileroVad) && _runtime.IsInstalled;
 
-    private bool HasAllFiles(SttModelInfo model)
-    {
-        var dir = GetModelDir(model.Id);
-        return model.Files.Count > 0 && model.Files.All(f => File.Exists(Path.Combine(dir, f.FileName)));
-    }
+    /// <summary>True when every file of the embedding model is on disk. It has no shared dependencies.</summary>
+    public bool IsDownloaded(LocalEmbeddingModelInfo model) =>
+        HasAllFiles(GetEmbeddingModelDir(model.Id), model.Files);
+
+    private bool HasAllFiles(SttModelInfo model) => HasAllFiles(GetModelDir(model.Id), model.Files);
+
+    private static bool HasAllFiles(string dir, IReadOnlyList<SttModelFile> files) =>
+        files.Count > 0 && files.All(f => File.Exists(Path.Combine(dir, f.FileName)));
 
     /// <summary>
     /// Downloads all files of <paramref name="model"/> plus its dependencies (Silero VAD, native
-    /// runtime), reporting aggregate progress in [0,1]. Files stream to a ".partial" name and are
-    /// renamed on completion, so a killed download never leaves a truncated file that passes
-    /// <see cref="IsDownloaded"/>.
+    /// runtime), reporting aggregate progress in [0,1].
     /// </summary>
     public async Task DownloadAsync(SttModelInfo model, IProgress<double>? progress, CancellationToken ct = default)
     {
@@ -58,6 +67,52 @@ public sealed class ModelDownloadService
             return;
         }
 
+        await DownloadFilesAsync(pending, runtimeBytes, progress, ct);
+
+        PruneStaleFiles(GetModelDir(model.Id), model.Files);
+        progress?.Report(1);
+        ModelsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Downloads an embedding model's files. Unlike the speech models these have no shared runtime
+    /// or VAD to ride along — ONNX Runtime is already linked into the app.
+    /// </summary>
+    public async Task DownloadAsync(LocalEmbeddingModelInfo model, IProgress<double>? progress, CancellationToken ct = default)
+    {
+        var dir = GetEmbeddingModelDir(model.Id);
+        var pending = model.Files
+            .Where(f => !File.Exists(Path.Combine(dir, f.FileName)))
+            .Select(f => (File: f, Dir: dir))
+            .ToList();
+
+        if (pending.Count == 0)
+        {
+            progress?.Report(1);
+            return;
+        }
+
+        await DownloadFilesAsync(pending, extraBytes: 0, progress, ct);
+
+        PruneStaleFiles(dir, model.Files);
+        progress?.Report(1);
+        ModelsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Streams every pending file to disk, reporting one aggregate percentage across all of them.
+    /// <paramref name="extraBytes"/> accounts for the native runtime that rides along with the first
+    /// speech model, so its share of the bar is not double-counted.
+    ///
+    /// Files stream to a ".partial" name and are renamed on completion, so a killed download never
+    /// leaves a truncated file that would pass an <c>IsDownloaded</c> check.
+    /// </summary>
+    private async Task DownloadFilesAsync(
+        IReadOnlyList<(SttModelFile File, string Dir)> pending,
+        long extraBytes,
+        IProgress<double>? progress,
+        CancellationToken ct)
+    {
         // Aggregate percent needs the total size up front; ask for headers of every file first.
         // Any file without a Content-Length degrades progress to completed-file fraction.
         var sizes = new long?[pending.Count];
@@ -67,18 +122,18 @@ public sealed class ModelDownloadService
             using var response = await Http.SendAsync(head, ct);
             sizes[i] = response.IsSuccessStatusCode ? response.Content.Headers.ContentLength : null;
         }
-        var knownTotal = sizes.All(s => s.HasValue) ? sizes.Sum(s => s!.Value) + runtimeBytes : 0;
+        var knownTotal = sizes.All(s => s.HasValue) ? sizes.Sum(s => s!.Value) + extraBytes : 0;
 
         long completedBytes = 0;
 
         // The shared native runtime rides along with the first model download, like the VAD.
-        if (runtimeBytes > 0)
+        if (extraBytes > 0)
         {
             var runtimeProgress = knownTotal > 0
-                ? new Progress<double>(p => progress?.Report(Math.Min(1, p * runtimeBytes / knownTotal)))
+                ? new Progress<double>(p => progress?.Report(Math.Min(1, p * extraBytes / knownTotal)))
                 : null;
             await _runtime.EnsureInstalledAsync(runtimeProgress, ct);
-            completedBytes += runtimeBytes;
+            completedBytes += extraBytes;
         }
 
         for (var i = 0; i < pending.Count; i++)
@@ -119,22 +174,17 @@ public sealed class ModelDownloadService
                 throw;
             }
         }
-
-        PruneStaleFiles(model);
-        progress?.Report(1);
-        ModelsChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
     /// Removes files in the model's folder that the catalog no longer lists — e.g. multi-file
     /// ONNX sets left behind by the earlier sherpa-onnx engine after the GGUF replaces them.
     /// </summary>
-    private void PruneStaleFiles(SttModelInfo model)
+    private static void PruneStaleFiles(string dir, IReadOnlyList<SttModelFile> files)
     {
         try
         {
-            var dir = GetModelDir(model.Id);
-            var expected = model.Files.Select(f => f.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var expected = files.Select(f => f.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var path in Directory.GetFiles(dir))
             {
                 if (!expected.Contains(Path.GetFileName(path)))
@@ -148,9 +198,13 @@ public sealed class ModelDownloadService
     }
 
     /// <summary>Removes the model's folder (shared VAD + runtime are kept for other models).</summary>
-    public void Delete(SttModelInfo model)
+    public void Delete(SttModelInfo model) => DeleteDir(GetModelDir(model.Id));
+
+    /// <summary>Removes an embedding model's folder.</summary>
+    public void Delete(LocalEmbeddingModelInfo model) => DeleteDir(GetEmbeddingModelDir(model.Id));
+
+    private void DeleteDir(string dir)
     {
-        var dir = GetModelDir(model.Id);
         if (Directory.Exists(dir))
             Directory.Delete(dir, recursive: true);
         ModelsChanged?.Invoke(this, EventArgs.Empty);
