@@ -4,7 +4,7 @@ Guidance for LLM-based coding agents working on Floaty. Humans welcome too.
 
 ## What Floaty is
 
-A local-first AI desktop assistant built with .NET MAUI. It runs as a tray icon plus a borderless, always-on-top "swimming ring" overlay window. The overlay captures screenshots and screen text (via accessibility APIs), which get embedded into a local vector database; a chat window talks to an LLM (OpenAI via Microsoft.Extensions.AI) that can search that memory, invoke SKILL.md-based agent skills, and call tools from user-configured MCP servers. Voice input is transcribed fully locally.
+A local-first AI desktop assistant built with .NET MAUI. It runs as a tray icon plus a borderless, always-on-top "swimming ring" overlay window. The overlay captures screenshots and screen text (via accessibility APIs), which get embedded into a local vector database; a chat window talks to an LLM (any configured provider, via Microsoft.Extensions.AI) that can search that memory, invoke SKILL.md-based agent skills, and call tools from user-configured MCP servers. Embeddings and screenshot captioning can run on-device. Voice input is transcribed fully locally.
 
 ## Tech stack
 
@@ -12,7 +12,7 @@ A local-first AI desktop assistant built with .NET MAUI. It runs as a tray icon 
 | --- | --- |
 | UI framework | .NET MAUI (net10.0), XAML pages + one Blazor hybrid `BlazorWebView` for settings |
 | Language / SDK | C# (nullable enabled, implicit usings), .NET SDK pinned in `app/global.json` (10.0.301, `rollForward: latestFeature`) |
-| AI | `Microsoft.Extensions.AI` abstractions + `Microsoft.Extensions.AI.OpenAI` (chat, tool calls, embeddings) |
+| AI | `Microsoft.Extensions.AI` abstractions over several provider bindings - `Microsoft.Extensions.AI.OpenAI` (OpenAI plus every OpenAI-compatible endpoint), `Azure.AI.OpenAI`, `Anthropic` (official C# SDK), and in-process ONNX embeddings |
 | Local memory | `LiteGraph` - embedded SQLite graph/vector store at `~/.floaty/floaty.db` |
 | MCP | `ModelContextProtocol` 2.0.0-preview.1 (`McpClientTool : AIFunction` plugs into `ChatOptions.Tools`) |
 | Windows overlay | `WinUIEx` (transparent/borderless window), Win32 interop for click-through regions |
@@ -52,8 +52,10 @@ When adding platform functionality, follow this triple exactly: interface, Windo
 
 Key services:
 
-- `ChatService` - builds an `IChatClient` from settings, rebuilds on config change; exposes the `search_captures` and `read_capture` AI tools and, when the user scopes chat with `/server`, that MCP server's tools. Search hits show the passage that matched (`TextChunker.BestWindow`), not the opening; `read_capture` reads the rest from the saved file, resolved by name inside Floaty's own capture folders only.
-- `MemoryService` - OpenAI embeddings persisted to LiteGraph. One node per capture carrying **one vector per chunk** (`TextChunker`), embedded in batches; nothing is truncated. Search over-fetches, groups hits by capture, and re-scores the capture's chunks locally to return the passage that matched — LiteGraph's result names the node but not which vector won. Enables an HNSW vector index (`~/.floaty/floaty.vectors.db`) after the first store; auto-capture count/delete filter `Source` through LiteGraph rather than reading every node. `ReindexCapturesAsync` re-chunks existing captures from their saved `.txt` (Settings → Screen History).
+- `AiClientFactory` - **the only place a model client is constructed.** Turns `FloatyConfig.Providers` plus the three role assignments (`ChatRole` / `EmbeddingRole` / `VisionRole`) into `IChatClient` / `IEmbeddingGenerator`, caching one per role and dropping them on `SettingsService.Changed`. Dispatch is by `ProviderKind`, and `OpenAiCompatible` is deliberately one branch for many vendors: Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Ollama, LM Studio and llama.cpp's server differ only by base URL. `IsConfigured(role)` is the single answer to "is this feature usable" - never test an API key directly.
+- `ProviderPresets` / `ConfigMigration` - the preset table behind the "+ Add" list, and the load-time upgrade that folds a pre-multi-provider `config.json` (one OpenAI key plus three model ids) into a provider profile. `ConfigMigration.Apply` runs on **every** load, so every step must be idempotent.
+- `ChatService` - gets its `IChatClient` from `AiClientFactory`; exposes the `search_captures` and `read_capture` AI tools and, when the user scopes chat with `/server`, that MCP server's tools. Search hits show the passage that matched (`TextChunker.BestWindow`), not the opening; `read_capture` reads the rest from the saved file, resolved by name inside Floaty's own capture folders only.
+- `MemoryService` - embeddings (from whichever provider holds the embedding role) persisted to LiteGraph. One node per capture carrying **one vector per chunk** (`TextChunker`), embedded in batches; nothing is truncated. Search over-fetches, groups hits by capture, and re-scores the capture's chunks locally to return the passage that matched — LiteGraph's result names the node but not which vector won. Enables an HNSW vector index (`~/.floaty/floaty.vectors.db`) after the first store; auto-capture count/delete filter `Source` through LiteGraph rather than reading every node. `ReindexCapturesAsync` re-chunks existing captures from their saved `.txt` (Settings → Screen History).
 - `McpService` - connects/caches MCP clients per configured server; cache cleared on settings change.
 - `SkillService` - scans `~/.floaty/skills`, `~/.claude/skills`, `~/.agents/skills` for SKILL.md folders (YAML frontmatter + markdown body); invoked via `/name` slash commands in chat.
 - `SettingsService` / `FloatyConfig` - loads/persists `~/.floaty/config.json`; other services subscribe to change notifications.
@@ -61,7 +63,9 @@ Key services:
 - `WindowsScreenHistoryService` - foreground-window/title watcher that auto-records into memory per `FloatyConfig.ScreenHistoryMode`. Tunables (dwell, per-window cooldown, global floor) are constants at the top.
 - `CaptureDedupe` - bounded LRU ledger of recently captured windows plus a SimHash content fingerprint, so screen history doesn't re-embed screens it already stored when the user cycles between windows.
 - `TextChunker` - splits capture text into overlapping line-aware chunks for embedding, and picks the query-relevant window to display. Pure and dependency-free, so it can be exercised in isolation.
-- `NativeRuntimeService` / `ModelDownloadService` / `SttModelCatalog` - download transcribe.cpp native runtime (version pinned in `NativeRuntimeService.Version`) and GGUF STT models into `~/.floaty/native` and `~/.floaty/models` at first use; they are not packaged with the app.
+- `NativeRuntimeService` / `ModelDownloadService` / `SttModelCatalog` / `LocalModelCatalog` - download the transcribe.cpp native runtime (version pinned in `NativeRuntimeService.Version`), GGUF STT models, and ONNX embedding models into `~/.floaty/native`, `~/.floaty/models` and `~/.floaty/models/embed` at first use; none are packaged with the app. `ModelDownloadService.DownloadFilesAsync` is the shared core both catalogs go through.
+- `ILocalEmbeddingFactory` / `OnnxEmbeddingGenerator` - on-device embeddings: an ONNX sentence-transformer run by the same ONNX Runtime as the voice VAD, tokenized by `Microsoft.ML.Tokenizers`' `BertTokenizer` from the model's `vocab.txt`. This is what lets memory and screen history run with no cloud key at all. Catalog entries must be WordPiece/BERT models - XLM-R multilingual encoders ship SentencePiece and would need a second tokenizer path.
+- `OllamaProbe` - reads `/api/tags` off a local Ollama so its provider tab can list pulled models. Inference still goes through Ollama's OpenAI-compatible endpoint like every other provider.
 - `ISoundService` / `WindowsSoundService` - Floaty's own feedback sounds (capture shutter, assistant-reply finished). One long-lived NAudio `WaveOutEvent` + `MixingSampleProvider` with decoded clips cached per selection; built-ins ship in `app/Resources/Sounds` (CC0, see its CREDITS.md) and users can drop their own into `~/.floaty/sounds`. Fire-and-forget and failure-swallowing by design — audio must never break a capture or a chat turn. Also serves the Settings audition button via `SettingsService.SoundPreviewRequested`.
 - `UpdateService` - Velopack-based self-update from GitHub Releases; only active when running as an installed app.
 
@@ -75,7 +79,7 @@ Key services:
 
 ## Data: `~/.floaty`
 
-All user data is local-first under the home directory: `config.json`, `floaty.md` (user system prompt), `floaty.db`, `captures/`, `conversations/` (one JSON per thread), `skills/`, `models/`, `native/`, `ring/`, `sounds/`. Never hardcode these paths - go through `FloatyPaths`.
+All user data is local-first under the home directory: `config.json`, `floaty.md` (user system prompt), `floaty.db`, `captures/`, `conversations/` (one JSON per thread), `skills/`, `models/` (with `models/embed/` for on-device embedding models), `native/`, `ring/`, `sounds/`. Never hardcode these paths - go through `FloatyPaths`.
 
 ## Build & run
 
@@ -94,6 +98,9 @@ There is no test suite currently; verify changes by building and, for UI/interop
 
 - **WinUIEx must stay aligned with the WindowsAppSDK version the MAUI workload pins** - see the comment in `Floaty.csproj`; bumping WinUIEx past what WindowsAppSDK supports breaks the build.
 - **ModelContextProtocol is a preview package** (2.0.0-preview.1); its API surface may shift on update.
+- **The `Anthropic` package is versioned 10+ but still beta upstream** - breaking changes can land in minor releases, so it stays pinned.
+- **Never gate a feature on an API key.** `FloatyConfig`'s `OpenAiApiKey` / `Model` / `EmbeddingModel` / `SnapshotModel` are legacy migration inputs only (nullable + `WhenWritingNull`, so they vanish from `config.json` after one save). Ask `AiClientFactory.IsConfigured` or `IMemoryService.CanRemember` instead.
+- **`Settings.razor`'s `OnInitializedAsync` hand-copies every `FloatyConfig` property into a working clone**, and the clone is saved wholesale - a new property omitted there is silently reset to its default on Save.
 - **transcribe.cpp is pre-1.0** - its ABI can change between 0.x versions. Its version is pinned in `NativeRuntimeService.Version` and the runtime is downloaded at first use, so a bump there must match the P/Invoke signatures in `TranscribeNative.cs`.
 - **XAML source generation is enabled** (`MauiXamlInflator=SourceGen`); XAML errors surface at compile time.
 - `Floaty.slnx` is the newer XML solution format - some tooling only knows `.sln`.

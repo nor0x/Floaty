@@ -41,6 +41,12 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/native</c> — downloaded native runtimes (transcribe.cpp), one folder per version.</summary>
     public static string NativeRuntimes => EnsureDir(Path.Combine(Home, "native"));
 
+    /// <summary>
+    /// <c>~/.floaty/models/embed</c> — downloaded on-device embedding models, one folder per model
+    /// id. A subfolder of the STT model root so everything downloaded on demand lives together.
+    /// </summary>
+    public static string LocalEmbeddingModels => EnsureDir(Path.Combine(SttModels, "embed"));
+
     private static string EnsureDir(string path)
     {
         Directory.CreateDirectory(path);

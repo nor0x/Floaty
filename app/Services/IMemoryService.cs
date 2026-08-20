@@ -21,6 +21,13 @@ public sealed record MemoryCitation(string Title, string? ImagePath, string? Tex
 /// </summary>
 public interface IMemoryService
 {
+    /// <summary>
+    /// Whether an embedding provider is configured, i.e. whether anything stored here would
+    /// actually be stored. Callers check this before doing the work that leads up to a capture —
+    /// taking a screenshot, reading a window — so they don't pay for it and throw it away.
+    /// </summary>
+    bool CanRemember { get; }
+
     /// <summary>Source tag for captures the user took explicitly (📷 button, /capture).</summary>
     const string ManualCaptureSource = "manual";
 
@@ -35,7 +42,7 @@ public interface IMemoryService
 
     /// <summary>
     /// Embeds the capture's content and stores it as a graph node. Returns <c>false</c> when there's
-    /// nothing to do (no API key configured or empty content); throws on hard failures so the caller
+    /// nothing to do (no embedding provider configured, or empty content); throws on hard failures so the caller
     /// can surface the error. <paramref name="source"/> tags who recorded the memory
     /// (<see cref="ManualCaptureSource"/> or <see cref="AutoCaptureSource"/>) so screen history can
     /// be cleared without touching manual captures.

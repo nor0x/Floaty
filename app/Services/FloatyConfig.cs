@@ -101,27 +101,56 @@ public enum VoiceSendMode
 
 /// <summary>
 /// User-editable configuration for Floaty, persisted as JSON in <c>~/.floaty/config.json</c>.
-/// Mirrors the local-first design in readme.md. Only the AI provider section exists today;
-/// more sections (skills, MCP, memory) will be added as siblings here.
+/// Mirrors the local-first design in readme.md.
 /// </summary>
 public sealed class FloatyConfig
 {
-    /// <summary>The active AI provider. Only "OpenAI" is supported for now.</summary>
-    public string Provider { get; set; } = "OpenAI";
+    /// <summary>
+    /// Configured AI providers, one per Settings → Model Provider tab. Each carries its own key,
+    /// endpoint and default model ids; <see cref="ChatRole"/>, <see cref="EmbeddingRole"/> and
+    /// <see cref="VisionRole"/> decide which of them actually does what.
+    /// </summary>
+    public List<ProviderProfile> Providers { get; set; } = new();
 
-    /// <summary>OpenAI API key pasted by the user. Empty until configured.</summary>
-    public string OpenAiApiKey { get; set; } = string.Empty;
-
-    /// <summary>Chat model id, e.g. "gpt-4o-mini".</summary>
-    public string Model { get; set; } = "gpt-4o-mini";
-
-    /// <summary>Embedding model id used to vectorize captures, e.g. "text-embedding-3-small".</summary>
-    public string EmbeddingModel { get; set; } = "text-embedding-3-small";
+    /// <summary>Which provider + model answers chats. Unset means "not configured yet".</summary>
+    public ModelAssignment ChatRole { get; set; } = new();
 
     /// <summary>
-    /// Vision model id used to describe captured screenshots, e.g. "gpt-4o-mini". Blank disables snapshotting.
+    /// Which provider + model vectorizes captures. Points at a <see cref="ProviderKind.LocalOnnx"/>
+    /// provider to embed on-device — the cheap option for continuous screen history.
     /// </summary>
-    public string SnapshotModel { get; set; } = "gpt-4o-mini";
+    public ModelAssignment EmbeddingRole { get; set; } = new();
+
+    /// <summary>
+    /// Which provider + model describes captured screenshots. Unset disables captioning entirely
+    /// (what a blank <c>SnapshotModel</c> used to mean).
+    /// </summary>
+    public ModelAssignment VisionRole { get; set; } = new();
+
+    // --- Legacy single-provider fields (pre-multi-provider). Kept so an old config.json still
+    // deserializes; ConfigMigration folds them into Providers on load and then nulls them out.
+    // Nullable + WhenWritingNull is what keeps them out of the file afterwards: WhenWritingDefault
+    // reads a string's default as null, so an empty string would still be written. Do not read these.
+
+    /// <inheritdoc cref="Providers"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Provider { get; set; }
+
+    /// <inheritdoc cref="Providers"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? OpenAiApiKey { get; set; }
+
+    /// <inheritdoc cref="Providers"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Model { get; set; }
+
+    /// <inheritdoc cref="Providers"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EmbeddingModel { get; set; }
+
+    /// <inheritdoc cref="Providers"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SnapshotModel { get; set; }
 
     /// <summary>
     /// Selected ring image filename from <c>~/.floaty/ring</c>. Empty uses the built-in default ring.
@@ -319,4 +348,90 @@ public sealed class McpServerConfig
 
     /// <summary>Additional HTTP headers (e.g. Authorization) for an http server.</summary>
     public Dictionary<string, string> Headers { get; set; } = new();
+}
+
+/// <summary>
+/// How Floaty talks to a provider. This is the transport, not the brand: everything that speaks
+/// the OpenAI wire format — Gemini, OpenRouter, Groq, Mistral, DeepSeek, xAI, Ollama, LM Studio,
+/// llama.cpp's server — shares <see cref="OpenAiCompatible"/> and differs only by base URL.
+/// Stored as a string so config.json stays hand-editable.
+/// </summary>
+public enum ProviderKind
+{
+    /// <summary>OpenAI proper, reached through its own SDK (and by default its Responses API).</summary>
+    OpenAI,
+
+    /// <summary>Any endpoint speaking the OpenAI chat-completions wire format, addressed by base URL.</summary>
+    OpenAiCompatible,
+
+    /// <summary>Azure OpenAI, where the "model" is a deployment name.</summary>
+    AzureOpenAI,
+
+    /// <summary>Anthropic's Messages API via the official C# SDK.</summary>
+    Anthropic,
+
+    /// <summary>On-device embedding models run in-process by ONNX Runtime. Embeddings only.</summary>
+    LocalOnnx,
+}
+
+/// <summary>
+/// One configured provider — a tab in Settings → Model Provider. Seeded from a
+/// <c>ProviderPresets</c> entry, but every field is user-overridable afterwards, so a preset is a
+/// starting point rather than a constraint.
+/// </summary>
+public sealed class ProviderProfile
+{
+    /// <summary>
+    /// Stable slug referenced by <see cref="ModelAssignment.ProviderId"/> (e.g. "openai", "ollama",
+    /// "custom-1"). Never reused after a profile is removed, so a dangling role just goes unassigned.
+    /// </summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Which <c>ProviderPresets</c> entry seeded this profile; drives placeholders and hints.</summary>
+    public string PresetId { get; set; } = string.Empty;
+
+    /// <summary>Tab label. Defaults to the preset's name; editable for custom endpoints.</summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <inheritdoc cref="ProviderKind"/>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProviderKind Kind { get; set; } = ProviderKind.OpenAiCompatible;
+
+    /// <summary>API key, stored in cleartext like the rest of config.json. Empty for local providers.</summary>
+    public string ApiKey { get; set; } = string.Empty;
+
+    /// <summary>Endpoint override. Empty falls back to the preset's default (or the SDK's own).</summary>
+    public string BaseUrl { get; set; } = string.Empty;
+
+    /// <summary>Default chat model id offered when assigning this provider to the chat role.</summary>
+    public string ChatModel { get; set; } = string.Empty;
+
+    /// <summary>Default embedding model id. Empty means this provider can't embed.</summary>
+    public string EmbeddingModel { get; set; } = string.Empty;
+
+    /// <summary>Default vision model id used for screenshot captioning. Empty means it can't see.</summary>
+    public string VisionModel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// <see cref="ProviderKind.OpenAI"/> only: use the Responses API rather than chat completions.
+    /// On by default because that is what Floaty shipped with.
+    /// </summary>
+    public bool UseResponsesApi { get; set; } = true;
+}
+
+/// <summary>
+/// Binds one job (chat, embedding, captioning) to a provider and a model on it. An empty
+/// <see cref="ProviderId"/> means the role is unassigned, which disables the feature behind it.
+/// </summary>
+public sealed class ModelAssignment
+{
+    /// <summary><see cref="ProviderProfile.Id"/> of the provider that serves this role.</summary>
+    public string ProviderId { get; set; } = string.Empty;
+
+    /// <summary>Model id on that provider. Empty falls back to the profile's default for the role.</summary>
+    public string Model { get; set; } = string.Empty;
+
+    /// <summary>True when this role points somewhere.</summary>
+    [JsonIgnore]
+    public bool IsAssigned => !string.IsNullOrWhiteSpace(ProviderId);
 }

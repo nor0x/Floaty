@@ -1171,9 +1171,9 @@ public partial class ChatPanelView : ContentView
         if (paths.Count == 0)
             return;
 
-        if (string.IsNullOrWhiteSpace(_settings.Current.OpenAiApiKey))
+        if (!_memoryService.CanRemember)
         {
-            _ = ShowInlineToastAsync("Memory needs an OpenAI API key");
+            _ = ShowInlineToastAsync("Memory needs an embedding provider");
             return;
         }
 
@@ -1649,7 +1649,7 @@ public partial class ChatPanelView : ContentView
                 var saved = await _memoryService.RememberTextAsync(toSave);
                 Messages.Add(new ChatMessageVm(
                     isUser: false,
-                    saved ? confirmation : "System: couldn't save (add your OpenAI API key in Settings).",
+                    saved ? confirmation : "System: couldn't save (set an embedding provider in Settings).",
                     isSystemNote: true));
                 MessagesList.IsVisible = true;
                 ScrollToLatest();

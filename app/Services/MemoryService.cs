@@ -4,7 +4,6 @@ using LiteGraph;
 using LiteGraph.GraphRepositories.Sqlite;
 using LiteGraph.Indexing.Vector;
 using Microsoft.Extensions.AI;
-using OpenAI;
 
 namespace Floaty.Services;
 
@@ -40,7 +39,7 @@ public sealed class MemoryService : IMemoryService
     // that's been accumulating for months.
     private const int DeleteBatchSize = 200;
 
-    private readonly SettingsService _settings;
+    private readonly AiClientFactory _clients;
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
     private LiteGraphClient? _client;
@@ -49,31 +48,25 @@ public sealed class MemoryService : IMemoryService
     // vector's dimensionality, so it can only run after the first store.
     private int _vectorIndexChecked;
 
-    private IEmbeddingGenerator<string, Embedding<float>>? _embeddings;
-    private string? _embeddingsKey;
-    private string? _embeddingsModel;
-
-    private IChatClient? _snapshot;
-    private string? _snapshotKey;
-    private string? _snapshotModel;
-
-    public MemoryService(SettingsService settings)
+    public MemoryService(AiClientFactory clients)
     {
-        _settings = settings;
-        _settings.Changed += (_, _) =>
-        {
-            _embeddings = null;
-            _snapshot = null;
-        };
+        _clients = clients;
+
+        // A different embedding provider means a different vector space, and possibly a different
+        // width. Re-run the index reconciliation on the next store rather than searching an index
+        // built for the old model.
+        _clients.EmbeddingProviderChanged += (_, _) => Interlocked.Exchange(ref _vectorIndexChecked, 0);
     }
+
+    /// <inheritdoc />
+    public bool CanRemember => _clients.IsConfigured(ModelRole.Embedding);
 
     public async Task<bool> RememberCaptureAsync(
         CaptureResult capture,
         string source = IMemoryService.ManualCaptureSource,
         CancellationToken cancellationToken = default)
     {
-        var config = _settings.Current;
-        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey))
+        if (!_clients.IsConfigured(ModelRole.Embedding))
             return false;
 
         // A dropped image has no text of its own — the vision description *is* the memory — so only
@@ -85,10 +78,11 @@ public sealed class MemoryService : IMemoryService
             return false;
         }
 
-        // Ask the vision (snapshot) model to describe the image, then store its words alongside the
-        // plain text. Best-effort: a null description just means text-only memory. Text-only history
-        // captures (and non-image drops) arrive with an empty ImagePath, which skips the vision call.
-        var description = await DescribeScreenshotAsync(capture.ImagePath, config, cancellationToken);
+        // Ask whichever provider holds the vision role to describe the image, then store its words
+        // alongside the plain text. Best-effort: a null description just means text-only memory.
+        // Text-only history captures (and non-image drops) arrive with an empty ImagePath, which
+        // skips the vision call.
+        var description = await DescribeScreenshotAsync(capture.ImagePath, cancellationToken);
 
         // Order: title -> description -> body. The whole thing is chunked rather than truncated, so
         // this is about reading order rather than about what survives.
@@ -125,15 +119,13 @@ public sealed class MemoryService : IMemoryService
                 MimeType = isDrop ? MimeTypes.FromPath(capture.WindowTitle) : "image/png",
             },
             content: text,
-            config: config,
             cancellationToken: cancellationToken);
         return true;
     }
 
     public async Task<bool> RememberTextAsync(string text, CancellationToken cancellationToken = default)
     {
-        var config = _settings.Current;
-        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(text))
+        if (!_clients.IsConfigured(ModelRole.Embedding) || string.IsNullOrWhiteSpace(text))
             return false;
 
         text = text.Trim();
@@ -143,7 +135,6 @@ public sealed class MemoryService : IMemoryService
             labels: new List<string> { "Note" },
             data: new { Source = "note", CapturedUtc = DateTime.UtcNow },
             content: text,
-            config: config,
             cancellationToken: cancellationToken);
         return true;
     }
@@ -156,10 +147,9 @@ public sealed class MemoryService : IMemoryService
         List<string> labels,
         object data,
         string content,
-        FloatyConfig config,
         CancellationToken cancellationToken)
     {
-        var vectors = await EmbedChunksAsync(content, config, cancellationToken);
+        var vectors = await EmbedChunksAsync(content, cancellationToken);
         if (vectors.Count == 0)
             return;
 
@@ -189,14 +179,17 @@ public sealed class MemoryService : IMemoryService
     // affordable: a 400k-character capture is ~550 chunks, which is ~9 requests instead of ~550.
     private async Task<List<VectorMetadata>> EmbedChunksAsync(
         string content,
-        FloatyConfig config,
         CancellationToken cancellationToken)
     {
         var chunks = TextChunker.Split(content);
         if (chunks.Count == 0)
             return new List<VectorMetadata>();
 
-        var generator = GetOrCreateEmbeddings(config);
+        var generator = _clients.GetEmbeddingGenerator();
+        if (generator is null)
+            return new List<VectorMetadata>();
+
+        var embeddingModel = _clients.GetModelId(ModelRole.Embedding) ?? string.Empty;
         var vectors = new List<VectorMetadata>(chunks.Count);
 
         for (var offset = 0; offset < chunks.Count; offset += EmbedBatchSize)
@@ -216,7 +209,7 @@ public sealed class MemoryService : IMemoryService
                 {
                     TenantGUID = TenantGuid,
                     GraphGUID = GraphGuid,
-                    Model = config.EmbeddingModel,
+                    Model = embeddingModel,
                     Dimensionality = vector.Count,
                     Content = batch[i],
                     Vectors = vector,
@@ -285,17 +278,20 @@ public sealed class MemoryService : IMemoryService
         return firstLine.Length <= 60 ? firstLine : firstLine[..60] + "…";
     }
 
-    // Describes an image using the configured vision (snapshot) model — a window screenshot, or a
-    // dropped image file. Returns null when snapshotting is disabled, the image is missing, or the
+    // Describes an image using whichever provider holds the vision role — a window screenshot, or a
+    // dropped image file. Returns null when captioning is unassigned, the image is missing, or the
     // call fails; capture/embed still proceed in that case.
-    private async Task<string?> DescribeScreenshotAsync(string imagePath, FloatyConfig config, CancellationToken cancellationToken)
+    private async Task<string?> DescribeScreenshotAsync(string imagePath, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(config.SnapshotModel) || !File.Exists(imagePath))
+        if (!File.Exists(imagePath))
             return null;
 
         try
         {
-            var client = GetOrCreateSnapshot(config);
+            var client = _clients.GetVisionClient();
+            if (client is null)
+                return null;
+
             var imageBytes = await File.ReadAllBytesAsync(imagePath, cancellationToken);
 
             var message = new ChatMessage(ChatRole.User, new List<AIContent>
@@ -337,11 +333,13 @@ public sealed class MemoryService : IMemoryService
         int topK = 5,
         CancellationToken cancellationToken = default)
     {
-        var config = _settings.Current;
-        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey) || string.IsNullOrWhiteSpace(query))
+        if (string.IsNullOrWhiteSpace(query))
             return Array.Empty<CaptureSearchResult>();
 
-        var generator = GetOrCreateEmbeddings(config);
+        var generator = _clients.GetEmbeddingGenerator();
+        if (generator is null)
+            return Array.Empty<CaptureSearchResult>();
+
         var embeddings = await generator.GenerateAsync([query], cancellationToken: cancellationToken);
         var queryVector = embeddings[0].Vector.ToArray().ToList();
 
@@ -468,8 +466,7 @@ public sealed class MemoryService : IMemoryService
         IProgress<(int Done, int Total)>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var config = _settings.Current;
-        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey))
+        if (!_clients.IsConfigured(ModelRole.Embedding))
             return 0;
 
         var client = await GetClientAsync(cancellationToken);
@@ -517,7 +514,7 @@ public sealed class MemoryService : IMemoryService
                 // Lead with the title, matching how a fresh capture is composed.
                 var composed = string.IsNullOrWhiteSpace(node.Name) ? text : $"{node.Name}\n\n{text}";
 
-                var vectors = await EmbedChunksAsync(composed, config, cancellationToken);
+                var vectors = await EmbedChunksAsync(composed, cancellationToken);
                 if (vectors.Count == 0)
                     continue;
 
@@ -644,32 +641,6 @@ public sealed class MemoryService : IMemoryService
         {
             // Leaving an orphaned capture file behind is acceptable; failing the cleanup is not.
         }
-    }
-
-    private IEmbeddingGenerator<string, Embedding<float>> GetOrCreateEmbeddings(FloatyConfig config)
-    {
-        if (_embeddings is not null && _embeddingsKey == config.OpenAiApiKey && _embeddingsModel == config.EmbeddingModel)
-            return _embeddings;
-
-        _embeddingsKey = config.OpenAiApiKey;
-        _embeddingsModel = config.EmbeddingModel;
-        _embeddings = new OpenAIClient(config.OpenAiApiKey)
-            .GetEmbeddingClient(config.EmbeddingModel)
-            .AsIEmbeddingGenerator();
-        return _embeddings;
-    }
-
-    private IChatClient GetOrCreateSnapshot(FloatyConfig config)
-    {
-        if (_snapshot is not null && _snapshotKey == config.OpenAiApiKey && _snapshotModel == config.SnapshotModel)
-            return _snapshot;
-
-        _snapshotKey = config.OpenAiApiKey;
-        _snapshotModel = config.SnapshotModel;
-        _snapshot = new OpenAIClient(config.OpenAiApiKey)
-            .GetChatClient(config.SnapshotModel)
-            .AsIChatClient();
-        return _snapshot;
     }
 
     private async Task<LiteGraphClient> GetClientAsync(CancellationToken cancellationToken)

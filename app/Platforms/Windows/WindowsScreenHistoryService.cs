@@ -168,7 +168,7 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
 
         var config = _settings.Current;
         var mode = config.ScreenHistoryMode;
-        if (mode == ScreenHistoryMode.Disabled || string.IsNullOrWhiteSpace(config.OpenAiApiKey))
+        if (mode == ScreenHistoryMode.Disabled || !_memory.CanRemember)
             return; // nothing downstream would store it
 
         var now = DateTime.UtcNow;

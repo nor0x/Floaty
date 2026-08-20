@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Text;
 using Microsoft.Extensions.AI;
-using OpenAI;
 
 namespace Floaty.Services;
 
@@ -34,10 +33,10 @@ public interface IChatService
 public sealed record ExecApprovalRequest(string Command, string ShellName, string? WorkingDirectory);
 
 /// <summary>
-/// Microsoft.Extensions.AI-backed chat service. Builds an <see cref="IChatClient"/> from the
-/// OpenAI settings on demand and rebuilds it whenever the configuration changes. Exposes a
-/// <c>search_captures</c> tool plus, when scoped via a <c>/server</c> slash command, that MCP
-/// server's tools.
+/// Microsoft.Extensions.AI-backed chat service. Gets its <see cref="IChatClient"/> from
+/// <see cref="AiClientFactory"/>, which decides — from the chat role in settings — which provider
+/// answers. Exposes a <c>search_captures</c> tool plus, when scoped via a <c>/server</c> slash
+/// command, that MCP server's tools.
 /// </summary>
 public sealed class ChatService : IChatService
 {
@@ -69,6 +68,7 @@ public sealed class ChatService : IChatService
     private static readonly AsyncLocal<Func<ExecApprovalRequest, Task<bool>>?> _execApprovalSink = new();
 
     private readonly SettingsService _settings;
+    private readonly AiClientFactory _clients;
     private readonly IMemoryService _memory;
     private readonly IMcpService _mcp;
     private readonly AIFunction _searchTool;
@@ -76,17 +76,12 @@ public sealed class ChatService : IChatService
     private readonly AIFunction _saveTool;
     private readonly AIFunction _execTool;
 
-    private IChatClient? _client;
-    private string? _clientKey;
-    private string? _clientModel;
-
-    public ChatService(SettingsService settings, IMemoryService memory, IMcpService mcp)
+    public ChatService(SettingsService settings, AiClientFactory clients, IMemoryService memory, IMcpService mcp)
     {
         _settings = settings;
+        _clients = clients;
         _memory = memory;
         _mcp = mcp;
-        // Drop the cached client when settings change so the next call picks up the new key/model.
-        _settings.Changed += (_, _) => _client = null;
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
         _readCaptureTool = AIFunctionFactory.Create(ReadCapture, name: "read_capture");
@@ -104,9 +99,10 @@ public sealed class ChatService : IChatService
     {
         var config = _settings.Current;
 
-        if (string.IsNullOrWhiteSpace(config.OpenAiApiKey))
+        var client = _clients.GetChatClient();
+        if (client is null)
         {
-            yield return "Add your OpenAI API key in Settings (⚙) to start chatting.";
+            yield return "Set up a model provider in Settings (⚙) to start chatting.";
             yield break;
         }
 
@@ -115,8 +111,6 @@ public sealed class ChatService : IChatService
 
         // Expose the approval callback so the exec tool can gate each command on the user's confirmation.
         _execApprovalSink.Value = execApproval;
-
-        var client = GetOrCreateClient(config);
 
         var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
 
@@ -318,24 +312,5 @@ public sealed class ChatService : IChatService
 
             sink.Add(new MemoryCitation(r.Title, r.ImagePath, r.TextPath, r.CapturedUtc));
         }
-    }
-
-
-    private IChatClient GetOrCreateClient(FloatyConfig config)
-    {
-        if (_client is not null && _clientKey == config.OpenAiApiKey && _clientModel == config.Model)
-            return _client;
-
-        _clientKey = config.OpenAiApiKey;
-        _clientModel = config.Model;
-#pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-        _client = new OpenAIClient(config.OpenAiApiKey)
-            .GetResponsesClient()
-            .AsIChatClient(config.Model)
-            .AsBuilder()
-            .UseFunctionInvocation()
-            .Build();
-#pragma warning restore OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-        return _client;
     }
 }
