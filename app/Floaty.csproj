@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
 
     <PropertyGroup>
         <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">
@@ -94,6 +94,9 @@
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.80" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.80" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
+        <!-- Markdown in assistant chat bubbles; see MarkdownRenderer for the deliberately
+             restricted pipeline (raw HTML off, no generic attributes, URL scheme allowlist). -->
+        <PackageReference Include="Markdig" Version="1.3.2" />
 
         <!-- AI: provider-agnostic chat abstractions plus the provider bindings AiClientFactory picks
              between. The OpenAI binding does double duty: every OpenAI-compatible endpoint (Gemini,

@@ -6,105 +6,6 @@
     x:Class="Floaty.ChatPanelView">
 
     <ContentView.Resources>
-        <!-- Message bubble text: a chrome-less Editor (see EditorHandlerCustomization) so it reads
-        like
-             a plain Label but supports native drag-select/copy. -->
-        <Style x:Key="SelectableBubbleEditor" TargetType="Editor">
-            <Setter Property="Margin" Value="0" />
-        </Style>
-
-        <!-- Chat message bubble (also used by the message list). -->
-        <DataTemplate x:Key="MessageTemplate" x:DataType="local:ChatMessageVm">
-            <Grid Padding="0,3">
-                <Border HorizontalOptions="{Binding Alignment}"
-                    WidthRequest="{Binding BubbleWidthRequest}"
-                    MaximumWidthRequest="{Binding BubbleMaxWidth}"
-                    BackgroundColor="{Binding BubbleColor}"
-                    Stroke="Transparent"
-                    Padding="10,7"
-                    StrokeShape="RoundRectangle 12">
-                    <VerticalStackLayout Spacing="6">
-                        <!-- Read-only Editor (not Label) so users can drag-select and copy message
-                        text;
-                             AutoSize grows it to fit content instead of showing its own scrollbar, and the
-                             chrome (border/background) is stripped in MauiProgram's Editor handler mapper. -->
-                        <Editor Text="{Binding Text}"
-                            IsReadOnly="True"
-                            AutoSize="TextChanges"
-                            IsSpellCheckEnabled="False"
-                            IsTextPredictionEnabled="False"
-                            TextColor="White"
-                            FontSize="13"
-                            BackgroundColor="Transparent"
-                            Style="{StaticResource SelectableBubbleEditor}" />
-
-                        <!-- Memory sources cited for this answer (RAG provenance). -->
-                        <VerticalStackLayout IsVisible="{Binding HasCitations}" Spacing="3">
-                            <Label Text="Sources"
-                                TextColor="#99FFFFFF"
-                                FontSize="10"
-                                FontAttributes="Bold" />
-                            <VerticalStackLayout Spacing="3"
-                                BindableLayout.ItemsSource="{Binding Citations}">
-                                <BindableLayout.ItemTemplate>
-                                    <DataTemplate x:DataType="local:CitationVm">
-                                        <HorizontalStackLayout Spacing="4">
-                                            <Label Text="{Binding Title}"
-                                                TextColor="#DDFFFFFF"
-                                                FontSize="11"
-                                                VerticalOptions="Center"
-                                                LineBreakMode="TailTruncation"
-                                                MaximumWidthRequest="150" />
-                                            <Border IsVisible="{Binding HasImage}"
-                                                BackgroundColor="#55FFFFFF"
-                                                Stroke="Transparent"
-                                                Padding="6,1"
-                                                StrokeShape="RoundRectangle 7">
-                                                <Border.GestureRecognizers>
-                                                    <TapGestureRecognizer
-                                                        Command="{Binding OpenImageCommand}" />
-                                                </Border.GestureRecognizers>
-                                                <Label TextColor="White" FontSize="11">
-                                                    <Label.FormattedText>
-                                                        <FormattedString>
-                                                            <Span
-                                                                Text="{x:Static icons:TablerLine.Photo}"
-                                                                FontFamily="TablerIconsLine" />
-                                                            <Span Text=" image" />
-                                                        </FormattedString>
-                                                    </Label.FormattedText>
-                                                </Label>
-                                            </Border>
-                                            <Border IsVisible="{Binding HasText}"
-                                                BackgroundColor="#55FFFFFF"
-                                                Stroke="Transparent"
-                                                Padding="6,1"
-                                                StrokeShape="RoundRectangle 7">
-                                                <Border.GestureRecognizers>
-                                                    <TapGestureRecognizer
-                                                        Command="{Binding OpenTextCommand}" />
-                                                </Border.GestureRecognizers>
-                                                <Label TextColor="White" FontSize="11">
-                                                    <Label.FormattedText>
-                                                        <FormattedString>
-                                                            <Span
-                                                                Text="{x:Static icons:TablerLine.FileText}"
-                                                                FontFamily="TablerIconsLine" />
-                                                            <Span Text=" text" />
-                                                        </FormattedString>
-                                                    </Label.FormattedText>
-                                                </Label>
-                                            </Border>
-                                        </HorizontalStackLayout>
-                                    </DataTemplate>
-                                </BindableLayout.ItemTemplate>
-                            </VerticalStackLayout>
-                        </VerticalStackLayout>
-                    </VerticalStackLayout>
-                </Border>
-            </Grid>
-        </DataTemplate>
-
         <!-- Conversation switcher row (shown in the message list under /chats). -->
         <DataTemplate x:Key="ConversationTemplate" x:DataType="local:ConversationItemVm">
             <Grid Padding="0,3" ColumnDefinitions="*,Auto" ColumnSpacing="6">
@@ -141,10 +42,6 @@
                     TextColor="White" />
             </Grid>
         </DataTemplate>
-
-        <local:ChatListTemplateSelector x:Key="ChatListSelector"
-            MessageTemplate="{StaticResource MessageTemplate}"
-            ConversationTemplate="{StaticResource ConversationTemplate}" />
     </ContentView.Resources>
 
     <!-- Slide-out chat panel: scrollable message list above, input box at the bottom. The host
@@ -258,12 +155,20 @@
                     </Border>
                 </Grid>
 
-                <CollectionView x:Name="MessagesList"
+                <!-- The message list is a Blazor component (Components/Chat/ChatView.razor) so that
+                     bubbles get markdown, images and native text selection for free. The root component
+                     is registered in code-behind, which is where the bridge object it needs is created.
+                     Unlike a CollectionView this cannot size itself to its content, so its height is
+                     driven from RefreshMessageAreaHeight; deliberately no MaximumHeightRequest here.
+                     It is never collapsed, only shrunk to a one-pixel sliver when the chat is empty: a
+                     collapsed WebView2 stops laying out, which would stall Blazor's first render and
+                     the ResizeObserver that reports the height back. -->
+                <BlazorWebView x:Name="MessagesHost"
                     Grid.Row="1"
-                    VerticalScrollBarVisibility="Never"
-                    IsVisible="False"
-                    MaximumHeightRequest="240"
-                    ItemTemplate="{StaticResource ChatListSelector}" />
+                    HeightRequest="1"
+                    HorizontalOptions="Fill"
+                    BackgroundColor="Transparent"
+                    HostPage="wwwroot/chat.html" />
                 <CollectionView x:Name="ConversationList"
                     Grid.Row="1"
                     SelectionMode="Single"

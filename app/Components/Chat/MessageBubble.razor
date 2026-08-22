@@ -1,0 +1,113 @@
+@using System.ComponentModel
+@using Floaty.Services
+@implements IDisposable
+
+@* One chat bubble. Assistant answers render as markdown; the user's own messages and Floaty's system
+   notes stay literal text, both because they were never markdown and because /recall's "[1]" source
+   markers would otherwise be eaten by the parser. *@
+<div class="row @RowClass">
+    <div class="bubble @RowClass">
+        @if (RenderMarkdown)
+        {
+            <div class="text md">@((MarkupString)_html)</div>
+        }
+        else
+        {
+            <div class="text">@Message.Text</div>
+        }
+
+        @if (Message.HasCitations)
+        {
+            <div class="sources">
+                <div class="sources-title">Sources</div>
+                @foreach (var citation in Message.Citations)
+                {
+                    <div class="citation">
+                        <span class="title" title="@citation.Title">@citation.Title</span>
+                        @if (citation.HasImage)
+                        {
+                            <span class="pill" @onclick="() => citation.OpenImageCommand!.Execute(null)">
+                                @* Tabler "photo" *@
+                                <span class="ti">&#xeb0a;</span>image
+                            </span>
+                        }
+                        @if (citation.HasText)
+                        {
+                            <span class="pill" @onclick="() => citation.OpenTextCommand!.Execute(null)">
+                                @* Tabler "file-text" *@
+                                <span class="ti">&#xeaa2;</span>text
+                            </span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private ChatMessageVm? _bound;
+    private string _html = string.Empty;
+    private string? _renderedFrom;
+    private bool _dirty = true;
+
+    [Parameter, EditorRequired]
+    public ChatMessageVm Message { get; set; } = default!;
+
+    private bool RenderMarkdown => !Message.IsUser && !Message.IsSystemNote;
+
+    private string RowClass => Message.IsUser ? "user" : Message.IsSystemNote ? "system" : "assistant";
+
+    // Subscription follows the bound view-model rather than being taken once in OnInitialized, so a
+    // component instance that is ever handed a different message rewires instead of listening to the
+    // old one. It also means a parent re-render (a message was added) does not mark every existing
+    // bubble dirty, since their Message parameter is unchanged.
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_bound, Message))
+        {
+            if (_bound is not null)
+                _bound.PropertyChanged -= OnMessageChanged;
+
+            _bound = Message;
+            _bound.PropertyChanged += OnMessageChanged;
+            _renderedFrom = null;
+            _dirty = true;
+        }
+
+        RefreshHtml();
+    }
+
+    // Only this bubble re-renders when its own text changes. Combined with ShouldRender below, a
+    // streaming turn costs one markdown parse and one single-node diff per repaint tick, rather than
+    // re-diffing every bubble in the conversation.
+    private void OnMessageChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        RefreshHtml();
+        _dirty = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void RefreshHtml()
+    {
+        if (!RenderMarkdown)
+            return;
+
+        // Reference comparison is enough: Text is replaced wholesale on every streaming repaint.
+        if (ReferenceEquals(Message.Text, _renderedFrom))
+            return;
+
+        _renderedFrom = Message.Text;
+        _html = MarkdownRenderer.ToHtml(Message.Text);
+    }
+
+    protected override bool ShouldRender() => _dirty;
+
+    protected override void OnAfterRender(bool firstRender) => _dirty = false;
+
+    public void Dispose()
+    {
+        if (_bound is not null)
+            _bound.PropertyChanged -= OnMessageChanged;
+    }
+}

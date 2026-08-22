@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Text;
 using AsyncAwaitBestPractices;
 using Floaty.Services;
+using Microsoft.AspNetCore.Components.WebView;
+using Microsoft.AspNetCore.Components.WebView.Maui;
 using Microsoft.Extensions.AI;
 
 namespace Floaty;
@@ -155,7 +157,7 @@ public partial class ChatPanelView : ContentView
     private Conversation? _currentConversation;
     private bool _conversationLoaded;
 
-    // Conversation switcher (shown inside MessagesList under /chats).
+    // Conversation switcher (shown in the message list's slot under /chats).
     private bool _listMode;
     private readonly ObservableCollection<ConversationItemVm> _conversationItems = new();
 
@@ -191,6 +193,13 @@ public partial class ChatPanelView : ContentView
     private double _lastDragTotalY;
 
     private bool _waitingForFirstChunk;
+
+    // The Blazor message list. The bridge is this panel's half of the contract; the two doubles below
+    // run the height loop: what the webview last told us its content measures, and what we last asked
+    // the webview to be. Comparing against the latter is what stops a report/resize feedback loop.
+    private readonly ChatSurfaceBridge _bridge;
+    private double _lastWebContentDip;
+    private double _appliedWebHeight = -1;
 
     private const double InlineToastHeightDip = 28;
     private const uint InlineToastInMs = 170;
@@ -293,14 +302,27 @@ public partial class ChatPanelView : ContentView
         _sounds = sounds;
         _services = services;
 
-        MessagesList.ItemsSource = Messages;
+        // The bridge must exist before the webview's handler is created, because it rides in as a root
+        // component parameter and is never re-supplied afterwards; all later traffic goes through its
+        // events. Registering the root component here rather than in XAML keeps the two in one place.
+        _bridge = new ChatSurfaceBridge(Messages);
+        _bridge.Ready += OnWebSurfaceReady;
+        _bridge.ContentHeightReported += OnWebContentHeight;
+        _bridge.ExternalLinkRequested += OnWebExternalLink;
+        MessagesHost.RootComponents.Add(new RootComponent
+        {
+            Selector = "#chat",
+            ComponentType = typeof(Floaty.Components.Chat.ChatView),
+            Parameters = new Dictionary<string, object?> { ["Bridge"] = _bridge },
+        });
+        MessagesHost.HandlerChanged += OnMessagesHostHandlerChanged;
+        MessagesHost.BlazorWebViewInitialized += OnMessagesWebViewInitialized;
+
         SlashSuggestionsList.ItemsSource = _filteredSlashCommands;
         WindowSuggestionsList.ItemsSource = _filteredWindows;
         BindableLayout.SetItemsSource(AttachmentChipsPanel, _attachments);
         ChatEntry.HandlerChanged += OnChatEntryHandlerChanged;
         ConversationTitleEntry.HandlerChanged += OnConversationTitleEntryHandlerChanged;
-        MessagesList.HandlerChanged += OnListHandlerChanged;
-        MessagesList.SizeChanged += OnMessagesListSizeChanged;
         SlashSuggestionsList.HandlerChanged += OnListHandlerChanged;
         WindowSuggestionsList.HandlerChanged += OnListHandlerChanged;
         ResizeCornerGrip.HandlerChanged += OnResizeGripHandlerChanged;
@@ -346,6 +368,15 @@ public partial class ChatPanelView : ContentView
             _ = _voiceInput.StopAsync();
 
         PersistCurrentConversation();
+
+        MessagesHost.HandlerChanged -= OnMessagesHostHandlerChanged;
+        MessagesHost.BlazorWebViewInitialized -= OnMessagesWebViewInitialized;
+        _bridge.Ready -= OnWebSurfaceReady;
+        _bridge.ContentHeightReported -= OnWebContentHeight;
+        _bridge.ExternalLinkRequested -= OnWebExternalLink;
+        _bridge.Dispose();
+        MessagesHost.Handler?.DisconnectHandler();
+
         _host = NullChatPanelHost.Instance;
     }
 
@@ -359,7 +390,7 @@ public partial class ChatPanelView : ContentView
     {
         EnsureConversationLoaded();
         IsOpen = true;
-        MessagesList.IsVisible = !_listMode && Messages.Count > 0;
+        RefreshMessageAreaHeight();
         _lastPanelHeight = 0;
         IsVisible = true;
         RefreshConversationTitle();
@@ -568,9 +599,9 @@ public partial class ChatPanelView : ContentView
     private void ApplyAccentColor(string? hex)
     {
         var palette = AccentPalette.From(hex);
-        ChatMessageVm.UserBubbleColor = Color.FromArgb(palette.Base);
-        foreach (var message in Messages)
-            message.RefreshBubbleColor();
+        // The bubbles read --accent from the component's root style attribute, so this repaints them
+        // through Blazor's diff with no interop and works even before chat.js has loaded.
+        _bridge.SetAccent(palette);
 
         // Shared with the drag-over border highlight, so it follows an accent change immediately.
         _accentBrush.Color = Color.FromArgb(palette.Base);
@@ -723,11 +754,98 @@ public partial class ChatPanelView : ContentView
             await ShowInlineToastAsync($"⚠️ {message}");
         });
 
+    // --- Blazor message surface ---
+
+    // Earliest hook: the platform WebView2 exists but CoreWebView2 does not yet. AllowDrop=false keeps
+    // WebView2 out of the drag-drop path so external file drops keep routing to PanelBorder's handler
+    // (see OnPanelBorderHandlerChanged).
+    //
+    // Deliberately no attempt at a transparent background here. WinUI 3's WebView2 does not composite
+    // alpha: DefaultBackgroundColor accepts Colors.Transparent and reads back as #00FFFFFF, but the
+    // surface still renders opaque, and the control exposes no CoreWebView2Controller /
+    // CompositionController to reach the underlying transparency API. chat.css paints the panel's base
+    // colour instead.
+    private void OnMessagesHostHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        if (MessagesHost.Handler?.PlatformView is Microsoft.UI.Xaml.Controls.WebView2 webView)
+        {
+            webView.AllowDrop = false;
+        }
+#endif
+    }
+
+    // CoreWebView2 is live here, so the chrome that makes a webview feel like a browser can be turned
+    // off: zoom, swipe-navigation and the status bar always, and in Release the default context menu
+    // (which would otherwise offer Back/Forward/Reload/Print on a chat bubble). Browser accelerator keys
+    // are dropped too — that leaves Ctrl+C/Ctrl+A intact, so select-and-copy still works.
+    private void OnMessagesWebViewInitialized(object? sender, BlazorWebViewInitializedEventArgs e)
+    {
+#if WINDOWS
+        var webView = e.WebView;
+        var settings = webView.CoreWebView2.Settings;
+        settings.IsZoomControlEnabled = false;
+        settings.IsPinchZoomEnabled = false;
+        settings.IsSwipeNavigationEnabled = false;
+        settings.IsStatusBarEnabled = false;
+#if !DEBUG
+        settings.AreDefaultContextMenusEnabled = false;
+        settings.AreBrowserAcceleratorKeysEnabled = false;
+        settings.AreDevToolsEnabled = false;
+#endif
+#elif MACCATALYST
+        var webView = e.WebView;
+        webView.Opaque = false;
+        webView.BackgroundColor = UIKit.UIColor.Clear;
+        webView.ScrollView.BackgroundColor = UIKit.UIColor.Clear;
+        webView.ScrollView.Bounces = false;
+#endif
+    }
+
+    // Deliberately no UrlLoading handler. An earlier version cancelled any host that was not literally
+    // "0.0.0.0" in order to stop a link navigating away from the chat document — but MAUI gives each
+    // BlazorWebView its own app origin (Settings holds 0.0.0.0, so this one is 0.0.0.1), and the guard
+    // cancelled the app's own page load, leaving the surface permanently blank. It was also redundant:
+    // MAUI already defaults non-app URLs to UrlLoadingStrategy.OpenExternally rather than navigating,
+    // and chat.js intercepts link clicks before they ever get that far.
+
+    // The component reached its first render, so a measured height is now on its way. Deliberately not
+    // used as a gate on showing the list: doing that deadlocks, because the webview has to stay laid
+    // out in order to ever render in the first place.
+    private void OnWebSurfaceReady(object? sender, EventArgs e) =>
+        Dispatcher.Dispatch(RefreshMessageAreaHeight);
+
+    private void OnWebContentHeight(object? sender, double contentDip) =>
+        Dispatcher.Dispatch(() =>
+        {
+            _lastWebContentDip = contentDip;
+            RefreshMessageAreaHeight();
+        });
+
+    // A link inside a bubble opens in the user's browser rather than in the chat. The scheme is checked
+    // again here: chat.js is the wrong place to trust, since everything it sees came from model output.
+    private void OnWebExternalLink(object? sender, string href) =>
+        Dispatcher.Dispatch(async () =>
+        {
+            if (!Uri.TryCreate(href, UriKind.Absolute, out var uri)
+                || uri.Scheme is not ("http" or "https" or "mailto"))
+                return;
+
+            try
+            {
+                await Launcher.Default.OpenAsync(uri);
+            }
+            catch (Exception ex)
+            {
+                await ShowInlineToastAsync($"⚠️ {ex.Message}");
+            }
+        });
+
     // --- Sizing ---
 
     // Ask the host to grow (or shrink) its window to match the panel's content height. The panel hugs its
-    // content — collapsed messages area when empty, expanding up to MessagesList's MaximumHeightRequest
-    // (after which the CollectionView scrolls), so the window tracks it without leaving dead space.
+    // content — collapsed messages area when empty, expanding up to DefaultListMaxHeight (after which
+    // the list scrolls inside the webview), so the window tracks it without leaving dead space.
     private void OnPanelSizeChanged(object? sender, EventArgs e)
     {
         if (!IsOpen || Height <= 0)
@@ -740,24 +858,45 @@ public partial class ChatPanelView : ContentView
         _host.RequestPanelSize(_chatWidth, Height);
     }
 
-    // Keep assistant bubbles at 80% and user bubbles capped at 60% of the chat panel: recompute from
-    // the message list's measured width whenever the panel is resized (corner grip), then reflow the
-    // bubbles already on screen. New bubbles pick the values up at bind time via ChatMessageVm.
-    private void OnMessagesListSizeChanged(object? sender, EventArgs e)
+    // Size the message area from the content height the webview reported. This restates what the old
+    // CollectionView did in XAML: hug the content up to DefaultListMaxHeight and scroll past that,
+    // unless the user has dragged the corner grip, which pins it to a fixed height. Bubble widths
+    // (80% assistant / 60% user / 420 system) are now percentages in chat.css.
+    //
+    // The empty state is a one-pixel sliver rather than a collapsed view, and this is load-bearing: a
+    // WebView2 that is collapsed never lays out, so Blazor would never reach its first render, the
+    // ResizeObserver would never report a height, and the list could never come back. Keeping it
+    // rendered at a sliver costs a pixel of transparent nothing and keeps the measurement loop alive.
+    private const double EmptyMessageAreaDip = 1;
+
+    private void RefreshMessageAreaHeight()
     {
-        if (MessagesList.Width <= 0)
+        var hasMessages = !_listMode && Messages.Count > 0;
+
+        double target;
+        if (!hasMessages)
+        {
+            // Ignore any dragged height while there is nothing to show, matching the old behaviour
+            // where the list was simply hidden until the first message arrived.
+            target = EmptyMessageAreaDip;
+        }
+        else if (_userListHeight is { } userHeight)
+        {
+            target = userHeight;
+        }
+        else
+        {
+            // No MinChatListHeight floor here: that only ever clamped the drag, and a one-line chat
+            // must still be one line tall.
+            target = Math.Clamp(_lastWebContentDip, EmptyMessageAreaDip, DefaultListMaxHeight);
+        }
+
+        target = Math.Clamp(target, EmptyMessageAreaDip, MaxChatListHeight);
+        if (Math.Abs(target - _appliedWebHeight) < 0.5)
             return;
 
-        var assistantWidth = Math.Round(MessagesList.Width * 0.8);
-        var userMaxWidth = Math.Round(MessagesList.Width * 0.6);
-        if (Math.Abs(assistantWidth - ChatMessageVm.AssistantBubbleWidth) < 1
-            && Math.Abs(userMaxWidth - ChatMessageVm.UserBubbleMaxWidth) < 1)
-            return;
-
-        ChatMessageVm.AssistantBubbleWidth = assistantWidth;
-        ChatMessageVm.UserBubbleMaxWidth = userMaxWidth;
-        foreach (var message in Messages)
-            message.RefreshBubbleWidth();
+        _appliedWebHeight = target;
+        MessagesHost.HeightRequest = target;
     }
 
     // Drag the panel's outer top corner to resize it in both axes. Width: the window grows away from the
@@ -828,24 +967,24 @@ public partial class ChatPanelView : ContentView
     // lists collapsed). Used as the drag baseline so the grip tracks the pointer from the real size.
     private double MeasuredListHeightDip()
     {
-        if (MessagesList.IsVisible && MessagesList.Height > 0)
-            return MessagesList.Height;
+        if (!_listMode && Messages.Count > 0 && MessagesHost.Height > 0)
+            return MessagesHost.Height;
         if (ConversationList.IsVisible && ConversationList.Height > 0)
             return ConversationList.Height;
         return 0;
     }
 
-    // Apply a user-dragged list height to both lists (so the /chats switcher matches the messages
-    // view). Both HeightRequest and MaximumHeightRequest are set — the XAML max of 240 would
-    // otherwise cap the request, and the fixed HeightRequest makes the drag track the pointer even
-    // when the content is shorter than the requested height.
+    // Apply a user-dragged list height to both surfaces (so the /chats switcher matches the messages
+    // view). The webview goes through RefreshMessageAreaHeight rather than being set here, so that one
+    // method stays the only writer of its height. The conversation list needs both requests: its XAML
+    // maximum of 240 would otherwise cap the drag, and the fixed height makes it track the pointer
+    // even when the content is shorter.
     private void ApplyUserListHeight(double heightDip)
     {
         _userListHeight = heightDip;
-        MessagesList.MaximumHeightRequest = heightDip;
-        MessagesList.HeightRequest = heightDip;
         ConversationList.MaximumHeightRequest = heightDip;
         ConversationList.HeightRequest = heightDip;
+        RefreshMessageAreaHeight();
     }
 
     // --- Input parsing: slash commands and @-window mentions ---
@@ -1651,7 +1790,7 @@ public partial class ChatPanelView : ContentView
                     isUser: false,
                     saved ? confirmation : "System: couldn't save (set an embedding provider in Settings).",
                     isSystemNote: true));
-                MessagesList.IsVisible = true;
+                RefreshMessageAreaHeight();
                 ScrollToLatest();
                 PersistCurrentConversation();
                 await ShowInlineToastAsync(saved ? "Saved to memory" : "No API key");
@@ -1688,7 +1827,7 @@ public partial class ChatPanelView : ContentView
                 }
 
                 Messages.Add(message);
-                MessagesList.IsVisible = true;
+                RefreshMessageAreaHeight();
                 ScrollToLatest();
                 PersistCurrentConversation();
             }
@@ -1792,7 +1931,7 @@ public partial class ChatPanelView : ContentView
         _currentConversation = new Conversation();
         Messages.Clear();
         ExitListMode();
-        MessagesList.IsVisible = false;
+        RefreshMessageAreaHeight();
         RefreshConversationTitle();
     }
 
@@ -1804,7 +1943,7 @@ public partial class ChatPanelView : ContentView
         BuildConversationItems();
         _listMode = true;
         ConversationList.ItemsSource = _conversationItems;
-        MessagesList.IsVisible = false;
+        RefreshMessageAreaHeight();
         ConversationList.IsVisible = true;
         SetConversationSelection(0);   // "New conversation" row is index 0
         ChatEntry.Focus();             // ensure Up/Down/Enter reach OnChatEntryTextBoxKeyDown
@@ -1884,7 +2023,7 @@ public partial class ChatPanelView : ContentView
         {
             _updatingConversationSelection = false;
         }
-        MessagesList.IsVisible = Messages.Count > 0;
+        RefreshMessageAreaHeight();
     }
 
     private static string RelativeTime(DateTime utc)
@@ -1897,15 +2036,17 @@ public partial class ChatPanelView : ContentView
         return utc.ToLocalTime().ToString("yyyy-MM-dd");
     }
 
-    // Maps a memory source to a citation with open-commands for whichever of its files exist.
+    // Maps a memory source to a citation with open-commands for whichever of its files exist. The
+    // commands now fire from a Blazor click handler, so they hop to the MAUI dispatcher: OpenSourceAsync
+    // can animate the inline toast, which is a native Border.
     private CitationVm ToCitationVm(MemoryCitation citation)
     {
         var openImage = string.IsNullOrWhiteSpace(citation.ImagePath)
             ? null
-            : new Command(() => _ = OpenSourceAsync(citation.ImagePath!));
+            : new Command(() => Dispatcher.Dispatch(() => _ = OpenSourceAsync(citation.ImagePath!)));
         var openText = string.IsNullOrWhiteSpace(citation.TextPath)
             ? null
-            : new Command(() => _ = OpenSourceAsync(citation.TextPath!));
+            : new Command(() => Dispatcher.Dispatch(() => _ = OpenSourceAsync(citation.TextPath!)));
         return new CitationVm(citation.Title, openImage, openText);
     }
 
@@ -2009,7 +2150,7 @@ public partial class ChatPanelView : ContentView
                         ? $"System: capture saved and embedded from {result.WindowTitle}."
                         : $"System: capture saved from {result.WindowTitle} (not embedded; no API key).",
                     isSystemNote: true));
-                MessagesList.IsVisible = true;
+                RefreshMessageAreaHeight();
                 ScrollToLatest();
                 PersistCurrentConversation();
             }
@@ -2478,7 +2619,7 @@ public partial class ChatPanelView : ContentView
         Messages.Add(new ChatMessageVm(isUser: true, bubbleText));
         var pending = new ChatMessageVm(isUser: false, "…");
         Messages.Add(pending);
-        MessagesList.IsVisible = true;
+        RefreshMessageAreaHeight();
         ScrollToLatest();
         _waitingForFirstChunk = true;
         _host.SetBusy(true);
@@ -2584,7 +2725,7 @@ public partial class ChatPanelView : ContentView
             var note = approved ? $"⚡ Ran in {request.ShellName}: {request.Command}"
                                 : $"🚫 Declined: {request.Command}";
             Messages.Add(new ChatMessageVm(isUser: false, note, isSystemNote: true));
-            MessagesList.IsVisible = true;
+            RefreshMessageAreaHeight();
             ScrollToLatest();
         });
 
@@ -2792,7 +2933,7 @@ public partial class ChatPanelView : ContentView
     private void ScrollToLatest()
     {
         if (Messages.Count > 0)
-            MessagesList.ScrollTo(Messages[^1], position: ScrollToPosition.End, animate: true);
+            _bridge.RequestScroll(smooth: true);
     }
 }
 

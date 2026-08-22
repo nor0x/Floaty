@@ -56,7 +56,10 @@ public sealed class CitationVm
 
 /// <summary>
 /// A single chat bubble shown in the overlay's message list. <see cref="Text"/> is mutable so the
-/// assistant's placeholder ("…") can be replaced in place once the LLM responds.
+/// assistant's placeholder ("…") can be replaced in place once the LLM responds, and holds the raw
+/// markdown: the Blazor bubble renders from it, and both persistence and the history sent to the model
+/// are projected from it.
+/// Alignment, width and colour live in the component's stylesheet (wwwroot/chat.css), not here.
 /// </summary>
 public sealed class ChatMessageVm : INotifyPropertyChanged
 {
@@ -104,45 +107,6 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
 
     /// <summary>Raw citation data backing <see cref="Citations"/>, kept so threads round-trip through persistence.</summary>
     public IReadOnlyList<MemoryCitation> CitationSources { get; set; } = System.Array.Empty<MemoryCitation>();
-
-    /// <summary>User bubbles hug the right edge, assistant bubbles the left.</summary>
-    public LayoutOptions Alignment => IsUser ? LayoutOptions.End : LayoutOptions.Start;
-
-    /// <summary>Fixed width for assistant bubbles: 80% of the message list. Pushed by OverlayPage
-    /// whenever the chat panel is resized; -1 (auto) until the list has been measured.</summary>
-    public static double AssistantBubbleWidth { get; set; } = -1;
-
-    /// <summary>Cap for user bubbles: 60% of the message list. Pushed by OverlayPage alongside
-    /// <see cref="AssistantBubbleWidth"/>; infinite (uncapped) until the list has been measured.</summary>
-    public static double UserBubbleMaxWidth { get; set; } = double.PositiveInfinity;
-
-    /// <summary>Assistant answers are fixed at <see cref="AssistantBubbleWidth"/>; user messages and
-    /// system notes size to their content (-1 = auto).</summary>
-    public double BubbleWidthRequest => !IsUser && !IsSystemNote ? AssistantBubbleWidth : -1;
-
-    /// <summary>Assistant bubbles are governed by <see cref="BubbleWidthRequest"/> (no separate cap
-    /// needed); user bubbles size to content up to <see cref="UserBubbleMaxWidth"/>; system notes
-    /// keep the classic 420 cap.</summary>
-    public double BubbleMaxWidth => !IsUser && !IsSystemNote
-        ? double.PositiveInfinity
-        : IsUser ? UserBubbleMaxWidth : 420;
-
-    /// <summary>Re-raises <see cref="BubbleWidthRequest"/>/<see cref="BubbleMaxWidth"/> after the panel
-    /// is resized so bound bubbles reflow.</summary>
-    public void RefreshBubbleWidth()
-    {
-        OnPropertyChanged(nameof(BubbleWidthRequest));
-        OnPropertyChanged(nameof(BubbleMaxWidth));
-    }
-
-    /// <summary>Current accent for user bubbles; set by OverlayPage from settings/preview.</summary>
-    public static Color UserBubbleColor { get; set; } = Color.FromArgb(Floaty.Services.AccentPalette.DefaultHex);
-
-    /// <summary>Accent for the user, neutral gray for the assistant.</summary>
-    public Color BubbleColor => IsUser ? UserBubbleColor : Color.FromArgb("#3A3A3F");
-
-    /// <summary>Re-raises <see cref="BubbleColor"/> after the accent changes so bound bubbles repaint.</summary>
-    public void RefreshBubbleColor() => OnPropertyChanged(nameof(BubbleColor));
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

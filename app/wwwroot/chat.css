@@ -1,0 +1,266 @@
+/*
+ * Chat message list styling.
+ *
+ * A plain global stylesheet rather than a `.razor.css` or the `<style>`-in-component style used by
+ * Settings.razor, for two reasons specific to this surface:
+ *  - Markdown reaches the DOM through MarkupString, so it carries no CSS-isolation scope attribute;
+ *    every markdown rule below would otherwise need ::deep.
+ *  - A <style> block inside a component is applied only after Blazor's first render, but that same
+ *    first render is what triggers the first content-height report. An unstyled frame would report a
+ *    wrong height and the panel would visibly jolt. A <link> is applied before anything paints.
+ *
+ * Values here mirror ChatPanelView.xaml's former MessageTemplate exactly; MAUI's #AARRGGBB colours
+ * become rgba(). Keep the two in step if the panel chrome is restyled.
+ */
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    /* WinUI 3's WebView2 does not composite alpha: DefaultBackgroundColor reads back as fully
+       transparent but the surface still renders opaque, and no controller-level API is reachable from
+       the XAML control to change that. So this paints the panel's own base colour instead of being
+       transparent - see the note on PanelBorder in ChatPanelView.xaml. */
+    background: #1c1c1e;
+    /* Transparent so the panel's own #E61C1C1E shows through the webview. Setting a colour here
+       would defeat WebView2's DefaultBackgroundColor = Transparent. */
+    background: transparent;
+    overflow: hidden;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    font-size: 13px;
+    color: #fff;
+    /* The list is chrome, not a document: only message text is selectable (see .text). */
+    user-select: none;
+    cursor: default;
+}
+
+/* Two glyphs are needed (citation pills), so the 209 KB tabler.min.css is not worth linking. */
+@font-face {
+    font-family: "tabler-icons";
+    src: url("fonts/tabler-icons.woff2") format("woff2");
+    font-display: block;
+}
+
+.ti {
+    font-family: "tabler-icons";
+    font-style: normal;
+    line-height: 1;
+}
+
+/* The full height chain matters: #chat is the div Blazor renders into, and a percentage height
+   against an auto-height ancestor resolves to auto - which would leave .scroller sized to its content
+   instead of to the viewport, so it would never scroll and the overflow would just be clipped. */
+#chat,
+.chat-root,
+.scroller {
+    height: 100%;
+}
+
+.scroller {
+    overflow-y: auto;
+    overflow-x: hidden;
+    /* Matches VerticalScrollBarVisibility="Never". This is also load-bearing for the height loop:
+       a scrollbar appearing would narrow the content, reflow it, and change the reported height. */
+    scrollbar-width: none;
+    overscroll-behavior: contain;
+}
+
+.scroller::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* One message. Was: Grid Padding="0,3" wrapping a Border. */
+.row {
+    display: flex;
+    padding: 3px 0;
+}
+
+.row.user {
+    justify-content: flex-end;
+}
+
+.row.assistant,
+.row.system {
+    justify-content: flex-start;
+}
+
+.bubble {
+    padding: 7px 10px;
+    border-radius: 12px;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+/* Assistant answers were a fixed 80% of the list width; user messages hug their content up to 60%;
+   system notes hug up to a flat 420. Previously computed in C# from the measured list width. */
+.bubble.assistant {
+    background: #3a3a3f;
+    width: 80%;
+}
+
+.bubble.user {
+    background: var(--accent, #2b7fff);
+    max-width: 60%;
+}
+
+.bubble.system {
+    background: #3a3a3f;
+    max-width: 420px;
+}
+
+/* Reproduces the read-only Editor the bubbles used to contain, including its selectability. */
+.text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.34;
+    user-select: text;
+    cursor: text;
+}
+
+/* --- Markdown (assistant bubbles only) --- */
+
+/* Markdown owns its own block spacing, so the pre-wrap that plain text needs must not double it up. */
+.text.md {
+    white-space: normal;
+}
+
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+
+.md p { margin: 0 0 6px; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 8px 0 4px;
+    font-weight: 600;
+    line-height: 1.25;
+}
+.md h1 { font-size: 16px; }
+.md h2 { font-size: 15px; }
+.md h3 { font-size: 14px; }
+.md h4, .md h5, .md h6 { font-size: 13px; }
+
+.md ul, .md ol { margin: 0 0 6px; padding-left: 20px; }
+.md li { margin: 1px 0; }
+.md li > p { margin: 0; }
+
+.md blockquote {
+    margin: 0 0 6px;
+    padding: 0 0 0 8px;
+    border-left: 2px solid rgba(255, 255, 255, 0.267);
+    color: rgba(255, 255, 255, 0.867);
+}
+
+.md hr {
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    margin: 8px 0;
+}
+
+.md a {
+    color: #fff;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+/* Code matches the exec-approval panel's block: #33000000 on Consolas 12, #EEFFFFFF. */
+.md code {
+    background: rgba(0, 0, 0, 0.2);
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.933);
+    border-radius: 3px;
+    padding: 1px 4px;
+}
+
+.md pre {
+    margin: 0 0 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+    /* Scroll a wide block inside the bubble instead of widening the bubble, which would break the
+       content-height loop. */
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.md pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+    white-space: pre;
+}
+
+.md table {
+    border-collapse: collapse;
+    margin: 0 0 6px;
+    font-size: 12px;
+    display: block;
+    overflow-x: auto;
+}
+
+.md th, .md td {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 3px 6px;
+    text-align: left;
+}
+
+.md th { background: rgba(255, 255, 255, 0.067); font-weight: 600; }
+
+.md img { max-width: 100%; border-radius: 6px; }
+
+.md input[type="checkbox"] { margin: 0 4px 0 0; vertical-align: middle; }
+
+/* --- Memory citations (RAG provenance) --- */
+
+/* Was: VerticalStackLayout Spacing="6" between the text and the sources block. */
+.sources {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sources-title {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.citation {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.citation .title {
+    color: rgba(255, 255, 255, 0.867);
+    font-size: 11px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: rgba(255, 255, 255, 0.333);
+    padding: 1px 6px;
+    border-radius: 7px;
+    font-size: 11px;
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+/* Shown only when Blazor hits an unhandled error (it flips display to block). Styled so a failure is
+   legible against the panel instead of being invisible white-on-transparent. */
+#blazor-error-ui {
+    display: none;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #7f1d1d;
+    color: #fff;
+    font-size: 11px;
+}

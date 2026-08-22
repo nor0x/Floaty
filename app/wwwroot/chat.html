@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="color-scheme" content="dark" />
+    <title>Floaty chat</title>
+    <base href="/" />
+    <!-- Deliberately NOT index.html: that page links a nonexistent bootstrap CSS (404 on every
+         boot), a light-themed app.css with the wrong font, and 209 KB of tabler.min.css for two
+         glyphs. This page must also be fully transparent so the panel's #E61C1C1E shows through. -->
+    <link rel="stylesheet" href="chat.css" />
+    <link rel="icon" href="data:," />
+</head>
+<body>
+    <div id="chat"></div>
+    <!-- Blazor reveals this by setting display:block when a component throws. Kept because a failed
+         render in a transparent overlay is otherwise completely silent - it just looks like nothing
+         appeared, which is hard to tell apart from an empty chat. -->
+    <div id="blazor-error-ui">Chat failed to load.</div>
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+</body>
+</html>
