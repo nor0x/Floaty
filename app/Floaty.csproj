@@ -67,8 +67,6 @@
         <Compile Remove="Platforms\Windows\WindowsBorderlessWindowController.cs" />
         <Compile Remove="Platforms\Windows\WindowsOverlayWindowController.cs" />
         <Compile Remove="Platforms\Windows\WindowsChatWindowController.cs" />
-        <!-- Needs its WinUI DispatcherQueue swapped for Avalonia's Dispatcher (Phase 2). -->
-        <Compile Remove="Platforms\Windows\WindowsScreenHistoryService.cs" />
     </ItemGroup>
 
     <ItemGroup>

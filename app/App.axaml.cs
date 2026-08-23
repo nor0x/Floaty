@@ -60,7 +60,25 @@ public partial class App : Application
         ApplyAccentColor(Services.GetRequiredService<SettingsService>().Current.AccentColor);
         InstallTrayIcon(desktop, overlay);
 
+        // Show before binding the controllers: TryGetPlatformHandle only yields an HWND once the
+        // window exists, and this replaces MAUI's OnWindowCreated lifecycle hook.
         overlay.Show();
+
+        var overlayController = Services.GetRequiredService<IOverlayWindowController>();
+        if (overlayController is Platforms.Windows.AvaloniaOverlayWindowController avaloniaOverlay)
+            avaloniaOverlay.Initialize(overlay);
+        overlay.BindWindowController(overlayController);
+
+#if WINDOWS
+        // Screen-history hooks need a message-pumping thread, which the UI thread is. Teardown is
+        // tied to the overlay window alone, so closing Settings never unhooks a running history.
+        if (Services.GetRequiredService<IScreenHistoryService>()
+                is Platforms.Windows.WindowsScreenHistoryService screenHistory
+            && screenHistory.Initialize())
+        {
+            overlay.Closed += (_, _) => screenHistory.Shutdown();
+        }
+#endif
 
         base.OnFrameworkInitializationCompleted();
     }
@@ -122,11 +140,12 @@ public partial class App : Application
         // On-device embedding models (ONNX Runtime), so memory and screen history can run without a cloud key.
         services.AddSingleton<ILocalEmbeddingFactory, Platforms.Windows.WindowsLocalEmbeddingFactory>();
 
-        // TODO(Phase 2): swap these three for the Avalonia window controllers. The WinUI-based
-        // implementations are excluded from compilation in Floaty.csproj until then.
-        services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
-        services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
-        services.AddSingleton<IScreenHistoryService, NullScreenHistoryService>();
+        // Borderless/transparent/always-on-top window behaviour plus the OS-level click-through that
+        // Avalonia has no cross-platform answer for.
+        services.AddSingleton<IOverlayWindowController, Platforms.Windows.AvaloniaOverlayWindowController>();
+        services.AddSingleton<IChatWindowController, Platforms.Windows.AvaloniaChatWindowController>();
+        // Automatic screen history: captures the foreground window into memory on window/tab switches.
+        services.AddSingleton<IScreenHistoryService, Platforms.Windows.WindowsScreenHistoryService>();
 #else
         services.AddSingleton<IOverlayWindowController, NullOverlayWindowController>();
         services.AddSingleton<IChatWindowController, NullFloatingWindowController>();
