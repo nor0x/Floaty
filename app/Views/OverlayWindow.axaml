@@ -1,0 +1,57 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Floaty.Views.OverlayWindow"
+        Title="Floaty"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="{x:Null}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        CanResize="False"
+        SizeToContent="Manual">
+
+    <!-- Whole-window layout: the ring sits in the centre column. With the floating chat placement the
+         chat panel is added at runtime into the left or right side column depending on available
+         screen space; the unused side column collapses to 0 so the ring stays flush against the
+         window edge that the resize anchors. With the fixed placement the panel lives in its own
+         window and the side columns stay empty.
+
+         ContentRoot is the reference the click-through hit test compares ancestry against: Avalonia's
+         own window-template chrome panel is hit-testable at every point regardless of the window's
+         Background, so "InputHitTest returned something" is not a usable test on its own. Everything
+         decorative below therefore leaves Background unset (a null brush falls through; an explicitly
+         Transparent one does not). -->
+    <Grid x:Name="ContentRoot" RowDefinitions="Auto">
+        <Grid.ColumnDefinitions>
+            <!-- Side columns are addressed by index (ContentRoot.ColumnDefinitions[0] / [2]):
+                 Avalonia's ColumnDefinition is not a Control, so it cannot carry x:Name. -->
+            <ColumnDefinition Width="0" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Ring host. A Grid rather than a stack so the shutter flash can layer over the ring. -->
+        <Grid Grid.Column="1"
+              ZIndex="10"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Bottom">
+
+            <!-- Draggable swim ring. Pointer drag moves the window and rolls the ring. -->
+            <Image x:Name="Ring"
+                   Stretch="Uniform"
+                   Width="148"
+                   Height="148"
+                   RenderTransformOrigin="50%,50%" />
+
+            <!-- The capture "flash frame": invisible at rest, blinks white while the shutter is shut.
+                 Not hit-testable so it can never steal the ring's gestures, and sized to the ring,
+                 whose bounds are what the click-through hit test reads. -->
+            <Ellipse x:Name="ShutterFlash"
+                     Fill="White"
+                     Opacity="0"
+                     IsVisible="False"
+                     IsHitTestVisible="False" />
+        </Grid>
+    </Grid>
+
+</Window>

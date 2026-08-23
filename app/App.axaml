@@ -1,0 +1,24 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Floaty.App"
+             RequestedThemeVariant="Default">
+
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+
+    <Application.Resources>
+        <!-- Accent colors, replaced at runtime from the configured accent (see App.ApplyAccentColor).
+             They live on the Application rather than a window so the overlay, the fixed chat window
+             and Settings all resolve the same DynamicResource. -->
+        <Color x:Key="AccentColor">#2b7fff</Color>
+        <Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
+
+        <!-- One composite family covering both Tabler icon fonts. They share the internal family
+             name "tabler-icons" (MAUI hid that behind per-file aliases), but their codepoint ranges
+             are completely disjoint - line EA02..10267, filled EE80..101E7 - so listing both sources
+             resolves every glyph in IconFont/TablerLine.cs and IconFont/TablerFilled.cs. -->
+        <FontFamily x:Key="TablerIcons">avares://Floaty/Resources/Fonts/tabler-icons.ttf#tabler-icons,avares://Floaty/Resources/Fonts/tabler-icons-filled.ttf#tabler-icons</FontFamily>
+    </Application.Resources>
+
+</Application>

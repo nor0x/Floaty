@@ -68,6 +68,7 @@ public sealed class SettingsService
     /// <summary>Default ring diameter used when unset or out of range.</summary>
     public const double RingDefaultSize = 148;
 
+    private readonly IAppAssets _appAssets;
     private readonly string _configPath;
     private readonly string _systemPromptPath;
     private FloatyConfig? _current;
@@ -115,8 +116,9 @@ public sealed class SettingsService
     public static double ClampSoundVolume(double volume) =>
         double.IsNaN(volume) ? 0.7 : Math.Clamp(volume, 0, 1);
 
-    public SettingsService()
+    public SettingsService(IAppAssets appAssets)
     {
+        _appAssets = appAssets;
         _configPath = Path.Combine(FloatyPaths.Home, "config.json");
         _systemPromptPath = FloatyPaths.SystemPrompt;
     }
@@ -263,7 +265,7 @@ public sealed class SettingsService
 
         try
         {
-            var stream = await TryOpenPackagedAssetAsync(fileName, "Resources/Images");
+            var stream = TryOpenPackagedAsset(fileName, "Resources/Images");
             if (stream is null)
                 return null;
 
@@ -363,7 +365,7 @@ public sealed class SettingsService
     public async Task<Stream?> OpenSoundStreamAsync(string? fileName)
     {
         if (IsBuiltInSound(fileName))
-            return await TryOpenPackagedAssetAsync(fileName!, "Resources/Sounds");
+            return TryOpenPackagedAsset(fileName!, "Resources/Sounds");
 
         var fullPath = GetSoundFullPath(fileName);
         if (fullPath is null)
@@ -383,29 +385,11 @@ public sealed class SettingsService
         $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
 
     /// <summary>
-    /// Opens a packaged <c>MauiAsset</c> by bare filename. <paramref name="sourceFolder"/> is the
-    /// project-relative folder it was declared in, used only for the fallback lookup.
+    /// Opens a packaged asset by bare filename. <paramref name="sourceFolder"/> is the
+    /// project-relative folder it was declared in, which is also its <c>avares://</c> path.
     /// </summary>
-    private static async Task<Stream?> TryOpenPackagedAssetAsync(string fileName, string sourceFolder)
-    {
-        // MauiAsset with LogicalName="%(Filename)%(Extension)" resolves with bare filename.
-        try
-        {
-            return await FileSystem.OpenAppPackageFileAsync(fileName);
-        }
-        catch (FileNotFoundException)
-        {
-            // Some targets/package layouts may keep the source-relative path.
-            try
-            {
-                return await FileSystem.OpenAppPackageFileAsync($"{sourceFolder}/{fileName}");
-            }
-            catch (FileNotFoundException)
-            {
-                return null;
-            }
-        }
-    }
+    private Stream? TryOpenPackagedAsset(string fileName, string sourceFolder) =>
+        _appAssets.Open(sourceFolder, fileName);
 
     private static string GetMimeType(string fileName)
     {
