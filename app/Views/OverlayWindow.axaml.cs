@@ -207,6 +207,33 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     private double CompactHeight => _ringSize + CompactHeightExtra;
     private double ChatBaseHeight => _ringSize + ChatBaseExtra;
 
+    /// <summary>
+    /// Window height for a given panel height: the panel, plus the band at the bottom that belongs to
+    /// the ring. The panel is bottom-aligned against that band, so its input row keeps a fixed offset
+    /// from the window's bottom edge - the edge every resize anchors - and cannot be pushed past it.
+    /// </summary>
+    private double WindowHeightForPanel(double panelHeightDip) =>
+        ClampToWorkArea(Math.Max(ChatBaseHeight + panelHeightDip, CompactHeight));
+
+    /// <summary>
+    /// Caps a window height so the window cannot grow past the top of the work area. Every resize
+    /// anchors the bottom edge, so unchecked growth goes straight off the top of the screen.
+    /// </summary>
+    private double ClampToWorkArea(double heightDip)
+    {
+        if (_windowController is null)
+            return heightDip;
+
+        var wa = _windowController.GetWorkArea();
+        if (wa.Height <= 0)
+            return heightDip;
+
+        var (_, winY) = _windowController.GetPosition();
+        var (_, winH) = _windowController.GetSize();
+        var maxDip = ((winY + winH - wa.Y) / DisplayScale) - 8; // small gap below the screen top
+        return maxDip > 0 ? Math.Min(heightDip, maxDip) : heightDip;
+    }
+
     /// <summary>Ring angle in degrees. Replaces MAUI's <c>Ring.Rotation</c>.</summary>
     private double RingRotation
     {
@@ -347,9 +374,14 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         ShutterFlash.Width = _ringSize;
         ShutterFlash.Height = _ringSize;
 
-        var (width, height) = CompactWindowSizeFor(_ringSize);
-        Width = width;
-        Height = height;
+        // The panel's bottom reserve is the ring's base area, which just changed size.
+        if (_panel is not null)
+            ApplyChatSide(_chatOnLeft);
+
+        // Through ResizeWindowToRing, never by setting Width/Height directly: this runs from
+        // OnSettingsChanged too, and any settings save (the debounced overlay-position write, for
+        // one) would otherwise snap an open chat's window back to the compact size mid-conversation.
+        ResizeWindowToRing();
     }
 
     private void ApplyAlwaysOnTop(bool alwaysOnTop)
@@ -602,7 +634,11 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         _panel = _services.GetRequiredService<ChatPanelView>();
         _panel.Attach(this, _settings.Current.ChatWindowWidth);
         _panel.IsVisible = false;
-        _panel.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
+        // Bottom-aligned, not top: the window's bottom edge is the anchored one, so pinning the
+        // panel there keeps the input row (collapse / entry / mic / send) fixed against it. With top
+        // alignment a panel taller than the window - which happens as soon as either height clamp
+        // bites - overflowed downward and pushed that row off the bottom of the screen.
+        _panel.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom;
         ContentRoot.Children.Add(_panel);
         ApplyChatSide(onLeft: false);
     }
@@ -637,12 +673,21 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // flush edge anchored. With the fixed placement the window always stays compact.
     private void ResizeWindowToRing()
     {
-        if (_chatAnimating || _windowController is null)
+        if (_chatAnimating)
             return;
 
         if (_placement != ChatPanelPlacement.Fixed && IsChatOpen && _panel is not null)
         {
-            _windowController.Resize(_panel.PanelWidth, ChatBaseHeight + _panel.PanelHeightOrDefault, ChatAnchor);
+            _windowController?.Resize(_panel.PanelWidth, WindowHeightForPanel(_panel.PanelHeightOrDefault), ChatAnchor);
+            return;
+        }
+
+        // Before BindWindowController runs (i.e. from the constructor) there is no controller yet, so
+        // the initial compact size is applied to the window directly.
+        if (_windowController is null)
+        {
+            Width = CompactWidth;
+            Height = CompactHeight;
             return;
         }
 
@@ -690,7 +735,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
         _lastChatWindowHeight = 0;
         _panel.BeginOpen();
-        _windowController?.Resize(_panel.PanelWidth, ChatBaseHeight + 80, ChatAnchor);
+        _windowController?.Resize(_panel.PanelWidth, WindowHeightForPanel(80), ChatAnchor);
 
         await _panel.AnimateInAsync();
     }
@@ -706,7 +751,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         _chatAnimating = true;
 
         var startWidth = _panel.PanelWidth;
-        var startHeight = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : ChatBaseHeight + 80;
+        var startHeight = _lastChatWindowHeight > 0 ? _lastChatWindowHeight : WindowHeightForPanel(80);
         var anchor = ChatAnchor;
         var panel = _panel;
 
@@ -734,27 +779,15 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         if (_chatAnimating || _panel is null || !_panel.IsOpen)
             return;
 
-        var target = ChatBaseHeight + heightDip;
-
-        // The window grows upward from its anchored bottom edge, so an over-tall panel would push it
-        // off the top of the screen. Clamp here rather than trusting the panel to have asked for
-        // something that fits.
-        if (_windowController is not null)
-        {
-            var wa = _windowController.GetWorkArea();
-            if (wa.Height > 0)
-            {
-                var (_, winY) = _windowController.GetPosition();
-                var (_, winH) = _windowController.GetSize();
-                var maxDip = ((winY + winH - wa.Y) / DisplayScale) - 8; // small gap below the screen top
-                if (maxDip > 0)
-                    target = Math.Min(target, maxDip);
-            }
-        }
-
+        // WindowHeightForPanel clamps to the work area: the window grows upward from its anchored
+        // bottom edge, so an over-tall panel would otherwise push it off the top of the screen. The
+        // panel is bottom-aligned, so that excess is clipped off the top of the message list rather
+        // than pushing the input row off the bottom.
+        var target = WindowHeightForPanel(heightDip);
         _lastChatWindowHeight = target;
         // Anchor the ring's current edge so it stays put as the panel changes size.
         _windowController?.Resize(widthDip, target, ChatAnchor);
+
     }
 
     double IChatPanelHost.AvailableWidthDip() => AvailableChatWidthDip();
@@ -861,14 +894,14 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
             ContentRoot.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
             ContentRoot.ColumnDefinitions[2].Width = new GridLength(0);
             Grid.SetColumn(_panel, 0);
-            _panel.Margin = new Thickness(0, 10, -30, 0);
+            _panel.Margin = new Thickness(0, 10, -30, ChatBaseHeight);
         }
         else
         {
             ContentRoot.ColumnDefinitions[0].Width = new GridLength(0);
             ContentRoot.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
             Grid.SetColumn(_panel, 2);
-            _panel.Margin = new Thickness(-30, 10, 0, 0);
+            _panel.Margin = new Thickness(-30, 10, 0, ChatBaseHeight);
         }
 
         _panel.ApplyPanelSide(onLeft);

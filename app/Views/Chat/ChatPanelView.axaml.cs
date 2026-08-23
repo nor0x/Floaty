@@ -293,6 +293,10 @@ public partial class ChatPanelView : UserControl
             Anim.RunAsync(0, 1, 220, Anim.Linear, v => Opacity = v));
 
         ChatEntry.Focus();
+
+        // Land on the newest message. BeginOpen's restore runs before the scroller has been laid out,
+        // so a scroll issued there has nothing to scroll; by now the panel is on screen and measured.
+        ScrollToLatest();
     }
 
     /// <summary>
@@ -677,14 +681,51 @@ public partial class ChatPanelView : UserControl
     // which the list scrolls), so the window tracks it without leaving dead space.
     private void OnPanelSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        if (!IsOpen || Bounds.Height <= 0)
+        if (!IsOpen)
             return;
 
-        if (Math.Abs(Bounds.Height - _lastPanelHeight) < 1)
+        RequestHostSize();
+    }
+
+    /// <summary>
+    /// Everything in the panel that is not the message list, and so must never be squeezed out: the
+    /// border's padding, the grip row, the input row, and whichever optional strips are showing.
+    /// </summary>
+    private double ChromeHeightDip =>
+        PanelBorder.Padding.Top + PanelBorder.Padding.Bottom
+        + TopGripRow.Bounds.Height
+        + InputRow.Bounds.Height
+        + (AttachmentChipsPanel.IsVisible ? AttachmentChipsPanel.Bounds.Height : 0)
+        + (ExecApprovalPanel.IsVisible ? ExecApprovalPanel.Bounds.Height : 0)
+        + (InlineToastPanel.IsVisible ? InlineToastPanel.Bounds.Height : 0)
+        + (SlashSuggestionsPanel.IsVisible ? SlashSuggestionsPanel.Bounds.Height : 0)
+        + (WindowSuggestionsPanel.IsVisible ? WindowSuggestionsPanel.Bounds.Height : 0);
+
+    /// <summary>
+    /// Asks the host for the height this panel wants: its fixed chrome plus however much of the
+    /// conversation fits under the list's ceiling.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately computed rather than read from <c>Bounds.Height</c>. The panel is arranged inside
+    /// the window, so once it wants more room than the window has, its own bounds are the *clipped*
+    /// height - reporting that back would tell the host the panel already fits and the window could
+    /// never grow to accommodate it.
+    /// </remarks>
+    private void RequestHostSize()
+    {
+        var listHeight = _listMode
+            ? ConversationList.Bounds.Height
+            : Math.Min(MessagesList.Bounds.Height, MessagesScroller.MaxHeight);
+
+        if (double.IsNaN(listHeight) || double.IsInfinity(listHeight))
+            listHeight = 0;
+
+        var wanted = ChromeHeightDip + Math.Max(0, listHeight);
+        if (wanted <= 0 || Math.Abs(wanted - _lastPanelHeight) < 1)
             return;
 
-        _lastPanelHeight = Bounds.Height;
-        _host.RequestPanelSize(_chatWidth, Bounds.Height);
+        _lastPanelHeight = wanted;
+        _host.RequestPanelSize(_chatWidth, wanted);
     }
 
     // Size the message area. An ItemsControl inside a ScrollViewer hugs its content up to MaxHeight and
@@ -700,9 +741,18 @@ public partial class ChatPanelView : UserControl
         // Cap the list at whatever the host says still fits on screen, not just at the nominal
         // maximum. Without this the panel keeps asking for a taller window than the work area can
         // hold: the host clamps it, the squeezed list re-measures shorter, and the two oscillate.
-        var chrome = Math.Max(0, Bounds.Height - MessagesScroller.Bounds.Height);
+        //
+        // Chrome is measured from the fixed rows rather than as (panel - list). That subtraction goes
+        // wrong exactly when it matters: once the panel is clipped, its bounds no longer include the
+        // rows that got pushed out, chrome comes out near zero, and the list is allowed to grow over
+        // the input row - which is how the input row ended up off the bottom of the screen.
+        var chrome = ChromeHeightDip;
         var ceiling = Math.Min(MaxChatListHeight, _host.AvailableListHeightDip(chrome));
         MessagesScroller.MaxHeight = Math.Clamp(_userListHeight ?? DefaultListMaxHeight, 1, ceiling);
+
+        // The list's ceiling just moved, so the height the panel wants may have moved with it.
+        if (IsOpen)
+            Dispatcher.UIThread.Post(RequestHostSize, DispatcherPriority.Background);
     }
 
     // Auto-scroll. The rule is chat.js's: if the view is already within a couple of lines of the

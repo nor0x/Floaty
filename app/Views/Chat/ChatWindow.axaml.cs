@@ -22,7 +22,10 @@ public partial class ChatWindow : Window
         _controller = controller;
         Panel = panel;
 
-        panel.VerticalAlignment = VerticalAlignment.Top;
+        // Bottom-aligned for the same reason as the overlay host: the window grows upward from an
+        // anchored bottom edge, so the input row has to be pinned there. Top alignment let a panel
+        // taller than the window push that row off the bottom.
+        panel.VerticalAlignment = VerticalAlignment.Bottom;
         panel.HorizontalAlignment = HorizontalAlignment.Stretch;
         Root.Children.Add(panel);
 

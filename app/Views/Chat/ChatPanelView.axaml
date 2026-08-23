@@ -446,7 +446,9 @@
                 </StackPanel>
             </Border>
 
-            <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,-6,0">
+            <!-- The input row. This must never be pushed out of view, so RefreshMessageAreaHeight
+                 measures it as chrome and caps the message list at whatever is left. -->
+            <Grid x:Name="InputRow" Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,-6,0">
                 <!-- Chevron: collapse the chat panel entirely. Column + glyph are set at runtime so it
                      points toward the ring on whichever side the panel opened. -->
                 <Button x:Name="CollapseButton"
