@@ -472,7 +472,7 @@
                         <TextBox x:Name="ChatEntry"
                                  Grid.Column="0"
                                  Classes="chat"
-                                 Watermark="Ask Floaty…"
+                                 PlaceholderText="Ask Floaty…"
                                  VerticalAlignment="Center"
                                  Padding="8,0"
                                  TextChanged="OnChatEntryTextChanged"

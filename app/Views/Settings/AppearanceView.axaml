@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:views="clr-namespace:Floaty.Views.Settings"
+             x:Class="Floaty.Views.Settings.AppearanceView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Appearance" />
+        <TextBlock Classes="hint" Text="Changes here preview live on the overlay and are only kept when you save." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Text="Ring image" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="Rescan" Command="{Binding RefreshRingsCommand}" />
+                </Grid>
+                <TextBlock Classes="hint" Text="Drop your own PNGs into ~/.floaty/ring to add to this list." />
+                <ItemsControl ItemsSource="{Binding RingOptions}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+RingImageOption">
+                            <Button Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).PickRingCommand}"
+                                    CommandParameter="{Binding Value}"
+                                    Margin="0,0,8,8"
+                                    Padding="6"
+                                    ToolTip.Tip="{Binding Label}">
+                                <Image Source="{Binding Preview}" Width="56" Height="56" Stretch="Uniform" />
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Ring size" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <Slider Grid.Column="0" Minimum="50" Maximum="288" Value="{Binding RingSize}" />
+                    <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Text="{Binding RingSize, StringFormat={}{0:F0} px}" />
+                </Grid>
+                <TextBlock Classes="hint" Text="Ctrl+scroll over the ring does the same thing." />
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <TextBlock Text="Accent colour" FontWeight="SemiBold" />
+                <ItemsControl ItemsSource="{Binding AccentSwatches}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+AccentSwatch">
+                            <Button Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).PickAccentCommand}"
+                                    CommandParameter="{Binding Value}"
+                                    Margin="0,0,8,8"
+                                    Padding="0"
+                                    Width="34" Height="34"
+                                    CornerRadius="17"
+                                    ToolTip.Tip="{Binding Label}"
+                                    Background="{Binding Value}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Custom" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding AccentColor}" Width="120" PlaceholderText="#2b7fff" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

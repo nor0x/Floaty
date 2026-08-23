@@ -1,0 +1,38 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:views="clr-namespace:Floaty.Views.Settings"
+             x:Class="Floaty.Views.Settings.SkillsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Skills" />
+        <TextBlock Classes="hint"
+                   Text="SKILL.md folders found in ~/.floaty/skills, ~/.claude/skills and ~/.agents/skills. Each enabled skill becomes a /name slash command." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Rescan" Command="{Binding RescanSkillsCommand}" />
+                    <Button Content="Open skills folder" Command="{Binding OpenSkillsCommand}" />
+                </StackPanel>
+                <TextBlock Classes="hint" Text="No skills found." IsVisible="{Binding !Skills.Count}" />
+                <ItemsControl ItemsSource="{Binding Skills}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="svc:FloatySkill">
+                            <Border Margin="0,0,0,6" Padding="10"
+                                    CornerRadius="6"
+                                    Background="{DynamicResource ThemeControlLowBrush}">
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Description}" Classes="hint" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

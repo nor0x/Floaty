@@ -1569,8 +1569,7 @@ public partial class ChatPanelView : UserControl
                 break;
 
             case "settings":
-                // TODO(Phase 5): open the native settings window.
-                await ShowInlineToastAsync("Settings are being rebuilt natively");
+                Views.Settings.SettingsWindow.OpenWindow(_services);
                 break;
 
             case "config":

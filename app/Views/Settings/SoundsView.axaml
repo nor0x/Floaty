@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:views="clr-namespace:Floaty.Views.Settings"
+             x:Class="Floaty.Views.Settings.SoundsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Sounds" />
+        <TextBlock Classes="hint" Text="Built-ins ship with Floaty; drop your own .wav or .mp3 into ~/.floaty/sounds." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <CheckBox IsChecked="{Binding CaptureSoundEnabled}"
+                          Content="Play a sound when a window is captured" />
+                <TextBlock Classes="hint"
+                           Text="Fires for /capture and for windows you attach with @. Automatic screen history stays silent - it captures constantly. The ring's shutter animation plays either way." />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox ItemsSource="{Binding SoundOptions}"
+                              SelectedValue="{Binding CaptureSoundFileName}"
+                              SelectedValueBinding="{Binding Value}"
+                              DisplayMemberBinding="{Binding Label}"
+                              MinWidth="240" />
+                    <Button Content="Preview"
+                            Command="{Binding AuditionSoundCommand}"
+                            CommandParameter="{Binding CaptureSoundFileName}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <CheckBox IsChecked="{Binding AssistantDoneSoundEnabled}"
+                          Content="Play a sound when a reply finishes" />
+                <TextBlock Classes="hint"
+                           Text="Plays once the assistant has stopped streaming, so you can look away while it works." />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox ItemsSource="{Binding SoundOptions}"
+                              SelectedValue="{Binding AssistantDoneSoundFileName}"
+                              SelectedValueBinding="{Binding Value}"
+                              DisplayMemberBinding="{Binding Label}"
+                              MinWidth="240" />
+                    <Button Content="Preview"
+                            Command="{Binding AuditionSoundCommand}"
+                            CommandParameter="{Binding AssistantDoneSoundFileName}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Volume" FontWeight="SemiBold" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding SoundVolumePercent}" />
+                    <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Text="{Binding SoundVolumePercent, StringFormat={}{0:F0}%}" />
+                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Open sounds folder" Command="{Binding OpenSoundsCommand}" />
+                    <Button Content="Rescan" Command="{Binding RefreshSoundsCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

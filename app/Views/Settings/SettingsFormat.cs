@@ -1,0 +1,85 @@
+using System.Globalization;
+using Avalonia.Data.Converters;
+using Floaty.Services;
+using Floaty.ViewModels.Settings;
+
+namespace Floaty.Views.Settings;
+
+/// <summary>
+/// Display helpers for the settings views: enum labels and the section switch.
+/// </summary>
+/// <remarks>
+/// Razor could call methods on the page directly from markup; Avalonia's compiled bindings need a
+/// converter. These stay presentation-only - nothing here decides behaviour.
+/// </remarks>
+public static class SettingsFormat
+{
+    /// <summary>Turns a PascalCase section name into a human label ("ModelProvider" -> "Model provider").</summary>
+    public static readonly IValueConverter SectionLabel =
+        new FuncValueConverter<SettingsViewModel.SettingsSection, string>(section => Humanize(section));
+
+    /// <summary>True when the bound section equals the one named by the converter parameter.</summary>
+    public static readonly IValueConverter IsSection = new SectionMatchConverter();
+
+    public static readonly IValueConverter EnumLabel =
+        new FuncValueConverter<object?, string>(value => value is null ? string.Empty : Humanize(value));
+
+    /// <summary>"3 custom images" / "1 custom image" / "" — pluralisation the markup used to inline.</summary>
+    public static readonly IValueConverter CustomCount =
+        new FuncValueConverter<int, string>(n => n switch
+        {
+            <= 0 => string.Empty,
+            1 => "1 custom file",
+            _ => $"{n} custom files",
+        });
+
+    // Section and enum names that are acronyms, which the general PascalCase split would mangle
+    // ("Mcp" rather than "MCP").
+    private static readonly Dictionary<string, string> Acronyms = new(StringComparer.Ordinal)
+    {
+        ["Mcp"] = "MCP",
+        ["Stt"] = "STT",
+        ["OpenAi"] = "OpenAI",
+        ["AzureOpenAI"] = "Azure OpenAI",
+        ["OpenAiCompatible"] = "OpenAI-compatible",
+        ["LocalOnnx"] = "Local ONNX",
+    };
+
+    private static string Humanize(object value)
+    {
+        var name = value.ToString() ?? string.Empty;
+        if (name.Length == 0)
+            return name;
+
+        if (Acronyms.TryGetValue(name, out var acronym))
+            return acronym;
+
+        var builder = new System.Text.StringBuilder(name.Length + 4);
+        for (var i = 0; i < name.Length; i++)
+        {
+            var c = name[i];
+            if (i > 0 && char.IsUpper(c))
+            {
+                builder.Append(' ');
+                builder.Append(char.ToLowerInvariant(c));
+            }
+            else
+            {
+                builder.Append(c);
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private sealed class SectionMatchConverter : IValueConverter
+    {
+        public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+            value is SettingsViewModel.SettingsSection section
+            && parameter is string name
+            && string.Equals(section.ToString(), name, StringComparison.Ordinal);
+
+        public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+            throw new NotSupportedException();
+    }
+}

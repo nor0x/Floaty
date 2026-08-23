@@ -128,6 +128,10 @@ public partial class App : Application
         // standalone chat window gets its own instance.
         services.AddTransient<Views.Chat.ChatPanelView>();
 
+        // Settings: a fresh view-model per window, so each visit starts from a clean clone
+        // of the saved config.
+        services.AddTransient<ViewModels.Settings.SettingsViewModel>();
+
 #if WINDOWS
         services.AddSingleton<IScreenCaptureService, Platforms.Windows.WindowsScreenCaptureService>();
         // Voice input: NAudio mic capture + local speech-to-text.

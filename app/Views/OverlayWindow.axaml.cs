@@ -1200,10 +1200,8 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         ApplyAlwaysOnTopMenuState();
     }
 
-    private void OnSettingsClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        // TODO(Phase 5): open the native settings window.
-    }
+    private void OnSettingsClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
+        Views.Settings.SettingsWindow.OpenWindow(_services);
 
     private void OnFloatToTaskbarClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
         _windowController?.FloatToTaskbarAndHide();

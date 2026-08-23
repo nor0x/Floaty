@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:views="clr-namespace:Floaty.Views.Settings"
+             x:Class="Floaty.Views.Settings.VoiceInputView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Voice input" />
+        <TextBlock Classes="hint"
+                   Text="Transcription runs entirely on this machine. The runtime and models download on first use into ~/.floaty." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <TextBlock Text="When you stop speaking" FontWeight="SemiBold" />
+                <ComboBox ItemsSource="{Binding VoiceSendModes}"
+                          SelectedItem="{Binding VoiceSendMode}"
+                          HorizontalAlignment="Left" MinWidth="240">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="Pause before auto-send" VerticalAlignment="Center" />
+                    <NumericUpDown Value="{Binding AutoSendPauseSeconds}"
+                                   Minimum="0.5" Maximum="10" Increment="0.5"
+                                   FormatString="0.0"
+                                   Width="120" />
+                    <TextBlock Text="seconds" VerticalAlignment="Center" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Speech-to-text model" FontWeight="SemiBold" />
+                <TextBlock Classes="hint"
+                           Text="The microphone button only appears in the chat once a downloaded model is selected." />
+                <TextBlock Classes="hint" Text="{Binding SttError}"
+                           IsVisible="{Binding SttError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Classes="hint"
+                           Text="Model downloads are managed from the catalog; a model already on disk is selected automatically." />
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>
