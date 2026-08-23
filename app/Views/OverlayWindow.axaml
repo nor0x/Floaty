@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:icons="clr-namespace:Floaty.IconFont"
         x:Class="Floaty.Views.OverlayWindow"
         Title="Floaty"
         WindowDecorations="None"
@@ -36,12 +37,58 @@
               HorizontalAlignment="Center"
               VerticalAlignment="Bottom">
 
-            <!-- Draggable swim ring. Pointer drag moves the window and rolls the ring. -->
+            <!-- Draggable swim ring. Pointer drag moves the window and rolls the ring; the wheel spins
+                 it, Ctrl+wheel resizes it. Scale and rotation are driven through RenderTransform,
+                 which Avalonia uses in place of MAUI's Scale/Rotation properties. -->
             <Image x:Name="Ring"
                    Stretch="Uniform"
                    Width="148"
                    Height="148"
-                   RenderTransformOrigin="50%,50%" />
+                   RenderTransformOrigin="50%,50%">
+                <Image.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem x:Name="DockedWindowMenuItem"
+                                  Header="Dock Window"
+                                  Click="OnDockedWindowClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.DragDrop2}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem x:Name="AlwaysOnTopMenuItem"
+                                  Header="Always on Top"
+                                  Click="OnAlwaysOnTopClicked">
+                            <MenuItem.Icon>
+                                <TextBlock x:Name="AlwaysOnTopIcon"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.Pinned}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Settings" Click="OnSettingsClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.Settings}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Float to taskbar" Click="OnFloatToTaskbarClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.LayoutBottombar}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Close Floaty" Click="OnCloseClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.CircleX}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                    </ContextMenu>
+                </Image.ContextMenu>
+            </Image>
 
             <!-- The capture "flash frame": invisible at rest, blinks white while the shutter is shut.
                  Not hit-testable so it can never steal the ring's gestures, and sized to the ring,
@@ -50,7 +97,8 @@
                      Fill="White"
                      Opacity="0"
                      IsVisible="False"
-                     IsHitTestVisible="False" />
+                     IsHitTestVisible="False"
+                     RenderTransformOrigin="50%,50%" />
         </Grid>
     </Grid>
 
