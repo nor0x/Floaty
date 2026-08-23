@@ -55,11 +55,15 @@
         <Compile Remove="OverlayPage.xaml.cs" />
         <Compile Remove="ChatPanelView.xaml.cs" />
         <Compile Remove="ChatWindowPage.xaml.cs" />
-        <Compile Remove="SettingsPage.xaml.cs" />
         <Compile Remove="ChatWindowHost.cs" />
+        <Compile Remove="SettingsPage.xaml.cs" />
         <Compile Remove="VisualElementExtensions.cs" />
-        <Compile Remove="Services\ChatSurfaceBridge.cs" />
+        <!-- Kept in-tree purely as the reference for the phase 5 native settings rewrite; it is
+             no longer reachable and is deleted once that lands. -->
         <Compile Remove="Components\**" />
+        <Content Remove="Components\**" />
+        <None Include="Components\**" />
+
         <Compile Remove="Platforms\Windows\App.xaml.cs" />
         <Compile Remove="Platforms\Windows\NativeWindowBinder.cs" />
         <Compile Remove="Platforms\Windows\WindowsTrayIcon.cs" />

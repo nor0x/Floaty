@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Floaty.Views.Chat.ChatWindow"
+        Title="Floaty Chat"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="{x:Null}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        CanResize="False"
+        SizeToContent="Manual">
+
+    <!-- Transparent host for the standalone (fixed placement) chat window. The panel is added at
+         runtime; the margin is what the host's WindowMarginDip accounts for. Same null Background
+         reasoning as the overlay: it keeps the empty area falling through to the desktop. -->
+    <Panel x:Name="Root" Margin="8" />
+
+</Window>

@@ -59,7 +59,7 @@ public sealed class CitationVm
 /// assistant's placeholder ("…") can be replaced in place once the LLM responds, and holds the raw
 /// markdown: the Blazor bubble renders from it, and both persistence and the history sent to the model
 /// are projected from it.
-/// Alignment, width and colour live in the component's stylesheet (wwwroot/chat.css), not here.
+/// Alignment and colour come from <c>ChatBrushes</c> via the message template, not from here.
 /// </summary>
 public sealed class ChatMessageVm : INotifyPropertyChanged
 {
@@ -104,6 +104,16 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     }
 
     public bool HasCitations => _citations.Count > 0;
+
+    /// <summary>
+    /// Assistant answers render as markdown; the user's own messages and Floaty's system notes stay
+    /// literal text, both because they were never markdown and because <c>/recall</c>'s "[1]" source
+    /// markers would otherwise be eaten by the parser.
+    /// </summary>
+    public bool RendersMarkdown => !IsUser && !IsSystemNote;
+
+    /// <inheritdoc cref="RendersMarkdown"/>
+    public bool RendersLiteralText => !RendersMarkdown;
 
     /// <summary>Raw citation data backing <see cref="Citations"/>, kept so threads round-trip through persistence.</summary>
     public IReadOnlyList<MemoryCitation> CitationSources { get; set; } = System.Array.Empty<MemoryCitation>();

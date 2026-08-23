@@ -22,6 +22,14 @@ public class AvaloniaBorderlessWindowController : IFloatingWindowController
     private Window? _window;
     private nint _hwnd;
 
+    // The size we last asked for, in physical pixels. Anchored resizes have to know the window's
+    // current rect, and reading it back from ClientSize does not work: Avalonia applies Width/Height
+    // through layout, so a resize issued before the previous one has been laid out would anchor
+    // against a stale size and walk the window across the screen. (WinUI's AppWindow.MoveAndResize
+    // was atomic and had no such gap.)
+    private int _appliedWidthPx;
+    private int _appliedHeightPx;
+
     // Click-through state shared by overlay and standalone chat windows.
     private Func<double, double, bool>? _hitTest;
     private bool _forceInteractive;
@@ -105,7 +113,7 @@ public class AvaloniaBorderlessWindowController : IFloatingWindowController
         var newHeight = (int)Math.Round(heightDip * scale);
 
         var pos = _window.Position;
-        var (width, height) = GetSize();
+        var (width, height) = AppliedSize();
 
         // The bottom edge is always anchored, so the window grows upward.
         var bottom = pos.Y + height;
@@ -120,6 +128,9 @@ public class AvaloniaBorderlessWindowController : IFloatingWindowController
         _window.Width = widthDip;
         _window.Height = heightDip;
         _window.Position = new PixelPoint(newX, bottom - newHeight);
+
+        _appliedWidthPx = newWidth;
+        _appliedHeightPx = newHeight;
     }
 
     public (int X, int Y, int Width, int Height) GetWorkArea()
@@ -138,10 +149,17 @@ public class AvaloniaBorderlessWindowController : IFloatingWindowController
     public (int X, int Y) GetPosition() =>
         _window is null ? (0, 0) : (_window.Position.X, _window.Position.Y);
 
-    public (int Width, int Height) GetSize()
+    public (int Width, int Height) GetSize() => AppliedSize();
+
+    // The window's physical size: whatever we last asked for, falling back to the measured client
+    // size before the first resize (and while it is still zero during startup).
+    private (int Width, int Height) AppliedSize()
     {
         if (_window is null)
             return (0, 0);
+
+        if (_appliedWidthPx > 0 && _appliedHeightPx > 0)
+            return (_appliedWidthPx, _appliedHeightPx);
 
         var scale = _window.RenderScaling;
         return ((int)Math.Round(_window.ClientSize.Width * scale),
@@ -178,6 +196,8 @@ public class AvaloniaBorderlessWindowController : IFloatingWindowController
         _clickThroughActive = false;
         _layeredApplied = false;
 
+        _appliedWidthPx = 0;
+        _appliedHeightPx = 0;
         _window = null;
         _hwnd = 0;
     }

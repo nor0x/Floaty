@@ -124,6 +124,10 @@ public partial class App : Application
         // hosted in one, so there is no separate window/page pair to keep in sync.
         services.AddSingleton<OverlayWindow>();
 
+        // The chat panel is transient: it is rebuilt whenever the chat placement changes, and the
+        // standalone chat window gets its own instance.
+        services.AddTransient<Views.Chat.ChatPanelView>();
+
 #if WINDOWS
         services.AddSingleton<IScreenCaptureService, Platforms.Windows.WindowsScreenCaptureService>();
         // Voice input: NAudio mic capture + local speech-to-text.

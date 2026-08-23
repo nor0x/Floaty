@@ -1,0 +1,545 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Floaty"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:chat="clr-namespace:Floaty.Views.Chat"
+             xmlns:icons="clr-namespace:Floaty.IconFont"
+             x:Class="Floaty.Views.Chat.ChatPanelView"
+             x:DataType="chat:ChatPanelView">
+
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="PanelFill" Color="#E61C1C1E" />
+        <SolidColorBrush x:Key="PanelStroke" Color="#22FFFFFF" />
+        <SolidColorBrush x:Key="Faint" Color="#22FFFFFF" />
+        <SolidColorBrush x:Key="Subtle" Color="#33FFFFFF" />
+        <SolidColorBrush x:Key="Muted" Color="#CCFFFFFF" />
+        <SolidColorBrush x:Key="Dim" Color="#99FFFFFF" />
+        <SolidColorBrush x:Key="PopoverFill" Color="#CC151517" />
+
+        <!-- Conversation switcher row (shown in the message list under /chats). -->
+        <DataTemplate x:Key="ConversationTemplate" DataType="local:ConversationItemVm">
+            <Grid Margin="0,3" ColumnDefinitions="*,Auto">
+                <Button Grid.Column="0"
+                        Command="{Binding OpenCommand}"
+                        Background="#2EFFFFFF"
+                        BorderThickness="0"
+                        CornerRadius="10"
+                        Padding="10,7"
+                        HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Left">
+                    <StackPanel Spacing="1">
+                        <TextBlock Text="{Binding Title}"
+                                   Foreground="White"
+                                   FontSize="13"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{Binding Subtitle}"
+                                   Foreground="{StaticResource Dim}"
+                                   FontSize="11"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1"
+                        IsVisible="{Binding HasDelete}"
+                        Command="{Binding DeleteCommand}"
+                        Content="✕"
+                        Width="30" Height="30"
+                        Margin="6,0,0,0"
+                        Padding="0"
+                        CornerRadius="15"
+                        FontSize="12"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Center"
+                        Background="{StaticResource Subtle}"
+                        BorderThickness="0"
+                        Foreground="White" />
+            </Grid>
+        </DataTemplate>
+
+        <!-- One chat bubble. Assistant answers render as markdown; the user's own messages and
+             Floaty's system notes stay literal text, both because they were never markdown and
+             because /recall's "[1]" source markers would otherwise be eaten by the parser. -->
+        <DataTemplate x:Key="MessageTemplate" DataType="local:ChatMessageVm">
+            <Border Margin="0,3"
+                    Padding="10,7"
+                    CornerRadius="10"
+                    MaxWidth="{Binding $parent[ItemsControl].Bounds.Width}"
+                    Background="{Binding IsUser, Converter={x:Static chat:ChatBrushes.BubbleFill}}"
+                    HorizontalAlignment="{Binding IsUser, Converter={x:Static chat:ChatBrushes.BubbleAlign}}">
+                <StackPanel Spacing="6">
+                    <!-- Literal text for user + system notes; markdown for assistant answers. -->
+                    <SelectableTextBlock Text="{Binding Text}"
+                                         IsVisible="{Binding RendersLiteralText}"
+                                         Foreground="White"
+                                         FontSize="13"
+                                         TextWrapping="Wrap" />
+                    <chat:MarkdownPresenter Markdown="{Binding Text}"
+                                            IsVisible="{Binding RendersMarkdown}"
+                                            Foreground="White" />
+
+                    <!-- Memory sources cited for this answer. -->
+                    <StackPanel IsVisible="{Binding HasCitations}" Spacing="3">
+                        <TextBlock Text="Sources"
+                                   Foreground="{StaticResource Dim}"
+                                   FontSize="10" />
+                        <ItemsControl ItemsSource="{Binding Citations}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="local:CitationVm">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                                        <TextBlock Text="{Binding Title}"
+                                                   Foreground="{StaticResource Muted}"
+                                                   FontSize="11"
+                                                   MaxWidth="180"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Button IsVisible="{Binding HasImage}"
+                                                Command="{Binding OpenImageCommand}"
+                                                Classes="pill"
+                                                Content="image" />
+                                        <Button IsVisible="{Binding HasText}"
+                                                Command="{Binding OpenTextCommand}"
+                                                Classes="pill"
+                                                Content="text" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <Style Selector="Button.pill">
+            <Setter Property="Background" Value="#33FFFFFF" />
+            <Setter Property="Foreground" Value="#CCFFFFFF" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="FontSize" Value="10" />
+        </Style>
+        <!-- The chat input: MAUI needed native-TextBox interop for this; here it is a style. -->
+        <Style Selector="TextBox.chat">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CaretBrush" Value="White" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentColor}" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="TextBox.chat:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="TextBox.chat:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+    </UserControl.Styles>
+
+    <!-- Slide-out chat panel: scrollable message list above, input box at the bottom. The host places
+         and sizes it; everything below here is placement-agnostic. -->
+    <Border x:Name="PanelBorder"
+            BorderBrush="{StaticResource PanelStroke}"
+            BorderThickness="1"
+            Background="{StaticResource PanelFill}"
+            Padding="14,8,8,8"
+            CornerRadius="10">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+
+            <!-- Drag bar and resize grip share the top row with non-overlapping hit areas. -->
+            <Grid x:Name="TopGripRow"
+                  Grid.Row="0"
+                  ColumnDefinitions="Auto,*,Auto"
+                  Margin="-12,-6,-12,4"
+                  Height="18">
+
+                <!-- Conversation title chip: sits opposite the resize grip. Click to edit. -->
+                <Panel x:Name="ConversationTitleHost"
+                       Grid.Column="0"
+                       HorizontalAlignment="Left"
+                       VerticalAlignment="Center"
+                       Margin="4,0,0,0"
+                       MaxWidth="170">
+                    <Button x:Name="ConversationTitleChip"
+                            Click="OnConversationTitleTapped"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Padding="6,2"
+                            CornerRadius="6">
+                        <TextBlock x:Name="ConversationTitleLabel"
+                                   Text="Conversation"
+                                   Foreground="{StaticResource Muted}"
+                                   FontSize="10"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Button>
+                    <Border x:Name="ConversationTitleEditorBorder"
+                            IsVisible="False"
+                            Padding="6,2"
+                            Background="Transparent"
+                            CornerRadius="6">
+                        <TextBox x:Name="ConversationTitleEntry"
+                                 Classes="chat"
+                                 FontSize="10"
+                                 Padding="0"
+                                 Foreground="{StaticResource Muted}"
+                                 KeyDown="OnConversationTitleKeyDown"
+                                 LostFocus="OnConversationTitleLostFocus" />
+                    </Border>
+                </Panel>
+
+                <!-- Drag handle: only shown when the panel has its own window (fixed placement),
+                     where there is no ring to drag it by. Dragging it moves the window. -->
+                <Border x:Name="DragBar"
+                        Grid.Column="1"
+                        IsVisible="False"
+                        Background="Transparent"
+                        Padding="0">
+                    <Border Width="38" Height="4"
+                            VerticalAlignment="Top"
+                            HorizontalAlignment="Center"
+                            Background="{StaticResource Subtle}"
+                            CornerRadius="2" />
+                </Border>
+
+                <!-- Corner resize grip: drag to change panel width/height. Same row as the drag bar,
+                     but in a dedicated edge cell to avoid gesture overlap. -->
+                <Border x:Name="ResizeCornerGrip"
+                        Grid.Column="2"
+                        Width="26" Height="26"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Background="Transparent">
+                    <TextBlock x:Name="ResizeCornerGlyph"
+                               FontFamily="{StaticResource TablerIcons}"
+                               Foreground="#33FFFFFF"
+                               FontSize="20"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+            </Grid>
+
+            <!-- The message list. An ItemsControl sizes to its content, so unlike the BlazorWebView it
+                 replaced there is no JS ResizeObserver reporting a height back to C#, no one-pixel
+                 sliver to keep the webview laying out, and no bridge object. It simply grows until
+                 MaxHeight, then scrolls. -->
+            <ScrollViewer x:Name="MessagesScroller"
+                          Grid.Row="1"
+                          HorizontalScrollBarVisibility="Disabled"
+                          VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="MessagesList" ItemTemplate="{StaticResource MessageTemplate}" />
+            </ScrollViewer>
+
+            <ListBox x:Name="ConversationList"
+                     Grid.Row="1"
+                     IsVisible="False"
+                     MaxHeight="240"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     SelectionChanged="OnConversationSelectionChanged"
+                     ItemTemplate="{StaticResource ConversationTemplate}" />
+
+            <Border x:Name="SlashSuggestionsPanel"
+                    Grid.Row="2"
+                    Margin="-5,0,15,0"
+                    IsVisible="False"
+                    MaxHeight="132"
+                    Background="{StaticResource PopoverFill}"
+                    BorderBrush="{StaticResource Subtle}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="6,4">
+                <ListBox x:Name="SlashSuggestionsList"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         SelectionChanged="OnSlashSuggestionsSelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="chat:SlashCommand">
+                            <Grid ColumnDefinitions="Auto,Auto,*" Margin="6,4">
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding Icon}"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                           FontSize="15"
+                                           Width="18"
+                                           TextAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Token}"
+                                           Foreground="White"
+                                           FontSize="13"
+                                           FontWeight="Bold"
+                                           Margin="8,0"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding Description}"
+                                           Foreground="{StaticResource Muted}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <!-- Open-window picker shown while the user types an @-mention; mutually exclusive with
+                 SlashSuggestionsPanel (visibility managed in code). -->
+            <Border x:Name="WindowSuggestionsPanel"
+                    Grid.Row="2"
+                    Margin="-5,0,15,0"
+                    IsVisible="False"
+                    MaxHeight="132"
+                    Background="{StaticResource PopoverFill}"
+                    BorderBrush="{StaticResource Subtle}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="6,4">
+                <ListBox x:Name="WindowSuggestionsList"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         SelectionChanged="OnWindowSuggestionsSelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate DataType="svc:WindowInfo">
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,4">
+                                <TextBlock Grid.Column="0"
+                                           Text="{x:Static icons:TablerLine.AppWindow}"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                           FontSize="15"
+                                           Width="18"
+                                           TextAlignment="Center"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Title}"
+                                           Foreground="White"
+                                           FontSize="13"
+                                           Margin="8,0"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding ProcessName}"
+                                           Foreground="{StaticResource Muted}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
+
+            <!-- Attached to the pending prompt - windows tagged with @, dropped files, and the text
+                 that was selected when Floaty was summoned - shown as removable chips. Dropped files
+                 also carry a toggle deciding whether they are written to memory on send. -->
+            <ItemsControl x:Name="AttachmentChipsPanel"
+                          Grid.Row="3"
+                          IsVisible="False"
+                          Margin="-6,4,0,4">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="chat:PromptAttachmentVm">
+                        <Border Background="{StaticResource Subtle}"
+                                Padding="8,3"
+                                CornerRadius="9"
+                                Opacity="{Binding ChipOpacity}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Glyph}"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                           FontSize="12"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Title}"
+                                           Foreground="White"
+                                           FontSize="11"
+                                           MaxWidth="140"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <!-- Per-file override of the "remember dropped files" setting. -->
+                                <Button IsVisible="{Binding ShowPersistToggle}"
+                                        Command="{Binding TogglePersistCommand}"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="2,0"
+                                        Opacity="{Binding PersistOpacity}"
+                                        VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding PersistGlyph}"
+                                               FontFamily="{StaticResource TablerIcons}"
+                                               Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                               FontSize="12" />
+                                </Button>
+                                <Button Command="{Binding RemoveCommand}"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Padding="0"
+                                        Foreground="{StaticResource Muted}"
+                                        FontSize="11"
+                                        Content="✕"
+                                        VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Exec approval: shown while the model waits for the user to approve a shell command
+                 proposed by the exec tool. Run/Cancel complete the pending approval. -->
+            <Border x:Name="ExecApprovalPanel"
+                    Grid.Row="4"
+                    IsVisible="False"
+                    Margin="-6,4,-6,6"
+                    Padding="10"
+                    Background="{StaticResource Faint}"
+                    BorderBrush="{StaticResource Subtle}"
+                    BorderThickness="1"
+                    CornerRadius="8">
+                <StackPanel Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Text="{x:Static icons:TablerLine.Terminal2}"
+                                   FontFamily="{StaticResource TablerIcons}"
+                                   Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                   FontSize="13"
+                                   VerticalAlignment="Center" />
+                        <TextBlock x:Name="ExecApprovalHeaderLabel"
+                                   Text="Run this command?"
+                                   Foreground="White"
+                                   FontSize="12"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <Border Background="#33000000" Padding="8,6" CornerRadius="6">
+                        <SelectableTextBlock x:Name="ExecApprovalCommandLabel"
+                                             Foreground="#EEFFFFFF"
+                                             FontFamily="Cascadia Mono,Consolas,monospace"
+                                             FontSize="12"
+                                             TextWrapping="Wrap" />
+                    </Border>
+                    <TextBlock x:Name="ExecApprovalDirLabel"
+                               IsVisible="False"
+                               Foreground="{StaticResource Dim}"
+                               FontSize="10" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button x:Name="ExecApprovalCancelButton"
+                                Content="Cancel"
+                                Click="OnExecApprovalCancelClicked"
+                                Height="30"
+                                Padding="12,0"
+                                FontSize="12"
+                                CornerRadius="6"
+                                BorderThickness="0"
+                                Background="{StaticResource Subtle}"
+                                Foreground="White" />
+                        <Button x:Name="ExecApprovalRunButton"
+                                Content="Run"
+                                Click="OnExecApprovalRunClicked"
+                                Height="30"
+                                Padding="16,0"
+                                FontSize="12"
+                                CornerRadius="6"
+                                BorderThickness="0"
+                                Background="{DynamicResource AccentColor}"
+                                Foreground="White" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,-6,0">
+                <!-- Chevron: collapse the chat panel entirely. Column + glyph are set at runtime so it
+                     points toward the ring on whichever side the panel opened. -->
+                <Button x:Name="CollapseButton"
+                        Grid.Column="0"
+                        Click="OnCollapseChatClicked"
+                        Content="{x:Static icons:TablerLine.CaretLeft}"
+                        FontFamily="{StaticResource TablerIcons}"
+                        Width="16"
+                        Padding="0"
+                        FontSize="14"
+                        CornerRadius="0"
+                        BorderThickness="0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Stretch"
+                        HorizontalContentAlignment="Center"
+                        Background="#55FFFFFF"
+                        Foreground="White" />
+                <Border Grid.Column="1"
+                        Background="{StaticResource Faint}"
+                        CornerRadius="6"
+                        ClipToBounds="True">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
+                        <TextBox x:Name="ChatEntry"
+                                 Grid.Column="0"
+                                 Classes="chat"
+                                 Watermark="Ask Floaty…"
+                                 VerticalAlignment="Center"
+                                 Padding="8,0"
+                                 TextChanged="OnChatEntryTextChanged"
+                                 KeyDown="OnChatEntryKeyDown" />
+                        <!-- Voice input: hidden until a downloaded speech-to-text model is selected
+                             in settings (see UpdateMicVisibility). -->
+                        <Button x:Name="MicButton"
+                                Grid.Column="1"
+                                Click="OnMicClicked"
+                                Content="{x:Static icons:TablerLine.Microphone}"
+                                FontFamily="{StaticResource TablerIcons}"
+                                IsVisible="False"
+                                Width="36" Height="36"
+                                Padding="0"
+                                CornerRadius="0"
+                                BorderThickness="0"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
+                                FontSize="16"
+                                Background="{StaticResource Subtle}"
+                                Foreground="White" />
+                        <Button x:Name="SendButton"
+                                Grid.Column="2"
+                                Click="OnSendClicked"
+                                Content="{x:Static icons:TablerLine.Send}"
+                                FontFamily="{StaticResource TablerIcons}"
+                                Width="36" Height="36"
+                                Padding="0"
+                                CornerRadius="0"
+                                BorderThickness="0"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
+                                FontSize="16"
+                                Background="{DynamicResource AccentColor}"
+                                Foreground="White" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Inline status toast under the input row. Height is animated in code so the panel
+                 grows/shrinks smoothly instead of jumping. -->
+            <Border x:Name="InlineToastPanel"
+                    Grid.Row="6"
+                    IsVisible="False"
+                    Opacity="0"
+                    Height="0"
+                    Margin="-6,4,-6,0"
+                    Padding="8,5"
+                    Background="#A6141416"
+                    BorderBrush="{StaticResource Subtle}"
+                    BorderThickness="1"
+                    CornerRadius="7">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{x:Static icons:TablerLine.InfoCircle}"
+                               FontFamily="{StaticResource TablerIcons}"
+                               Foreground="{DynamicResource AccentIconOnDarkColor}"
+                               FontSize="12"
+                               VerticalAlignment="Center" />
+                    <TextBlock x:Name="InlineToastLabel"
+                               Foreground="#EEFFFFFF"
+                               FontSize="11"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+
+        </Grid>
+    </Border>
+
+</UserControl>
