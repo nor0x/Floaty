@@ -40,31 +40,12 @@
     <ItemGroup>
         <!-- Not built. Kept in-tree as reference for the eventual macOS/AppKit head: the KVC +
              objc_msgSend technique in MacOverlayWindowController transfers even though the call
-             sites (UIKit's semi-private UIWindow.nsWindow bridge) do not. -->
+             sites (UIKit's semi-private UIWindow.nsWindow bridge) do not. Note macOS also has no
+             per-region click-through - NSWindow.ignoresMouseEvents is window-wide - so the ring's
+             hit-test model needs a fresh design there, not a port. -->
         <Compile Remove="Platforms\MacCatalyst\**" />
-        <Compile Remove="Platforms\iOS\**" />
-        <Compile Remove="Platforms\Android\**" />
         <None Include="Platforms\MacCatalyst\**" />
 
-        <!-- MAUI/Blazor UI still on disk while the Avalonia views are written phase by phase. These
-             are deleted in Phase 6; until then they stay excluded so the old and new UI can be
-             diffed side by side. -->
-        <Compile Remove="MauiProgram.cs" />
-        <Compile Remove="App.xaml.cs" />
-        <Compile Remove="MainPage.xaml.cs" />
-        <Compile Remove="OverlayPage.xaml.cs" />
-        <Compile Remove="ChatPanelView.xaml.cs" />
-        <Compile Remove="ChatWindowPage.xaml.cs" />
-        <Compile Remove="ChatWindowHost.cs" />
-        <Compile Remove="SettingsPage.xaml.cs" />
-        <Compile Remove="VisualElementExtensions.cs" />
-        <Compile Remove="Platforms\Windows\App.xaml.cs" />
-        <Compile Remove="Platforms\Windows\NativeWindowBinder.cs" />
-        <Compile Remove="Platforms\Windows\WindowsTrayIcon.cs" />
-        <!-- Replaced by the Avalonia controllers in Phase 2. -->
-        <Compile Remove="Platforms\Windows\WindowsBorderlessWindowController.cs" />
-        <Compile Remove="Platforms\Windows\WindowsOverlayWindowController.cs" />
-        <Compile Remove="Platforms\Windows\WindowsChatWindowController.cs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -127,5 +108,15 @@
              Heads-up: xberg_ffi.dll is ~96 MB, which lands in every Velopack full package. -->
         <PackageReference Include="XbergIo.Xberg" Version="1.0.1" />
     </ItemGroup>
+
+    <!-- SkiaSharp and HarfBuzz ship ~100 MB of native .pdb symbols, which would otherwise land in
+         every Velopack full package for no benefit to end users. Debug builds keep them. -->
+    <Target Name="TrimPublishSymbols" AfterTargets="ComputeResolvedFilesToPublishList"
+            Condition="'$(Configuration)' == 'Release'">
+        <ItemGroup>
+            <_FloatyPublishPdb Include="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+            <ResolvedFileToPublish Remove="@(_FloatyPublishPdb)" />
+        </ItemGroup>
+    </Target>
 
 </Project>

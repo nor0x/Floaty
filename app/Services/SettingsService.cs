@@ -233,56 +233,6 @@ public sealed class SettingsService
     }
 
     /// <summary>
-    /// Returns a base64 data URL for a configured ring image selection, or null when it cannot be resolved.
-    /// </summary>
-    public async Task<string?> GetRingImageDataUrlAsync(string? fileName)
-    {
-        if (IsBuiltInRingImage(fileName))
-            return await GetBuiltInRingImageDataUrlAsync(fileName);
-
-        var fullPath = GetRingImageFullPath(fileName);
-        if (fullPath is null)
-            return null;
-
-        try
-        {
-            var bytes = await File.ReadAllBytesAsync(fullPath);
-            return ToDataUrl(bytes, GetMimeType(fileName));
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Returns a base64 data URL for a built-in ring image packaged in app resources, or null when unavailable.
-    /// </summary>
-    public async Task<string?> GetBuiltInRingImageDataUrlAsync(string fileName)
-    {
-        if (!IsBuiltInRingImage(fileName))
-            return null;
-
-        try
-        {
-            var stream = TryOpenPackagedAsset(fileName, "Resources/Images");
-            if (stream is null)
-                return null;
-
-            await using (stream)
-            {
-                using var ms = new MemoryStream();
-                await stream.CopyToAsync(ms);
-                return ToDataUrl(ms.ToArray(), GetMimeType(fileName));
-            }
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Resolves a configured ring image filename to a full path in <c>~/.floaty/ring</c>, or null when invalid/missing.
     /// </summary>
     public string? GetRingImageFullPath(string? fileName)
@@ -381,8 +331,6 @@ public sealed class SettingsService
         }
     }
 
-    private static string ToDataUrl(byte[] bytes, string mimeType) =>
-        $"data:{mimeType};base64,{Convert.ToBase64String(bytes)}";
 
     /// <summary>
     /// Opens a packaged asset by bare filename. <paramref name="sourceFolder"/> is the
@@ -391,17 +339,4 @@ public sealed class SettingsService
     private Stream? TryOpenPackagedAsset(string fileName, string sourceFolder) =>
         _appAssets.Open(sourceFolder, fileName);
 
-    private static string GetMimeType(string fileName)
-    {
-        var extension = Path.GetExtension(fileName);
-        return extension.ToLowerInvariant() switch
-        {
-            ".png" => "image/png",
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".webp" => "image/webp",
-            ".gif" => "image/gif",
-            ".bmp" => "image/bmp",
-            _ => "application/octet-stream",
-        };
-    }
 }
