@@ -65,35 +65,34 @@ Everything Floaty knows lives under `~/.floaty`:
 Prerequisites:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (`app/global.json` pins `10.0.301`, rolling forward on feature bands)
-- MAUI workload: `dotnet workload install maui-windows` (or `maui` on macOS)
+
+No workloads to install.
 
 ```sh
 cd app
-
-# Windows
-dotnet build -f net10.0-windows10.0.19041.0
-dotnet run -f net10.0-windows10.0.19041.0
-
-# macOS (Mac Catalyst)
-dotnet build -f net10.0-maccatalyst
+dotnet build
+dotnet run
 ```
+
+Floaty currently builds for Windows only. macOS support is planned but not wired up: see the
+"macOS" note in [AGENTS.md](AGENTS.md) for what it needs.
 
 The solution file is `app/Floaty.slnx` if you prefer Visual Studio.
 
 ## 🧱 Tech stack
 
-- **.NET MAUI** (with a Blazor hybrid `BlazorWebView` for the settings UI)
+- **Avalonia 12** — all-native UI, no embedded browser anywhere
 - **Microsoft.Extensions.AI** for chat, tools, and embeddings, over OpenAI / Azure / Anthropic / any OpenAI-compatible endpoint
 - **LiteGraph** (SQLite) for local vector + graph memory
 - **ModelContextProtocol** for MCP client support
-- **WinUIEx**, UI Automation, and GDI for the Windows overlay and screen capture
+- **Win32 interop**, UI Automation, and GDI for the Windows overlay and screen capture
 - **NAudio** + **ONNX Runtime** (Silero VAD) + **transcribe.cpp** for local voice input
 - **Velopack** for packaging and auto-updates
 
 ## 📂 Repository layout
 
 ```
-app/       .NET MAUI application (Floaty.slnx, Floaty.csproj)
+app/       Avalonia application (Floaty.slnx, Floaty.csproj)
 website/   Landing page deployed to GitHub Pages
 .github/   CI: Windows release packaging + Pages deployment
 ```
