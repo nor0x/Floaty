@@ -22,12 +22,17 @@
                             <Border Margin="0,0,0,6" Padding="10"
                                     CornerRadius="6"
                                     Background="{DynamicResource ThemeControlLowBrush}">
-                                <Grid ColumnDefinitions="Auto,*">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
                                     <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" Margin="0,0,10,0" />
                                     <StackPanel Grid.Column="1" Spacing="2">
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
                                         <TextBlock Text="{Binding Command}" Classes="hint" />
                                     </StackPanel>
+                                    <Button Grid.Column="2"
+                                            Content="Remove"
+                                            VerticalAlignment="Center"
+                                            Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DeleteServerCommand}"
+                                            CommandParameter="{Binding}" />
                                 </Grid>
                             </Border>
                         </DataTemplate>

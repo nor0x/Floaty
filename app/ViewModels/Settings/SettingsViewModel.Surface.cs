@@ -381,4 +381,178 @@ public sealed partial class SettingsViewModel
         Save();
         RaiseAllChanged();
     }
+
+    // --- Management flows ---
+    //
+    // These wrap logic that was already ported but had no UI reaching it, which the compiler noticed:
+    // the _confirm*Id fields backing the inline "are you sure?" states were assigned and never read.
+
+    /// <summary>Presets still available to add (a preset already in use is not offered twice).</summary>
+    public IReadOnlyList<ProviderPreset> AddablePresets => AvailablePresets();
+
+    /// <summary>The built-in speech-to-text catalog, with per-model download state folded in.</summary>
+    public IReadOnlyList<ModelRow> SttCatalog => SttModelCatalog.Models
+        .Where(m => m.IsAvailable)
+        .Select(m => new ModelRow(
+            m.Id,
+            m.DisplayName,
+            $"{m.SizeNote} · {m.LanguageNote}",
+            _modelDownloads.IsDownloaded(m),
+            _sttDownloading.Contains(m.Id),
+            _sttProgress.TryGetValue(m.Id, out var p) ? p : 0,
+            string.Equals(_config.SttSelectedModelId, m.Id, StringComparison.OrdinalIgnoreCase),
+            _confirmDeleteModelId == m.Id))
+        .ToList();
+
+    /// <summary>The built-in on-device embedding catalog, same shape as <see cref="SttCatalog"/>.</summary>
+    public IReadOnlyList<ModelRow> EmbeddingCatalog => LocalModelCatalog.Models
+        .Select(m => new ModelRow(
+            m.Id,
+            m.DisplayName,
+            $"{m.SizeNote} · {m.LanguageNote} · {m.Dimensions}d",
+            _modelDownloads.IsDownloaded(m),
+            _embeddingDownloading.Contains(m.Id),
+            _embeddingProgress.TryGetValue(m.Id, out var p) ? p : 0,
+            false,
+            _confirmDeleteEmbeddingId == m.Id))
+        .ToList();
+
+    /// <summary>One catalog row, flattened for binding.</summary>
+    public sealed record ModelRow(
+        string Id,
+        string DisplayName,
+        string Note,
+        bool IsDownloaded,
+        bool IsDownloading,
+        double Progress,
+        bool IsSelected,
+        bool ConfirmingDelete)
+    {
+        /// <summary>Avalonia bindings have no inline boolean AND, so the compound states are properties.</summary>
+        public bool CanDownload => !IsDownloaded && !IsDownloading;
+
+        public bool CanDelete => IsDownloaded && !ConfirmingDelete;
+
+        public bool CanUse => IsDownloaded && !IsSelected;
+    }
+
+    [RelayCommand]
+    private void AddPreset(ProviderPreset preset)
+    {
+        _presetToAdd = preset.Id;
+        AddProvider();
+        RaiseAllChanged();
+    }
+
+    // Destructive actions are two-step, as they were in the Blazor page: the first click arms the
+    // confirmation, the second carries it out. The _confirm*Id fields backing this were already
+    // maintained by the ported code and are cleared by it on success.
+
+    /// <summary>True once removing the selected provider has been armed.</summary>
+    public bool ConfirmingRemoveProvider =>
+        _confirmRemoveProviderId is not null && _confirmRemoveProviderId == _activeProviderId;
+
+    [RelayCommand]
+    private void AskRemoveProvider()
+    {
+        _confirmRemoveProviderId = _activeProviderId;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void CancelDestructive()
+    {
+        _confirmRemoveProviderId = null;
+        _confirmDeleteEmbeddingId = null;
+        _confirmDeleteModelId = null;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void DeleteProvider(ProviderProfile provider)
+    {
+        RemoveProvider(provider);
+        _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void DeleteServer(McpServerConfig server)
+    {
+        RemoveServer(server);
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private async Task DownloadStt(string modelId)
+    {
+        if (SttModelCatalog.Find(modelId) is { } model)
+            await DownloadSttModel(model);
+        RaiseAllChanged();
+    }
+
+    /// <summary>The STT model whose deletion is currently armed, if any.</summary>
+    public string? ConfirmingDeleteStt => _confirmDeleteModelId;
+
+    [RelayCommand]
+    private void AskDeleteStt(string modelId)
+    {
+        _confirmDeleteModelId = modelId;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void DeleteStt(string modelId)
+    {
+        if (SttModelCatalog.Find(modelId) is { } model)
+            DeleteSttModel(model);
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void SelectStt(string modelId)
+    {
+        _config.SttSelectedModelId = modelId;
+        _saved = false;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private async Task DownloadEmbedding(string modelId)
+    {
+        if (LocalModelCatalog.Find(modelId) is { } model)
+            await DownloadEmbeddingModel(model);
+        RaiseAllChanged();
+    }
+
+    /// <summary>The embedding model whose deletion is currently armed, if any.</summary>
+    public string? ConfirmingDeleteEmbedding => _confirmDeleteEmbeddingId;
+
+    [RelayCommand]
+    private void AskDeleteEmbedding(string modelId)
+    {
+        _confirmDeleteEmbeddingId = modelId;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void DeleteEmbedding(string modelId)
+    {
+        if (ActiveProvider is { } provider && LocalModelCatalog.Find(modelId) is { } model)
+            DeleteEmbeddingModel(provider, model);
+        RaiseAllChanged();
+    }
+
+    /// <summary>Skills as rows carrying their own enabled state, which lives in DisabledSkills.</summary>
+    public IReadOnlyList<SkillRow> SkillRows =>
+        _skills.Select(s => new SkillRow(s.Name, s.Description, IsSkillEnabled(s.Name))).ToList();
+
+    public sealed record SkillRow(string Name, string Description, bool Enabled);
+
+    [RelayCommand]
+    private void ToggleSkill(string name)
+    {
+        SetSkillEnabled(name, !IsSkillEnabled(name));
+        RaiseAllChanged();
+    }
 }

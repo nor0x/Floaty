@@ -30,6 +30,27 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox x:Name="PresetPicker"
+                              ItemsSource="{Binding AddablePresets}"
+                              DisplayMemberBinding="{Binding DisplayName}"
+                              PlaceholderText="Add a provider…"
+                              MinWidth="220" />
+                    <Button Content="Add"
+                            Command="{Binding AddPresetCommand}"
+                            CommandParameter="{Binding #PresetPicker.SelectedItem}" />
+                    <Button Content="Remove selected"
+                            IsVisible="{Binding !ConfirmingRemoveProvider}"
+                            Command="{Binding AskRemoveProviderCommand}"
+                            IsEnabled="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <Button Content="Really remove"
+                            IsVisible="{Binding ConfirmingRemoveProvider}"
+                            Command="{Binding DeleteProviderCommand}"
+                            CommandParameter="{Binding ActiveProvider}" />
+                    <Button Content="Cancel"
+                            IsVisible="{Binding ConfirmingRemoveProvider}"
+                            Command="{Binding CancelDestructiveCommand}" />
+                </StackPanel>
             </StackPanel>
         </Border>
 
@@ -59,5 +80,51 @@
                 </Grid>
             </StackPanel>
         </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="On-device embedding models" FontWeight="SemiBold" />
+                <TextBlock Classes="hint" Text="Run locally through ONNX Runtime, so memory and screen history work with no cloud key. Changing the embedding model means re-indexing (see Screen history)." />
+                <ItemsControl ItemsSource="{Binding EmbeddingCatalog}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+ModelRow">
+                            <Border Margin="0,0,0,6" Padding="10"
+                                    CornerRadius="6"
+                                    Background="{DynamicResource ThemeControlLowBrush}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Note}" Classes="hint" />
+                                        <ProgressBar Minimum="0" Maximum="1"
+                                                     Value="{Binding Progress}"
+                                                     IsVisible="{Binding IsDownloading}"
+                                                     Height="4" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center">
+                                        <Button Content="Download"
+                                                IsVisible="{Binding CanDownload}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DownloadEmbeddingCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Delete"
+                                                IsVisible="{Binding CanDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).AskDeleteEmbeddingCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Really delete"
+                                                IsVisible="{Binding ConfirmingDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DeleteEmbeddingCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Cancel"
+                                                IsVisible="{Binding ConfirmingDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).CancelDestructiveCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
     </StackPanel>
 </UserControl>

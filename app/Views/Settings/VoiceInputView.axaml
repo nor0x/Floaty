@@ -41,9 +41,60 @@
                            Text="The microphone button only appears in the chat once a downloaded model is selected." />
                 <TextBlock Classes="hint" Text="{Binding SttError}"
                            IsVisible="{Binding SttError, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                <TextBlock Classes="hint"
-                           Text="Model downloads are managed from the catalog; a model already on disk is selected automatically." />
             </StackPanel>
         </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Available models" FontWeight="SemiBold" />
+                <TextBlock Classes="hint" Text="Downloads land in ~/.floaty/models. A model must be downloaded before it can be used." />
+                <ItemsControl ItemsSource="{Binding SttCatalog}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+ModelRow">
+                            <Border Margin="0,0,0,6" Padding="10"
+                                    CornerRadius="6"
+                                    Background="{DynamicResource ThemeControlLowBrush}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Note}" Classes="hint" />
+                                        <ProgressBar Minimum="0" Maximum="1"
+                                                     Value="{Binding Progress}"
+                                                     IsVisible="{Binding IsDownloading}"
+                                                     Height="4" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center">
+                                        <Button Content="Use"
+                                                IsVisible="{Binding CanUse}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).SelectSttCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <TextBlock Text="In use" VerticalAlignment="Center"
+                                                   IsVisible="{Binding IsSelected}"
+                                                   Foreground="{DynamicResource AccentColor}" />
+                                        <Button Content="Download"
+                                                IsVisible="{Binding CanDownload}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DownloadSttCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Delete"
+                                                IsVisible="{Binding CanDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).AskDeleteSttCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Really delete"
+                                                IsVisible="{Binding ConfirmingDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DeleteSttCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Cancel"
+                                                IsVisible="{Binding ConfirmingDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).CancelDestructiveCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
     </StackPanel>
 </UserControl>
