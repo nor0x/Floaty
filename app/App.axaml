@@ -14,11 +14,24 @@
         <Color x:Key="AccentColor">#2b7fff</Color>
         <Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
 
-        <!-- One composite family covering both Tabler icon fonts. They share the internal family
-             name "tabler-icons" (MAUI hid that behind per-file aliases), but their codepoint ranges
-             are completely disjoint - line EA02..10267, filled EE80..101E7 - so listing both sources
-             resolves every glyph in IconFont/TablerLine.cs and IconFont/TablerFilled.cs. -->
-        <FontFamily x:Key="TablerIcons">avares://Floaty/Resources/Fonts/tabler-icons.ttf#tabler-icons,avares://Floaty/Resources/Fonts/tabler-icons-filled.ttf#tabler-icons</FontFamily>
+        <!-- The two Tabler icon fonts, as separate families. Keep them separate, and keep their names
+             distinct from each other - Avalonia's font matching is substring-based at both levels and
+             will silently resolve the wrong file otherwise:
+
+               * A source ending in .ttf is a *pattern*, not a path: FontFamilyLoader filters the
+                 folder's assets with IndexOf(pattern) >= 0, so a source of "tabler-icons.ttf" also
+                 picks up any sibling whose name contains "tabler-icons".
+               * Family matching is FontManager's glyphTypeface.FamilyName.Contains(familyName), so a
+                 font named "tabler-icons-filled" would still satisfy a request for "tabler-icons".
+
+             Both fonts shipped reporting the same internal family name (MAUI hid that behind per-file
+             aliases), which blanked every icon in the app. tabler-solid.ttf is the former
+             tabler-icons-filled.ttf with its name table rewritten to "tabler-solid" - the same length,
+             so the table did not move. Neither the family names nor the filenames are substrings of
+             one another now, which is what both rules above require.
+             Codepoints are disjoint: line EA02..10267, solid EE80..101E7. -->
+        <FontFamily x:Key="TablerIcons">avares://Floaty/Resources/Fonts/tabler-icons.ttf#tabler-icons</FontFamily>
+        <FontFamily x:Key="TablerIconsFilled">avares://Floaty/Resources/Fonts/tabler-solid.ttf#tabler-solid</FontFamily>
     </Application.Resources>
 
 </Application>

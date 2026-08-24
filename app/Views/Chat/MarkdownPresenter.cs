@@ -62,6 +62,27 @@ public sealed class MarkdownPresenter : ContentControl
     private string? _renderedFrom;
 
     private static readonly FontFamily MonoFont = new("Cascadia Mono,Consolas,Courier New,monospace");
+
+    // Logged at most once. The icon-font lookup below falls back rather than throwing, so a font that
+    // stops resolving shows up as missing glyphs and nothing else - which is exactly how the whole
+    // icon set silently disappeared once before.
+    private static bool _iconFontWarned;
+
+    /// <summary>The Tabler line font, or null with a one-time warning if the resource is missing.</summary>
+    private static FontFamily? TryGetIconFont()
+    {
+        if (Application.Current?.FindResource("TablerIcons") is FontFamily font)
+            return font;
+
+        if (!_iconFontWarned)
+        {
+            _iconFontWarned = true;
+            System.Diagnostics.Debug.WriteLine(
+                "[Floaty] TablerIcons FontFamily did not resolve; icon glyphs will render as fallback text.");
+        }
+
+        return null;
+    }
     private static readonly IBrush CodeBackground = new SolidColorBrush(Color.Parse("#33000000"));
     private static readonly IBrush RuleBrush = new SolidColorBrush(Color.Parse("#33FFFFFF"));
     private static readonly IBrush QuoteBarBrush = new SolidColorBrush(Color.Parse("#55FFFFFF"));
@@ -160,7 +181,7 @@ public sealed class MarkdownPresenter : ContentControl
                 && inline.FirstChild is TaskList task)
             {
                 marker.Text = task.Checked ? TablerLine.SquareCheck : TablerLine.SquareRounded;
-                marker.FontFamily = (FontFamily?)Application.Current?.FindResource("TablerIcons") ?? marker.FontFamily;
+                marker.FontFamily = TryGetIconFont() ?? marker.FontFamily;
             }
 
             Grid.SetColumn(marker, 0);
@@ -220,7 +241,7 @@ public sealed class MarkdownPresenter : ContentControl
             Content = new TextBlock
             {
                 Text = TablerLine.Copy,
-                FontFamily = (FontFamily?)Application.Current?.FindResource("TablerIcons") ?? MonoFont,
+                FontFamily = TryGetIconFont() ?? MonoFont,
                 FontSize = 13,
             },
             Padding = new Thickness(5, 2),

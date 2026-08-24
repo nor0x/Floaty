@@ -122,6 +122,14 @@ There is no test suite currently; verify changes by building and, for UI/interop
 
 - **`dotnet build` skips the Avalonia XAML compiler when its inputs are unchanged**, so an incremental
   "Build succeeded" can hide real XAML errors. Use `-t:Rebuild` after touching `.axaml`.
+- **Avalonia's font matching is substring-based at two levels, and both bite.** A `FontFamily` source
+  ending in `.ttf` is a *pattern*, not a path — `FontFamilyLoader` filters the folder's assets with
+  `IndexOf(pattern) >= 0` — so `tabler-icons.ttf` would also pull in a sibling `tabler-icons-filled.ttf`.
+  And family lookup is `glyphTypeface.FamilyName.Contains(familyName)`, so a font *named*
+  `tabler-icons-filled` still satisfies a request for `tabler-icons`. Two fonts whose names or
+  filenames are substrings of each other therefore resolve to whichever wins, silently, with no error
+  and no tofu — just nothing. This blanked every icon in the app once (see `App.axaml`, which is why
+  the filled font is `tabler-solid`). Keep icon font names and filenames mutually non-overlapping.
 - **There is no DevTools on Avalonia 12**: `Avalonia.Diagnostics` stops at 11.3.20 and the visual-tree
   inspector is not in core. Debug layout by probing from code.
 - **Verification harnesses must be DPI-aware.** A DPI-unaware `GetWindowRect` reports *virtualised*
