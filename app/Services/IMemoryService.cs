@@ -7,7 +7,8 @@ public sealed record CaptureSearchResult(
     float? Score,
     string? ImagePath,
     string? TextPath,
-    string Content);
+    string Content,
+    string? Url = null);
 
 /// <summary>
 /// A memory source used to produce an answer, surfaced as a clickable citation. <see cref="ImagePath"/>

@@ -15,6 +15,9 @@ public sealed class NullScreenCaptureService : IScreenCaptureService
         CancellationToken cancellationToken = default) =>
         Task.FromResult<CaptureResult?>(null);
 
+    public Task<CaptureSnapshot?> ReadWindowAsync(nint hwnd, CancellationToken cancellationToken = default) =>
+        Task.FromResult<CaptureSnapshot?>(null);
+
     public Task<IReadOnlyList<WindowInfo>> ListWindowsAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<WindowInfo>>(Array.Empty<WindowInfo>());
 }

@@ -207,6 +207,9 @@ public sealed class ChatService : IChatService
             // Name the saved text file so read_capture can pull the rest when the snippet isn't enough.
             if (!string.IsNullOrWhiteSpace(r.TextPath))
                 sb.AppendLine($"file: {Path.GetFileName(r.TextPath)}");
+            // The page the user was actually on. Worth opening over trusting the flattened capture text.
+            if (!string.IsNullOrWhiteSpace(r.Url))
+                sb.AppendLine($"url: {r.Url}");
             if (!string.IsNullOrWhiteSpace(r.ImagePath))
                 sb.AppendLine($"image: {r.ImagePath}");
             index++;
@@ -217,7 +220,9 @@ public sealed class ChatService : IChatService
 
     [Description("Read the full saved text of one capture, for when a search_captures snippet is " +
                  "cut off or lacks the detail needed to answer. Pass the 'file:' value from a " +
-                 "search_captures result. Read further into a long capture by raising 'offset'.")]
+                 "search_captures result. Read further into a long capture by raising 'offset'. " +
+                 "Screen history is also written as one markdown file per day, named 'YYYY-MM-DD.md' " +
+                 "(e.g. '2026-08-25.md') - pass that to read a whole day's activity as a timeline.")]
     private Task<string> ReadCapture(
         [Description("The capture's file name, exactly as given by search_captures.")] string file,
         [Description("Character offset to start reading from (default 0).")] int offset = 0)

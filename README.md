@@ -26,6 +26,8 @@ Everything stays on your machine: memory, conversations, skills, settings, and s
 - **Sound effects** 🔊 - a shutter sound on capture and a chime when a reply finishes, each toggleable and swappable for a built-in or your own file in `~/.floaty/sounds`.
 - **Screen capture & reading** - grabs a screenshot *and* the text content of the active window via UI Automation, so captures are searchable by meaning, not just stored as pixels.
 - **Automatic screen history** - optionally records the foreground window (title and/or content) as you work, feeding your local memory without any manual capturing.
+- **Written to be read by an LLM** - in text-only mode the day's activity becomes a single markdown file of time-stamped blocks. Interface junk is filtered out, each line is written once per day no matter how often it's on screen, and every block records the URL or document path it was looking at so your assistant can open the real thing instead of trusting a fragment.
+- **Redacted before it's written** - password managers and private-browsing windows are never captured, password fields are skipped at the source, and credentials, API keys and card-shaped numbers are scrubbed before anything touches disk.
 - **Local memory with vector search** - captures are embedded and stored in an on-device LiteGraph/SQLite database. The chat exposes a `search_captures` tool so the assistant can recall what you've seen.
 - **Any model provider** 🔌 - configure OpenAI, Anthropic, Gemini, Azure OpenAI, OpenRouter, Groq, Mistral, DeepSeek, xAI, Ollama, or any OpenAI-compatible endpoint side by side, each on its own tab. Chat, embeddings and screenshot captioning are assigned independently, so you can mix providers.
 - **On-device embeddings** 💻 - download a small ONNX sentence-transformer (BGE, MiniLM) and Floaty embeds every capture in-process. Screen history runs constantly, so this is the difference between it costing something per window switch and costing nothing - and it keeps working with no API key at all. Pair it with a local vision model in Ollama for fully offline memory.
@@ -52,7 +54,7 @@ Everything Floaty knows lives under `~/.floaty`:
 | `config.json` | Settings and preferences |
 | `floaty.md` | User-editable system prompt for the assistant |
 | `floaty.db` | Local memory - capture embeddings + vector search (SQLite) |
-| `captures/` | Screenshot + screen-content pairs |
+| `captures/` | Screen history: one markdown file per day plus per-capture blocks (and screenshots, in screenshot mode). An `AGENTS.md` in there explains the format |
 | `conversations/` | Saved chat threads, one JSON file each |
 | `skills/` | Agent skills, each a folder with a `SKILL.md` |
 | `models/` | Downloaded speech-to-text models (`models/embed/` for on-device embedding models) |

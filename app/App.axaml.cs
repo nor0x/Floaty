@@ -96,6 +96,10 @@ public partial class App : Application
         services.AddSingleton<AiClientFactory>();
         services.AddSingleton<IChatService, ChatService>();
 
+        // The day's screen-history log (~/.floaty/captures/YYYY-MM-DD.md) and the ledger of lines
+        // already written to it. Singleton because that ledger is the whole point: it spans captures.
+        services.AddSingleton<CaptureDayLog>();
+
         // Capture memory: embeddings persisted to the local LiteGraph vector store (~/.floaty/floaty.db).
         services.AddSingleton<IMemoryService, MemoryService>();
 

@@ -22,6 +22,10 @@ namespace Floaty.Platforms.Windows;
 /// The last two consult <see cref="CaptureDedupe"/>, which tracks a window of recent captures rather
 /// than only the previous one — switching is round-robin, so a depth-one memory would re-store every
 /// window the user comes back to.
+///
+/// Text-only mode adds a fourth layer of its own, and it is the one that does the most work: the
+/// window's text is redacted, pruned to lines that read like content, and cut down to what
+/// <see cref="CaptureDayLog"/> hasn't already written today. See <see cref="CaptureTextOnlyAsync"/>.
 /// </summary>
 public sealed class WindowsScreenHistoryService : IScreenHistoryService
 {
@@ -35,12 +39,15 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
     // and, because it counts attempts rather than stores, also caps the UI Automation tree walks.
     private static readonly TimeSpan MinCaptureInterval = TimeSpan.FromSeconds(20);
 
-    // Windows whose accessibility text is shorter than this aren't worth remembering.
+    // Captures with less text than this aren't worth remembering. In text-only mode this is measured
+    // against what survives pruning and the day's ledger, so it also ends up being the test for
+    // "nothing on this screen is new" — a revisited window reduces to nothing and dies here.
     private const int MinContentChars = 40;
 
     private readonly SettingsService _settings;
     private readonly IScreenCaptureService _capture;
     private readonly IMemoryService _memory;
+    private readonly CaptureDayLog _dayLog;
     private readonly CaptureDedupe _dedupe = new();
 
     private DispatcherTimer? _dwellTimer;
@@ -58,11 +65,16 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
     private DateTime _lastAttemptUtc = DateTime.MinValue;
     private int _captureInFlight;
 
-    public WindowsScreenHistoryService(SettingsService settings, IScreenCaptureService capture, IMemoryService memory)
+    public WindowsScreenHistoryService(
+        SettingsService settings,
+        IScreenCaptureService capture,
+        IMemoryService memory,
+        CaptureDayLog dayLog)
     {
         _settings = settings;
         _capture = capture;
         _memory = memory;
+        _dayLog = dayLog;
     }
 
     /// <summary>
@@ -196,12 +208,106 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
         // full UI Automation walk — and in screenshot mode a PrintWindow — every couple of seconds.
         _lastAttemptUtc = now;
 
-        _ = Task.Run(() => CaptureAndStoreAsync(hwnd, title, mode));
+        _ = Task.Run(() => mode == ScreenHistoryMode.TextOnly
+            ? CaptureTextOnlyAsync(hwnd, title)
+            : CaptureWithScreenshotAsync(hwnd, title, mode));
     }
 
     private static string WindowKey(nint hwnd, string title) => $"{hwnd} {title}";
 
-    private async Task CaptureAndStoreAsync(nint hwnd, string title, ScreenHistoryMode mode)
+    /// <summary>
+    /// Text-only history. Everything the window offers is scrubbed, pruned down to lines that read
+    /// like content, and reduced to what hasn't already been written today — so what reaches memory
+    /// is one short markdown block of genuinely new material rather than a re-dump of the same
+    /// chrome. The block is also appended to the day's log (see <see cref="CaptureDayLog"/>).
+    /// </summary>
+    private async Task CaptureTextOnlyAsync(nint hwnd, string title)
+    {
+        var textPath = string.Empty;
+        var stored = false;
+        try
+        {
+            // Null covers both "no longer a valid target" and "a window we must never read":
+            // a password manager, or a private-browsing window.
+            var snapshot = await _capture.ReadWindowAsync(hwnd);
+            if (snapshot is null)
+                return;
+
+            // Scrub before pruning, so a redacted secret is then junk-filtered too: a bare card
+            // number collapses to nothing rather than leaving a "[redacted]" line behind.
+            var pruned = CapturePruner.Prune(snapshot.Lines.Select(CaptureRedactor.RedactLine));
+
+            var localNow = DateTime.Now;
+            var novel = _dayLog.SelectNovel(localNow, pruned);
+            var content = string.Join('\n', novel);
+            if (content.Length < MinContentChars)
+                return; // nothing here that today's log doesn't already hold
+
+            var fingerprint = CaptureDedupe.Fingerprint(content);
+            if (_dedupe.IsDuplicate(fingerprint))
+            {
+                _dedupe.Record(WindowKey(hwnd, title), fingerprint, DateTime.UtcNow);
+                return;
+            }
+
+            var block = new CaptureBlock(
+                localNow,
+                snapshot.AppName,
+                snapshot.WindowTitle,
+                CaptureRedactor.RedactOrNull(snapshot.Document),
+                CaptureRedactor.RedactOrNull(snapshot.Url));
+
+            textPath = NewCapturePath(localNow);
+            await File.WriteAllTextAsync(textPath, CaptureDayLog.RenderCaptureFile(block, novel));
+
+            // Embed the rendered block rather than the bare lines: the file:/url: lines are what let
+            // the model open the real source instead of trusting a flattened accessibility dump.
+            var result = new CaptureResult(
+                ImagePath: string.Empty,
+                TextPath: textPath,
+                WindowTitle: snapshot.WindowTitle,
+                Content: CaptureDayLog.RenderBlock(block, novel).Trim(),
+                AppName: snapshot.AppName,
+                Url: block.Url);
+
+            stored = await _memory.RememberCaptureAsync(result, IMemoryService.AutoCaptureSource);
+            if (!stored)
+                return;
+
+            // The ledger only advances once the capture is really in memory. A capture rejected
+            // downstream must leave its lines available to whichever capture comes next, or they'd
+            // be marked as written and then never appear anywhere.
+            _dayLog.Commit(block, novel);
+            _dedupe.Record(WindowKey(hwnd, title), fingerprint, DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            // History is best-effort: a failed capture must never surface to the user or stop the hooks.
+            System.Diagnostics.Debug.WriteLine($"[Floaty] Screen history capture failed: {ex.Message}");
+        }
+        finally
+        {
+            if (!stored)
+                TryDeleteFile(textPath);
+
+            Volatile.Write(ref _captureInFlight, 0);
+        }
+    }
+
+    // Second-resolution stamps collide when two captures land in the same second — unlikely under
+    // the global floor, but a suffix beats silently overwriting the earlier capture.
+    private static string NewCapturePath(DateTime localNow)
+    {
+        var stamp = localNow.ToString("yyyyMMdd-HHmmss");
+        var path = Path.Combine(FloatyPaths.Captures, $"capture-{stamp}.md");
+
+        for (var n = 2; File.Exists(path); n++)
+            path = Path.Combine(FloatyPaths.Captures, $"capture-{stamp}-{n}.md");
+
+        return path;
+    }
+
+    private async Task CaptureWithScreenshotAsync(nint hwnd, string title, ScreenHistoryMode mode)
     {
         CaptureResult? result = null;
         var stored = false;

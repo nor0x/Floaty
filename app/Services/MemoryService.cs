@@ -40,6 +40,7 @@ public sealed class MemoryService : IMemoryService
     private const int DeleteBatchSize = 200;
 
     private readonly AiClientFactory _clients;
+    private readonly CaptureDayLog _dayLog;
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
     private LiteGraphClient? _client;
@@ -48,9 +49,10 @@ public sealed class MemoryService : IMemoryService
     // vector's dimensionality, so it can only run after the first store.
     private int _vectorIndexChecked;
 
-    public MemoryService(AiClientFactory clients)
+    public MemoryService(AiClientFactory clients, CaptureDayLog dayLog)
     {
         _clients = clients;
+        _dayLog = dayLog;
 
         // A different embedding provider means a different vector space, and possibly a different
         // width. Re-run the index reconciliation on the next store rather than searching an index
@@ -113,6 +115,8 @@ public sealed class MemoryService : IMemoryService
                 capture.ImagePath,
                 capture.TextPath,
                 capture.WindowTitle,
+                capture.AppName,
+                capture.Url,
                 SnapshotDescription = description,
                 CapturedUtc = DateTime.UtcNow,
                 Source = source,
@@ -371,7 +375,7 @@ public sealed class MemoryService : IMemoryService
                 TenantGuid, GraphGuid, hit.Node.GUID,
                 includeData: true, includeSubordinates: true, cancellationToken);
 
-            var (imagePath, textPath, capturedUtc, _) = ParseCaptureData(node?.Data);
+            var (imagePath, textPath, capturedUtc, _, url) = ParseCaptureData(node?.Data);
 
             results.Add(new CaptureSearchResult(
                 Title: node?.Name ?? hit.Node.Name ?? "Capture",
@@ -379,7 +383,8 @@ public sealed class MemoryService : IMemoryService
                 Score: hit.Score,
                 ImagePath: imagePath,
                 TextPath: textPath,
-                Content: BestChunk(node?.Vectors, queryVector)));
+                Content: BestChunk(node?.Vectors, queryVector),
+                Url: url));
 
             if (results.Count >= topK)
                 break;
@@ -438,10 +443,10 @@ public sealed class MemoryService : IMemoryService
 
     // Best-effort extraction of the metadata we stored in Node.Data. Survives whatever concrete type
     // LiteGraph rehydrates Data into by round-tripping through JSON.
-    private static (string? ImagePath, string? TextPath, DateTime? CapturedUtc, string? Source) ParseCaptureData(object? data)
+    private static (string? ImagePath, string? TextPath, DateTime? CapturedUtc, string? Source, string? Url) ParseCaptureData(object? data)
     {
         if (data is null)
-            return (null, null, null, null);
+            return (null, null, null, null, null);
 
         try
         {
@@ -454,11 +459,11 @@ public sealed class MemoryService : IMemoryService
                 ? dt
                 : null;
 
-            return (Str("ImagePath"), Str("TextPath"), capturedUtc, Str("Source"));
+            return (Str("ImagePath"), Str("TextPath"), capturedUtc, Str("Source"), Str("Url"));
         }
         catch
         {
-            return (null, null, null, null);
+            return (null, null, null, null, null);
         }
     }
 
@@ -481,7 +486,7 @@ public sealed class MemoryService : IMemoryService
             includeData: true,
             token: cancellationToken))
         {
-            var (_, textPath, _, _) = ParseCaptureData(node.Data);
+            var (_, textPath, _, _, _) = ParseCaptureData(node.Data);
             targets.Add((node.GUID, textPath));
         }
 
@@ -576,6 +581,11 @@ public sealed class MemoryService : IMemoryService
 
     public async Task<int> DeleteAutoCapturesAsync(CancellationToken cancellationToken = default)
     {
+        // Day logs aren't referenced by any node, so the node sweep below can't reach them. Clear
+        // them first: the ledger has to forget the day too, or the next capture would treat every
+        // line it just deleted as already written.
+        _dayLog.DeleteDayFiles();
+
         var client = await GetClientAsync(cancellationToken);
         var deleted = 0;
 
@@ -595,7 +605,7 @@ public sealed class MemoryService : IMemoryService
             {
                 // Re-check Source in-process. Clearing history must never delete a manual capture,
                 // so correctness here doesn't rest on the Data-path filter's semantics.
-                var (_, _, _, source) = ParseCaptureData(node.Data);
+                var (_, _, _, source, _) = ParseCaptureData(node.Data);
                 if (source != IMemoryService.AutoCaptureSource)
                     continue;
 
@@ -614,7 +624,7 @@ public sealed class MemoryService : IMemoryService
             // Best-effort file cleanup; a missing or locked file must not abort the sweep.
             foreach (var node in batch)
             {
-                var (imagePath, textPath, _, _) = ParseCaptureData(node.Data);
+                var (imagePath, textPath, _, _, _) = ParseCaptureData(node.Data);
                 TryDeleteFile(imagePath);
                 TryDeleteFile(textPath);
             }

@@ -54,6 +54,17 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
             return CaptureCore(hwnd, includeScreenshot, AutoCaptureMaxImageWidth);
         }, cancellationToken);
 
+    public Task<CaptureSnapshot?> ReadWindowAsync(nint hwnd, CancellationToken cancellationToken = default) =>
+        Task.Run<CaptureSnapshot?>(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (hwnd == nint.Zero || !IsCandidateWindow(hwnd, (uint)Environment.ProcessId))
+                return null;
+
+            return ReadSnapshot(hwnd);
+        }, cancellationToken);
+
     public Task<IReadOnlyList<WindowInfo>> ListWindowsAsync(CancellationToken cancellationToken = default) =>
         Task.Run<IReadOnlyList<WindowInfo>>(() =>
         {
@@ -230,50 +241,100 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
         return body;
     }
 
+    /// <summary>
+    /// Flattens the accessibility tree to a single string, suppressing adjacent repeats. Used by the
+    /// screenshot and manual capture paths, which store the raw walk; screen history's text-only
+    /// pipeline goes through <see cref="ReadSnapshot"/> instead and prunes far harder.
+    /// </summary>
     private static string ExtractAccessibilityText(nint hwnd)
     {
+        var sb = new StringBuilder();
+        var lastLine = string.Empty;
+
+        foreach (var line in CollectLines(hwnd, skipPasswordFields: false))
+        {
+            if (line == lastLine)
+                continue;
+            sb.AppendLine(line);
+            lastLine = line;
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Reads everything text-only screen history needs in one pass: the app, the title, the address
+    /// or document the window was showing, and its accessibility lines with password fields left
+    /// out. Returns <c>null</c> for windows that must never be read at all.
+    /// </summary>
+    private static CaptureSnapshot? ReadSnapshot(nint hwnd)
+    {
+        var appName = GetProcessName(hwnd);
+        var title = GetWindowText(hwnd);
+
+        // Whole-window exclusions come before the walk, so an excluded window's contents are never
+        // read into this process at all — not read and then discarded.
+        if (CaptureRedactor.IsExcludedApp(appName)
+            || CaptureRedactor.IsExcludedApp(title)
+            || CaptureRedactor.IsPrivateWindow(title))
+        {
+            return null;
+        }
+
+        var browser = IsBrowser(appName);
+        var lines = CollectLines(hwnd, skipPasswordFields: true);
+        var url = browser ? FindUrl(lines) : null;
+        var document = browser ? null : TryGetDocument(title);
+
+        return new CaptureSnapshot(appName, title, url, document, lines);
+    }
+
+    private static List<string> CollectLines(nint hwnd, bool skipPasswordFields)
+    {
+        var lines = new List<string>();
+
         try
         {
             IUIAutomation automation = new CUIAutomation();
             var root = automation.ElementFromHandle(hwnd);
             if (root is null)
-                return string.Empty;
+                return lines;
 
             var walker = automation.ControlViewWalker;
-            var sb = new StringBuilder();
-            var lastLine = string.Empty;
             var count = 0;
-
-            Walk(walker, root, sb, ref count, ref lastLine);
-            return sb.ToString();
+            Walk(walker, root, lines, skipPasswordFields, ref count);
         }
         catch (Exception ex)
         {
-            return $"(accessibility content unavailable: {ex.Message})";
+            lines.Add($"(accessibility content unavailable: {ex.Message})");
         }
+
+        return lines;
     }
 
     private static void Walk(
         IUIAutomationTreeWalker walker,
         IUIAutomationElement element,
-        StringBuilder sb,
-        ref int count,
-        ref string lastLine)
+        List<string> lines,
+        bool skipPasswordFields,
+        ref int count)
     {
         if (count >= MaxElements)
             return;
         count++;
 
-        // Prefer the element's value (editable/text controls), else its name (labels, buttons, etc.).
-        var text = GetPropertyString(element, UIA_ValueValuePropertyId);
-        if (string.IsNullOrWhiteSpace(text))
-            text = GetPropertyString(element, UIA_NamePropertyId);
-
-        text = text?.Trim() ?? string.Empty;
-        if (text.Length > 0 && text != lastLine)
+        // A password box reports its length as bullets, but some controls hand the real value to
+        // UIA. Skip the element's own text and keep descending: the field's label is still useful.
+        if (!skipPasswordFields || !IsPasswordField(element))
         {
-            sb.AppendLine(text);
-            lastLine = text;
+            // Prefer the element's value (editable/text controls), else its name (labels, buttons, etc.).
+            var text = GetPropertyString(element, UIA_ValueValuePropertyId);
+            if (string.IsNullOrWhiteSpace(text))
+                text = GetPropertyString(element, UIA_NamePropertyId);
+
+            text = text?.Trim() ?? string.Empty;
+            if (text.Length > 0)
+                lines.Add(text);
         }
 
         try
@@ -281,7 +342,7 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
             var child = walker.GetFirstChildElement(element);
             while (child is not null && count < MaxElements)
             {
-                Walk(walker, child, sb, ref count, ref lastLine);
+                Walk(walker, child, lines, skipPasswordFields, ref count);
                 child = walker.GetNextSiblingElement(child);
             }
         }
@@ -289,6 +350,90 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
         {
             // A control can refuse traversal mid-walk; keep whatever we've gathered so far.
         }
+    }
+
+    private static bool IsPasswordField(IUIAutomationElement element)
+    {
+        try
+        {
+            return element.GetCurrentPropertyValue(UIA_IsPasswordPropertyId) is bool isPassword && isPassword;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // --- Address / document --------------------------------------------------------------------
+
+    // Only these get a descendant search for a URL: on anything else it's a guaranteed miss, and the
+    // search isn't free. Matched as a substring so "opera_gx" and "chrome_proxy" hit too.
+    private static readonly string[] BrowserProcesses =
+    [
+        "chrome", "chromium", "msedge", "firefox", "brave", "vivaldi",
+        "opera", "arc", "zen", "librewolf", "waterfox", "floorp", "thorium",
+    ];
+
+    private static bool IsBrowser(string processName)
+    {
+        foreach (var browser in BrowserProcesses)
+        {
+            if (processName.Contains(browser, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The page address, so a reader can open the real thing rather than trust a flattened
+    /// accessibility dump of it. Read out of <paramref name="lines"/> rather than by searching the
+    /// tree again: Chromium and Firefox both publish the page URL as their Document element's value,
+    /// the walk already prefers value over name, and the walk is depth-first from the root — so the
+    /// Document's own line precedes every line of page content beneath it. A descendant
+    /// <c>FindFirst</c> would find the same string at the cost of a second cross-process traversal
+    /// of a browser tree, which is exactly the traversal that gets slow.
+    /// </summary>
+    private static string? FindUrl(IReadOnlyList<string> lines)
+    {
+        foreach (var line in lines)
+        {
+            if (IsHttpUrl(line))
+                return line;
+        }
+
+        return null;
+    }
+
+    private static bool IsHttpUrl(string? value) =>
+        !string.IsNullOrWhiteSpace(value)
+        && Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+
+    /// <summary>
+    /// Windows has no general equivalent of macOS' AXDocument, so the window title is the only
+    /// portable signal: editors and viewers conventionally put the path in it. Returns the first
+    /// title segment that actually looks like a path, or <c>null</c> — never a guess.
+    /// </summary>
+    private static string? TryGetDocument(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return null;
+
+        var segments = title.Split(
+            [" - ", " — ", " – ", " | "],
+            StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var segment in segments)
+        {
+            if (segment.Contains('\\') || segment.Contains('/'))
+            {
+                if (Path.HasExtension(segment) && segment.IndexOfAny(Path.GetInvalidPathChars()) < 0)
+                    return segment;
+            }
+        }
+
+        return null;
     }
 
     private static string GetPropertyString(IUIAutomationElement element, int propertyId)
@@ -344,6 +489,7 @@ public sealed class WindowsScreenCaptureService : IScreenCaptureService
 
     // UI Automation property ids (uiautomationclient.h).
     private const int UIA_NamePropertyId = 30005;
+    private const int UIA_IsPasswordPropertyId = 30019;
     private const int UIA_ValueValuePropertyId = 30045;
 
     [StructLayout(LayoutKind.Sequential)]
