@@ -97,6 +97,12 @@ public sealed class MarkdownPresenter : ContentControl
     {
         HorizontalAlignment = HorizontalAlignment.Stretch;
         HorizontalContentAlignment = HorizontalAlignment.Stretch;
+
+        // handledEventsToo, and explicit handlers rather than the OnPointerPressed override: the
+        // SelectableTextBlocks below take the pointer and mark the press handled, and Avalonia does not
+        // invoke the virtual for a handled event - links would simply stop working.
+        AddHandler(PointerPressedEvent, OnTextPointerPressed, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnTextPointerReleased, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void Rebuild()
@@ -105,6 +111,10 @@ public sealed class MarkdownPresenter : ContentControl
         if (ReferenceEquals(markdown, _renderedFrom))
             return;
         _renderedFrom = markdown;
+
+        // The runs the map keys off are all about to be discarded; without this it would grow by a
+        // full set of links on every streaming repaint.
+        _linkTargets.Clear();
 
         // A full rebuild per streaming repaint. At ~30fps over a few KB this is comfortably cheap, and
         // diffing a markdown AST for a document that is append-only in practice would cost more in
@@ -333,7 +343,10 @@ public sealed class MarkdownPresenter : ContentControl
         };
     }
 
-    private TextBlock NewTextBlock() => new()
+    // Selectable rather than a plain TextBlock so assistant prose can be dragged over and copied, the
+    // same as the user's own bubbles. Declared as TextBlock because that is all the callers need, and
+    // because BuildTable still recognises a header cell by that type.
+    private TextBlock NewTextBlock() => new SelectableTextBlock
     {
         TextWrapping = TextWrapping.Wrap,
         FontSize = 13,
@@ -485,25 +498,66 @@ public sealed class MarkdownPresenter : ContentControl
         }
     }
 
-    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    // How far the pointer may travel between press and release and still count as a click rather than
+    // the start of a selection drag.
+    private const double ClickSlop = 4;
+
+    // The link the pointer went down on, and where. Activation waits for the release: now that the text
+    // is selectable, a press on a link is just as likely to be the start of a drag through it.
+    private string? _pressedLink;
+    private Point _pressedAt;
+
+    private void OnTextPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        base.OnPointerPressed(e);
+        _pressedLink = null;
 
         if (_linkTargets.Count == 0 || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
 
-        // Walk the hit visual up to a TextBlock, then map the click to the run under it.
-        if (e.Source is not Visual source)
+        _pressedLink = LinkAt(e);
+        _pressedAt = e.GetPosition(this);
+    }
+
+    private void OnTextPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        var url = _pressedLink;
+        _pressedLink = null;
+
+        if (url is null || e.InitialPressMouseButton != MouseButton.Left)
             return;
+
+        // Anything that moved, or that left text selected, was a selection gesture and not a click.
+        var moved = e.GetPosition(this) - _pressedAt;
+        if (Math.Abs(moved.X) > ClickSlop || Math.Abs(moved.Y) > ClickSlop)
+            return;
+
+        if ((e.Source as Visual)?.FindAncestorOfType<SelectableTextBlock>(includeSelf: true)
+            is { SelectedText.Length: > 0 })
+            return;
+
+        // Released over the same link it went down on.
+        if (LinkAt(e) != url)
+            return;
+
+        RaiseEvent(new LinkClickedEventArgs(LinkClickedEvent, url));
+        e.Handled = true;
+    }
+
+    /// <summary>The URL of the link under the pointer, or null if it is not over one.</summary>
+    private string? LinkAt(PointerEventArgs e)
+    {
+        // Walk the hit visual up to a TextBlock, then map the point to the run under it - inlines are
+        // not interactive in Avalonia, so a link can only be found by character index.
+        if (e.Source is not Visual source)
+            return null;
 
         var text = source as TextBlock ?? source.FindAncestorOfType<TextBlock>();
         if (text?.Inlines is null)
-            return;
+            return null;
 
-        var position = e.GetPosition(text);
-        var hit = text.TextLayout.HitTestPoint(position);
+        var hit = text.TextLayout.HitTestPoint(e.GetPosition(text));
         if (!hit.IsInside)
-            return;
+            return null;
 
         var offset = 0;
         foreach (var inline in Flatten(text.Inlines))
@@ -513,18 +567,12 @@ public sealed class MarkdownPresenter : ContentControl
 
             var length = run.Text?.Length ?? 0;
             if (hit.TextPosition >= offset && hit.TextPosition < offset + length)
-            {
-                if (_linkTargets.TryGetValue(run, out var url))
-                {
-                    RaiseEvent(new LinkClickedEventArgs(LinkClickedEvent, url));
-                    e.Handled = true;
-                }
-
-                return;
-            }
+                return _linkTargets.GetValueOrDefault(run);
 
             offset += length;
         }
+
+        return null;
     }
 
     private static IEnumerable<Avalonia.Controls.Documents.Inline> Flatten(InlineCollection inlines)

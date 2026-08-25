@@ -90,6 +90,8 @@ public partial class ChatPanelView : UserControl
     private Point _resizeOrigin;
     private bool _draggingWindow;
     private PixelPoint _lastDragScreen;
+    // A text selection is in progress in the message list; see OnMessagesPointerPressed.
+    private bool _selecting;
 
     private bool _waitingForFirstChunk;
 
@@ -216,6 +218,13 @@ public partial class ChatPanelView : UserControl
         DragBar.PointerMoved += OnDragBarPointerMoved;
         DragBar.PointerReleased += OnDragBarPointerReleased;
         DragBar.Cursor = new Cursor(StandardCursorType.SizeAll);
+
+        // Text selection in the bubbles. handledEventsToo because SelectableTextBlock marks the press
+        // handled the moment it takes the pointer.
+        MessagesScroller.AddHandler(PointerPressedEvent, OnMessagesPointerPressed,
+            RoutingStrategies.Bubble, handledEventsToo: true);
+        MessagesScroller.AddHandler(PointerReleasedEvent, OnMessagesPointerReleased,
+            RoutingStrategies.Bubble, handledEventsToo: true);
 
         RenderTransform = _panelSlide;
         InlineToastPanel.RenderTransform = _inlineToastSlide;
@@ -885,6 +894,42 @@ public partial class ChatPanelView : UserControl
         _draggingWindow = false;
         _host.SetForceInteractive(false);
         e.Pointer.Capture(null);
+    }
+
+    /// <summary>
+    /// A press in the message list starts a text selection, which needs two things. The window must stay
+    /// input-opaque until the release: extending a selection routinely takes the pointer past the panel's
+    /// edge, which the click-through poll reads as "not over the panel" and would drop the gesture. And
+    /// any selection still highlighted in another bubble has to go - each SelectableTextBlock selects
+    /// independently, so leaving two lit would show a selection that Ctrl+C does not copy.
+    /// </summary>
+    private void OnMessagesPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        var pressed = (e.Source as Visual)?.FindAncestorOfType<SelectableTextBlock>(includeSelf: true);
+
+        // Latched only for a press that landed on selectable text, because that is the case where the
+        // block captures the pointer and a matching release is guaranteed. A press on the list's empty
+        // space captures nothing, and a release outside the window would strand the latch on.
+        if (pressed is not null)
+        {
+            _selecting = true;
+            _host.SetForceInteractive(true);
+        }
+
+        foreach (var block in MessagesList.GetVisualDescendants().OfType<SelectableTextBlock>())
+        {
+            if (!ReferenceEquals(block, pressed))
+                block.ClearSelection();
+        }
+    }
+
+    private void OnMessagesPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_selecting)
+            return;
+
+        _selecting = false;
+        _host.SetForceInteractive(false);
     }
 
     // Measured height of whichever list is currently visible, or 0 when the chat is empty (both
