@@ -32,7 +32,9 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // The window hugs the ring so it sits flush against both window edges, letting the chat panel
     // open to either side with the ring staying visually put.
     private const double CompactWidthPadding = 2;   // 150 - 148
-    private const double CompactHeightExtra = 102;  // 250 - 148
+
+    // Top margin between the chat panel and the top of the window.
+    private const double PanelTopMargin = 10;
 
     // The window reports no work area or size until it has been composited, so the position restore
     // polls for a usable answer instead of assuming one is available at startup.
@@ -80,10 +82,6 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // that swell - a drag that ends in another app never delivers a leave event.
     private const double RingDropScale = 1.14;
     private const int RingDropFeedbackTimeoutMs = 600;
-
-    // Height reserved for the ring + action bar (everything below the chat panel). The chat window
-    // height is this plus the panel's own measured height, so the window grows with the panel.
-    private const double ChatBaseExtra = 48;   // 196 - 148
 
     // Padding around the ring's hit-rect so the ~50ms click-through poll can't eat clicks landing
     // right on its edge while the cursor is still approaching.
@@ -204,16 +202,23 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     private double RingWidthDip => _ringSize;
 
     private double CompactWidth => _ringSize + CompactWidthPadding;
-    private double CompactHeight => _ringSize + CompactHeightExtra;
-    private double ChatBaseHeight => _ringSize + ChatBaseExtra;
 
     /// <summary>
-    /// Window height for a given panel height: the panel, plus the band at the bottom that belongs to
-    /// the ring. The panel is bottom-aligned against that band, so its input row keeps a fixed offset
-    /// from the window's bottom edge - the edge every resize anchors - and cannot be pushed past it.
+    /// Breathing room under the ring. The ring sits on the window's bottom edge but its flourishes
+    /// scale about its centre - the drop swell is 1.14x and the shutter 1.06x - so without an inset
+    /// the swollen ring would clip on that edge. Roughly 8% of the diameter covers both.
+    /// </summary>
+    private double RingSwellInset => _ringSize * 0.08;
+
+    private double CompactHeight => _ringSize + (RingSwellInset * 2);
+
+    /// <summary>
+    /// Window height for a given panel height. The ring and the panel share the window's bottom edge -
+    /// the edge every resize anchors - so the window only has to be as tall as the panel, and never
+    /// shorter than the ring's own compact footprint.
     /// </summary>
     private double WindowHeightForPanel(double panelHeightDip) =>
-        ClampToWorkArea(Math.Max(ChatBaseHeight + panelHeightDip, CompactHeight));
+        ClampToWorkArea(Math.Max(panelHeightDip + PanelTopMargin + RingSwellInset, CompactHeight));
 
     /// <summary>
     /// Caps a window height so the window cannot grow past the top of the work area. Every resize
@@ -240,10 +245,6 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         get => _ringRotate.Angle;
         set => _ringRotate.Angle = value;
     }
-
-    /// <summary>Compact window size for a given ring diameter.</summary>
-    public static (double Width, double Height) CompactWindowSizeFor(double ringSize) =>
-        (ringSize + CompactWidthPadding, ringSize + CompactHeightExtra);
 
     /// <summary>
     /// Whether the point (window client coordinates, device-independent units) is over an interactive
@@ -374,7 +375,11 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         ShutterFlash.Width = _ringSize;
         ShutterFlash.Height = _ringSize;
 
-        // The panel's bottom reserve is the ring's base area, which just changed size.
+        // The ring sits on the window's bottom edge, inset just enough that the drop swell and the
+        // shutter - both of which scale about the ring's centre - have room instead of clipping on
+        // that edge. The panel carries the identical inset so the two bottom edges stay level, and
+        // both scale with the diameter that just changed.
+        RingHost.Margin = new Thickness(0, 0, 0, RingSwellInset);
         if (_panel is not null)
             ApplyChatSide(_chatOnLeft);
 
@@ -669,8 +674,8 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         : _panel?.IsOpen == true;
 
     // Resize the overlay window to fit the current ring. While compact the window hugs the ring; while
-    // a floating chat is open the ring's base region grows with ChatBaseHeight, keeping the ring's
-    // flush edge anchored. With the fixed placement the window always stays compact.
+    // a floating chat is open it hugs the panel instead, with the ring sharing the panel's bottom edge
+    // in the corner beside it. With the fixed placement the window always stays compact.
     private void ResizeWindowToRing()
     {
         if (_chatAnimating)
@@ -877,32 +882,27 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         var (_, winY) = _windowController.GetPosition();
         var (_, winH) = _windowController.GetSize();
         var maxWindowDip = ((winY + winH - wa.Y) / DisplayScale) - 8; // small gap below the screen top
-        return Math.Clamp(maxWindowDip - ChatBaseHeight - chromeDip,
+        return Math.Clamp(maxWindowDip - PanelTopMargin - RingSwellInset - chromeDip,
             ChatPanelView.MinChatListHeight, ChatPanelView.MaxChatListHeight);
     }
 
     // Place the chat panel on the given side of the ring: swap the star/zero side columns and the
-    // panel's column and overlap margin; the panel mirrors its own chevron and corner grip.
+    // panel's column; the panel mirrors its own chevron and corner grip.
     private void ApplyChatSide(bool onLeft)
     {
         _chatOnLeft = onLeft;
         if (_panel is null)
             return;
 
-        if (onLeft)
-        {
-            ContentRoot.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
-            ContentRoot.ColumnDefinitions[2].Width = new GridLength(0);
-            Grid.SetColumn(_panel, 0);
-            _panel.Margin = new Thickness(0, 10, -30, ChatBaseHeight);
-        }
-        else
-        {
-            ContentRoot.ColumnDefinitions[0].Width = new GridLength(0);
-            ContentRoot.ColumnDefinitions[2].Width = new GridLength(1, GridUnitType.Star);
-            Grid.SetColumn(_panel, 2);
-            _panel.Margin = new Thickness(-30, 10, 0, ChatBaseHeight);
-        }
+        ContentRoot.ColumnDefinitions[0].Width = onLeft ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ContentRoot.ColumnDefinitions[2].Width = onLeft ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        Grid.SetColumn(_panel, onLeft ? 0 : 2);
+
+        // Same margin either way: the panel shares the ring's bottom inset (see ApplyRingSize) so
+        // their bottom edges line up, and it no longer overlaps the ring horizontally. The MAUI
+        // original pulled the facing side 30 DIP under the ring, but now that the two are level that
+        // overlap would put the ring on top of the collapse chevron.
+        _panel.Margin = new Thickness(0, PanelTopMargin, 0, RingSwellInset);
 
         _panel.ApplyPanelSide(onLeft);
     }

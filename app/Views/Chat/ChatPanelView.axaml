@@ -145,7 +145,13 @@
             Background="{StaticResource PanelFill}"
             Padding="14,8,8,8"
             CornerRadius="10">
-        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+        <!-- Row 1 (the message list / conversation list) is the only star row, and that is what keeps
+             the input row on screen. Every row here is content-sized, so with all-Auto rows a panel
+             taller than the window it is arranged in loses its *last* rows - the input row and the
+             status strip get pushed out of the bottom. Making the list row star means the list is
+             what gives way when space is tight: it shrinks and scrolls, and the fixed chrome above
+             and below it always fits. -->
+        <Grid RowDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
 
             <!-- Drag bar and resize grip share the top row with non-overlapping hit areas. -->
             <Grid x:Name="TopGripRow"

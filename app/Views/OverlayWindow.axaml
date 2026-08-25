@@ -17,12 +17,18 @@
          window edge that the resize anchors. With the fixed placement the panel lives in its own
          window and the side columns stay empty.
 
+         The single row is deliberately `*`, not `Auto`. An Auto row is only as tall as its tallest
+         child and sits at the *top* of the window, so `VerticalAlignment="Bottom"` would mean "bottom
+         of the row" - which put the ring 102 DIP above the window's bottom edge while compact and 10
+         DIP below it once the chat opened, i.e. the ring jumped as the panel opened. With `*` the row
+         fills the window, so the ring and the panel genuinely share the window's bottom edge.
+
          ContentRoot is the reference the click-through hit test compares ancestry against: Avalonia's
          own window-template chrome panel is hit-testable at every point regardless of the window's
          Background, so "InputHitTest returned something" is not a usable test on its own. Everything
          decorative below therefore leaves Background unset (a null brush falls through; an explicitly
          Transparent one does not). -->
-    <Grid x:Name="ContentRoot" RowDefinitions="Auto">
+    <Grid x:Name="ContentRoot" RowDefinitions="*">
         <Grid.ColumnDefinitions>
             <!-- Side columns are addressed by index (ContentRoot.ColumnDefinitions[0] / [2]):
                  Avalonia's ColumnDefinition is not a Control, so it cannot carry x:Name. -->
@@ -31,8 +37,13 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- Ring host. A Grid rather than a stack so the shutter flash can layer over the ring. -->
-        <Grid Grid.Column="1"
+        <!-- Ring host. A Grid rather than a stack so the shutter flash can layer over the ring.
+             Sits on the window's bottom edge, level with the chat panel's bottom edge, so the ring
+             occupies the corner beside the panel. Its bottom margin (RingSwellInset, applied from
+             ApplyRingSize) leaves the drop-swell and shutter scales room to grow instead of clipping
+             on the window edge; the panel carries the same inset so the two stay flush. -->
+        <Grid x:Name="RingHost"
+              Grid.Column="1"
               ZIndex="10"
               HorizontalAlignment="Center"
               VerticalAlignment="Bottom">
