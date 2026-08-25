@@ -1,0 +1,130 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:views="clr-namespace:Floaty.Views.Settings"
+             x:Class="Floaty.Views.Settings.ModelProviderView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Model provider" />
+        <TextBlock Classes="hint"
+                   Text="Providers hold the credentials; the three roles below decide which provider and model each feature uses." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Providers" FontWeight="SemiBold" />
+                <TextBlock Classes="hint" Text="No providers configured yet."
+                           IsVisible="{Binding !Providers.Count}" />
+                <ListBox ItemsSource="{Binding Providers}"
+                         SelectedValue="{Binding ActiveProviderId}"
+                         SelectedValueBinding="{Binding Id}"
+                         Background="Transparent"
+                         MaxHeight="180">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="svc:ProviderProfile">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Kind}" Classes="hint" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox x:Name="PresetPicker"
+                              ItemsSource="{Binding AddablePresets}"
+                              DisplayMemberBinding="{Binding DisplayName}"
+                              PlaceholderText="Add a provider…"
+                              MinWidth="220" />
+                    <Button Content="Add"
+                            Command="{Binding AddPresetCommand}"
+                            CommandParameter="{Binding #PresetPicker.SelectedItem}" />
+                    <Button Content="Remove selected"
+                            IsVisible="{Binding !ConfirmingRemoveProvider}"
+                            Command="{Binding AskRemoveProviderCommand}"
+                            IsEnabled="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <Button Content="Really remove"
+                            IsVisible="{Binding ConfirmingRemoveProvider}"
+                            Command="{Binding DeleteProviderCommand}"
+                            CommandParameter="{Binding ActiveProvider}" />
+                    <Button Content="Cancel"
+                            IsVisible="{Binding ConfirmingRemoveProvider}"
+                            Command="{Binding CancelDestructiveCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card" IsVisible="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <StackPanel Spacing="8" DataContext="{Binding ActiveProvider}">
+                <TextBlock Text="Selected provider" FontWeight="SemiBold" />
+                <TextBox PlaceholderText="Display name" Text="{Binding DisplayName}" />
+                <TextBox PlaceholderText="Base URL" Text="{Binding BaseUrl}" />
+                <TextBox PlaceholderText="API key" Text="{Binding ApiKey}" PasswordChar="•" />
+                <TextBlock Classes="hint"
+                           Text="Keys are stored in plain text in ~/.floaty/config.json." />
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Roles" FontWeight="SemiBold" />
+                <TextBlock Classes="hint"
+                           Text="Chat drives the conversation, Embedding powers memory search, and Vision captions screenshots. Changing the embedding model means re-indexing (see Screen history)." />
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Chat" VerticalAlignment="Center" />
+                    <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding Config.ChatRole.Model}" PlaceholderText="model id" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Embedding" VerticalAlignment="Center" />
+                    <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingRole.Model}" PlaceholderText="model id" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Vision" VerticalAlignment="Center" />
+                    <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding Config.VisionRole.Model}" PlaceholderText="model id" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="8">
+                <TextBlock Text="On-device embedding models" FontWeight="SemiBold" />
+                <TextBlock Classes="hint" Text="Run locally through ONNX Runtime, so memory and screen history work with no cloud key. Changing the embedding model means re-indexing (see Screen history)." />
+                <ItemsControl ItemsSource="{Binding EmbeddingCatalog}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+ModelRow">
+                            <Border Margin="0,0,0,6" Padding="10"
+                                    CornerRadius="6"
+                                    Background="{DynamicResource ThemeControlLowBrush}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <StackPanel Grid.Column="0" Spacing="2">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Note}" Classes="hint" />
+                                        <ProgressBar Minimum="0" Maximum="1"
+                                                     Value="{Binding Progress}"
+                                                     IsVisible="{Binding IsDownloading}"
+                                                     Height="4" Margin="0,4,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center">
+                                        <Button Content="Download"
+                                                IsVisible="{Binding CanDownload}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DownloadEmbeddingCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Delete"
+                                                IsVisible="{Binding CanDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).AskDeleteEmbeddingCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Really delete"
+                                                IsVisible="{Binding ConfirmingDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DeleteEmbeddingCommand}"
+                                                CommandParameter="{Binding Id}" />
+                                        <Button Content="Cancel"
+                                                IsVisible="{Binding ConfirmingDelete}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).CancelDestructiveCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+    </StackPanel>
+</UserControl>

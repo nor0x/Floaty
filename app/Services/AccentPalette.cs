@@ -3,9 +3,9 @@ using System.Globalization;
 namespace Floaty.Services;
 
 /// <summary>
-/// Derived accent shades computed once from a single user-chosen hex color. Shared by the
-/// native overlay (via <c>Color.FromArgb</c>) and the Settings WebView (via CSS variables)
-/// so both render identical colors.
+/// Derived accent shades computed once from a single user-chosen hex color, consumed through
+/// <c>Color.Parse</c>. (These used to be emitted as CSS custom properties too, for the settings
+/// WebView; that half went away with the native settings rewrite.)
 /// </summary>
 public sealed class AccentPalette
 {
@@ -62,11 +62,6 @@ public sealed class AccentPalette
     /// </summary>
     public static string Normalize(string? hex) =>
         TryParse(hex, out var r, out var g, out var b) ? ToHex(r, g, b) : DefaultHex;
-
-    /// <summary>CSS custom-property declarations for the Settings page, usable in a style attribute.</summary>
-    public string ToCssVariables() =>
-        $"--accent:{Base};--accent-hover:{Hover};--accent-deep:{Deep};--accent-tint:{Tint};" +
-        $"--accent-tint-faint:{TintFaint};--accent-border:{Border};--accent-glow:{Glow}";
 
     private static bool TryParse(string? hex, out byte r, out byte g, out byte b)
     {

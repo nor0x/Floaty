@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using Floaty.Services;
-using Microsoft.UI.Dispatching;
+using Avalonia.Threading;
 
 namespace Floaty.Platforms.Windows;
 
@@ -43,8 +43,7 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
     private readonly IMemoryService _memory;
     private readonly CaptureDedupe _dedupe = new();
 
-    private DispatcherQueue? _dispatcher;
-    private DispatcherQueueTimer? _dwellTimer;
+    private DispatcherTimer? _dwellTimer;
 
     // Keep the delegate alive for the hooks' lifetime so the GC can't collect the callback.
     private WinEventDelegate? _winEventProc;
@@ -67,25 +66,24 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
     }
 
     /// <summary>
-    /// Called from the WinUI <c>OnWindowCreated</c> lifecycle hook with the overlay window's
-    /// dispatcher (the thread pumps messages, which WINEVENT_OUTOFCONTEXT hooks require). Only the
-    /// first call — the overlay window — takes effect; returns whether this call initialized, so
-    /// the caller ties <see cref="Shutdown"/> to that window's lifetime and not e.g. Settings'.
+    /// Called once the overlay window is open. Everything here lives on Avalonia's UI thread, which
+    /// pumps messages - a requirement for WINEVENT_OUTOFCONTEXT hooks. Only the first call takes
+    /// effect; returns whether this call initialized, so the caller ties <see cref="Shutdown"/> to
+    /// the overlay window's lifetime and not e.g. Settings'.
     /// </summary>
-    public bool Initialize(DispatcherQueue dispatcher)
+    public bool Initialize()
     {
         if (_initialized)
             return false;
         _initialized = true;
 
-        _dispatcher = dispatcher;
-        _dwellTimer = dispatcher.CreateTimer();
-        _dwellTimer.Interval = Dwell;
-        _dwellTimer.IsRepeating = false;
+        // Avalonia's DispatcherTimer always repeats, unlike DispatcherQueueTimer's IsRepeating=false,
+        // so OnDwellElapsed stops it itself on entry and restarts it when it wants another tick.
+        _dwellTimer = new DispatcherTimer { Interval = Dwell };
         _dwellTimer.Tick += (_, _) => OnDwellElapsed();
 
-        // Settings saves happen on the settings window's thread; hook state lives on ours.
-        _settings.Changed += (_, _) => _dispatcher?.TryEnqueue(ApplyMode);
+        // Settings saves can happen on another thread; hook state lives on the UI thread.
+        _settings.Changed += (_, _) => Dispatcher.UIThread.Post(ApplyMode);
 
         ApplyMode();
         return true;
@@ -159,9 +157,13 @@ public sealed class WindowsScreenHistoryService : IScreenHistoryService
         _dwellTimer.Start();
     }
 
-    // Dispatcher thread; cheap checks only, then hand off to a background thread.
+    // UI thread; cheap checks only, then hand off to a background thread.
     private void OnDwellElapsed()
     {
+        // One-shot semantics: Avalonia's timer repeats, so stop first and let the paths below
+        // restart it when they want to be called again.
+        _dwellTimer!.Stop();
+
         var hwnd = _pendingHwnd;
         if (hwnd == nint.Zero || GetForegroundWindow() != hwnd)
             return; // user already moved on

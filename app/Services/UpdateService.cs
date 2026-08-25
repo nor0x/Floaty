@@ -1,3 +1,4 @@
+using System.Reflection;
 #if WINDOWS
 using Velopack;
 using Velopack.Sources;
@@ -59,7 +60,18 @@ public sealed class UpdateService
             if (version is not null)
                 return version.ToString();
 #endif
-            return AppInfo.Current.VersionString;
+            // Non-installed builds (F5, or a zip drop): fall back to what the compiler stamped.
+            var informational = typeof(UpdateService).Assembly
+                .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(informational))
+            {
+                // Strip the "+<commit sha>" source-revision suffix the SDK appends.
+                var plus = informational.IndexOf('+');
+                return plus > 0 ? informational[..plus] : informational;
+            }
+
+            return typeof(UpdateService).Assembly.GetName().Version?.ToString() ?? "0.0.0";
         }
     }
 

@@ -1,0 +1,116 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:icons="clr-namespace:Floaty.IconFont"
+        x:Class="Floaty.Views.OverlayWindow"
+        Title="Floaty"
+        WindowDecorations="None"
+        TransparencyLevelHint="Transparent"
+        Background="{x:Null}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        CanResize="False"
+        SizeToContent="Manual">
+
+    <!-- Whole-window layout: the ring sits in the centre column. With the floating chat placement the
+         chat panel is added at runtime into the left or right side column depending on available
+         screen space; the unused side column collapses to 0 so the ring stays flush against the
+         window edge that the resize anchors. With the fixed placement the panel lives in its own
+         window and the side columns stay empty.
+
+         The single row is deliberately `*`, not `Auto`. An Auto row is only as tall as its tallest
+         child and sits at the *top* of the window, so `VerticalAlignment="Bottom"` would mean "bottom
+         of the row" - which put the ring 102 DIP above the window's bottom edge while compact and 10
+         DIP below it once the chat opened, i.e. the ring jumped as the panel opened. With `*` the row
+         fills the window, so the ring and the panel genuinely share the window's bottom edge.
+
+         ContentRoot is the reference the click-through hit test compares ancestry against: Avalonia's
+         own window-template chrome panel is hit-testable at every point regardless of the window's
+         Background, so "InputHitTest returned something" is not a usable test on its own. Everything
+         decorative below therefore leaves Background unset (a null brush falls through; an explicitly
+         Transparent one does not). -->
+    <Grid x:Name="ContentRoot" RowDefinitions="*">
+        <Grid.ColumnDefinitions>
+            <!-- Side columns are addressed by index (ContentRoot.ColumnDefinitions[0] / [2]):
+                 Avalonia's ColumnDefinition is not a Control, so it cannot carry x:Name. -->
+            <ColumnDefinition Width="0" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Ring host. A Grid rather than a stack so the shutter flash can layer over the ring.
+             Sits on the window's bottom edge, level with the chat panel's bottom edge, so the ring
+             occupies the corner beside the panel. Its bottom margin (RingSwellInset, applied from
+             ApplyRingSize) leaves the drop-swell and shutter scales room to grow instead of clipping
+             on the window edge; the panel carries the same inset so the two stay flush. -->
+        <Grid x:Name="RingHost"
+              Grid.Column="1"
+              ZIndex="10"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Bottom">
+
+            <!-- Draggable swim ring. Pointer drag moves the window and rolls the ring; the wheel spins
+                 it, Ctrl+wheel resizes it. Scale and rotation are driven through RenderTransform,
+                 which Avalonia uses in place of MAUI's Scale/Rotation properties. -->
+            <Image x:Name="Ring"
+                   Stretch="Uniform"
+                   Width="148"
+                   Height="148"
+                   RenderTransformOrigin="50%,50%">
+                <Image.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem x:Name="DockedWindowMenuItem"
+                                  Header="Dock Window"
+                                  Click="OnDockedWindowClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.DragDrop2}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem x:Name="AlwaysOnTopMenuItem"
+                                  Header="Always on Top"
+                                  Click="OnAlwaysOnTopClicked">
+                            <MenuItem.Icon>
+                                <TextBlock x:Name="AlwaysOnTopIcon"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.Pinned}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Settings" Click="OnSettingsClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.Settings}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Float to taskbar" Click="OnFloatToTaskbarClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.LayoutBottombar}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <Separator />
+                        <MenuItem Header="Close Floaty" Click="OnCloseClicked">
+                            <MenuItem.Icon>
+                                <TextBlock FontFamily="{StaticResource TablerIcons}"
+                                           Text="{x:Static icons:TablerLine.CircleX}" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                    </ContextMenu>
+                </Image.ContextMenu>
+            </Image>
+
+            <!-- The capture "flash frame": invisible at rest, blinks white while the shutter is shut.
+                 Not hit-testable so it can never steal the ring's gestures, and sized to the ring,
+                 whose bounds are what the click-through hit test reads. -->
+            <Ellipse x:Name="ShutterFlash"
+                     Fill="White"
+                     Opacity="0"
+                     IsVisible="False"
+                     IsHitTestVisible="False"
+                     RenderTransformOrigin="50%,50%" />
+        </Grid>
+    </Grid>
+
+</Window>

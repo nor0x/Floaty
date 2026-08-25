@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+        xmlns:svc="clr-namespace:Floaty.Services"
+        xmlns:views="clr-namespace:Floaty.Views.Settings"
+        x:Class="Floaty.Views.Settings.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="Floaty Settings"
+        Width="820" Height="660"
+        MinWidth="720" MinHeight="520"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Styles>
+        <Style Selector="TextBlock.h">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+        <Style Selector="TextBlock.hint">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Opacity" Value="0.65" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{DynamicResource ThemeControlMidBrush}" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
+        <Style Selector="ListBoxItem.tab">
+            <Setter Property="Padding" Value="12,8" />
+        </Style>
+    </Window.Styles>
+
+    <DockPanel>
+        <!-- Save bar. The whole page edits a clone of FloatyConfig; nothing reaches disk until here. -->
+        <Border DockPanel.Dock="Bottom"
+                Padding="16,10"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource ThemeBorderLowBrush}">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="Saved"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource SystemAccentColor}"
+                           IsVisible="{Binding Saved}" />
+                <Button Grid.Column="2"
+                        Content="Save"
+                        Command="{Binding SaveSettingsCommand}"
+                        Padding="22,6"
+                        Background="{DynamicResource AccentColor}"
+                        Foreground="White" />
+            </Grid>
+        </Border>
+
+        <!-- Section rail. The Blazor version was a row of tab buttons; a ListBox gives keyboard
+             navigation for free. -->
+        <ListBox DockPanel.Dock="Left"
+                 Width="176"
+                 Background="Transparent"
+                 BorderThickness="0,0,1,0"
+                 BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                 ItemsSource="{Binding Sections}"
+                 SelectedItem="{Binding ActiveSection}">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:SettingsViewModel+SettingsSection">
+                    <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.SectionLabel}}" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <ScrollViewer Padding="20,16" HorizontalScrollBarVisibility="Disabled">
+            <Panel>
+                <views:BehaviorView      IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Behavior}" />
+                <views:AppearanceView    IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Appearance}" />
+                <views:SoundsView        IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Sounds}" />
+                <views:ModelProviderView IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=ModelProvider}" />
+                <views:ScreenHistoryView IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=ScreenHistory}" />
+                <views:VoiceInputView    IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=VoiceInput}" />
+                <views:McpView           IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Mcp}" />
+                <views:ExecView          IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Exec}" />
+                <views:SkillsView        IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Skills}" />
+                <views:UpdatesView       IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Updates}" />
+            </Panel>
+        </ScrollViewer>
+    </DockPanel>
+
+</Window>

@@ -1,99 +1,70 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">
-            $(TargetFrameworks);net10.0-maccatalyst</TargetFrameworks>
-        <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">
-            $(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
+        <!-- Windows-only for now. The windows TFM keeps every `#if WINDOWS` block compiling unchanged
+             and keeps System.Drawing.Common / Interop.UIAutomationClient / XbergIo.Xberg happy. A
+             plain `net10.0` TFM gets added back when the macOS (AppKit) head starts - see
+             Platforms/MacCatalyst, which is kept in-tree as reference but not compiled. -->
+        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+        <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
 
-        <!-- Note for MacCatalyst:
-            The default runtime is maccatalyst-x64, except in Release config, in which case the default is
-        maccatalyst-x64;maccatalyst-arm64.
-            When specifying both architectures, use the plural <RuntimeIdentifiers> instead of the singular
-        <RuntimeIdentifier>.
-            The Mac App Store will NOT accept apps with ONLY maccatalyst-arm64 indicated;
-            either BOTH runtimes must be indicated or ONLY macatalyst-x64. -->
-        <!-- For example: <RuntimeIdentifiers>maccatalyst-x64;maccatalyst-arm64</RuntimeIdentifiers> -->
-
-        <OutputType>Exe</OutputType>
+        <OutputType>WinExe</OutputType>
         <RootNamespace>Floaty</RootNamespace>
-        <UseMaui>true</UseMaui>
-        <SingleProject>true</SingleProject>
         <ImplicitUsings>enable</ImplicitUsings>
-        <EnableDefaultCssItems>false</EnableDefaultCssItems>
         <Nullable>enable</Nullable>
 
-        <!-- Enable XAML source generation for faster build times and improved performance.
-             This generates C# code from XAML at compile time instead of runtime inflation.
-             To disable, remove this line.
-             For individual files, you can override by setting Inflator metadata:
-               <MauiXaml Update="MyPage.xaml" Inflator="Default" /> (reverts to defaults: Runtime for Debug, XamlC
-        for Release)
-               <MauiXaml Update="MyPage.xaml" Inflator="Runtime" /> (force runtime inflation) -->
-        <MauiXamlInflator>SourceGen</MauiXamlInflator>
+        <!-- Interop.UIAutomationClient is a COM interop assembly. -->
+        <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
 
-        <!-- Display name -->
-        <ApplicationTitle>Floaty</ApplicationTitle>
+        <!-- PerMonitorV2 DPI awareness + longPathAware. MAUI supplied this implicitly; Avalonia needs
+             it wired explicitly, and Avalonia's per-monitor scaling depends on it. -->
+        <ApplicationManifest>Platforms\Windows\app.manifest</ApplicationManifest>
+        <ApplicationIcon>Resources\AppIcon\floaty.ico</ApplicationIcon>
 
-        <!-- App Identifier -->
-        <ApplicationId>com.companyname.floaty</ApplicationId>
+        <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
 
-        <!-- Versions -->
-        <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
-        <ApplicationVersion>1</ApplicationVersion>
-
-        <!-- To develop, package, and publish an app to the Microsoft Store, see:
-        https://aka.ms/MauiTemplateUnpackaged -->
-        <WindowsPackageType>None</WindowsPackageType>
-
-        <SupportedOSPlatformVersion
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
-            15.0</SupportedOSPlatformVersion>
-        <SupportedOSPlatformVersion
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
-            15.0</SupportedOSPlatformVersion>
-        <SupportedOSPlatformVersion
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">
-            24.0</SupportedOSPlatformVersion>
-        <SupportedOSPlatformVersion
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-            10.0.17763.0</SupportedOSPlatformVersion>
-        <TargetPlatformMinVersion
-            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-            10.0.17763.0</TargetPlatformMinVersion>
+        <!-- Trimming stays off: Markdig, LiteGraph, ONNX Runtime and Xberg all use reflection. -->
+        <PublishTrimmed>false</PublishTrimmed>
     </PropertyGroup>
 
     <ItemGroup>
-        <!-- App Icon -->
-        <MauiIcon Include="Resources\AppIcon\appicon.png" />
-
-        <!-- Splash Screen -->
-        <MauiSplashScreen Include="Resources\Splash\splash.png" BaseSize="128,128" />
-
-        <!-- Images -->
-        <MauiImage Include="Resources\Images\*" />
-
-        <!-- Ring images are also packaged as app assets so Blazor settings can read them
-               via FileSystem.OpenAppPackageFileAsync and render base64 previews. -->
-        <MauiAsset Include="Resources\Images\ring*.png" LogicalName="%(Filename)%(Extension)" />
-
-        <!-- Built-in sound effects (capture shutter, assistant-reply chime). Packaged the same way
-               as the ring images so ISoundService can open them by bare filename; see
-               Resources\Sounds\CREDITS.md for their CC0 provenance. -->
-        <MauiAsset Include="Resources\Sounds\*.wav" LogicalName="%(Filename)%(Extension)" />
-
-        <!-- Custom Fonts -->
-        <MauiFont Include="Resources\Fonts\*" />
-
-        <!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
-        <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+        <!-- Ring images, built-in sounds and the Tabler icon fonts, addressed at runtime through
+             avares:// URIs (see Services/IAppAssets.cs and App.axaml's TablerIcons FontFamily). -->
+        <AvaloniaResource Include="Resources\Images\*.png" />
+        <AvaloniaResource Include="Resources\Sounds\*.wav" />
+        <AvaloniaResource Include="Resources\Fonts\*.ttf" />
+        <AvaloniaResource Include="Resources\AppIcon\floaty.ico" />
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Not built. Kept in-tree as reference for the eventual macOS/AppKit head: the KVC +
+             objc_msgSend technique in MacOverlayWindowController transfers even though the call
+             sites (UIKit's semi-private UIWindow.nsWindow bridge) do not. Note macOS also has no
+             per-region click-through - NSWindow.ignoresMouseEvents is window-wide - so the ring's
+             hit-test model needs a fresh design there, not a port. -->
+        <Compile Remove="Platforms\MacCatalyst\**" />
+        <None Include="Platforms\MacCatalyst\**" />
+
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Avalonia" Version="12.1.1" />
+        <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+        <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+        <!-- No Avalonia.Diagnostics: DevTools has no 12.x release (11.3.20 is its last) and is
+             not bundled into core, so there is no visual-tree inspector on Avalonia 12 yet. -->
+        <!-- Settings only: the overlay and chat panel stay imperative code-behind. -->
+        <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+
+        <!-- The composition root. MAUI supplied this transitively via MauiAppBuilder; Avalonia
+             has no builder of its own, so App.axaml.cs references it directly. -->
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
+
         <PackageReference Include="AsyncAwaitBestPractices" Version="10.0.0" />
-        <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.80" />
-        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.80" />
-        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.9" />
+        <!-- Markdown in assistant chat bubbles; see MarkdownRenderer for the deliberately
+             restricted pipeline (raw HTML off, no generic attributes, URL scheme allowlist). -->
+        <PackageReference Include="Markdig" Version="1.3.2" />
 
         <!-- AI: provider-agnostic chat abstractions plus the provider bindings AiClientFactory picks
              between. The OpenAI binding does double duty: every OpenAI-compatible endpoint (Gemini,
@@ -113,13 +84,10 @@
         <PackageReference Include="ModelContextProtocol" Version="2.0.0-preview.1" />
     </ItemGroup>
 
-    <!-- Windows-only: transparent/borderless window support for the floating overlay, plus
-         screen-capture dependencies (GDI bitmap encode + UI Automation) for the 📷 button. -->
-    <ItemGroup
-        Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
-        <!-- 2.7.0 is the latest WinUIEx aligned with WindowsAppSDK 1.7 (MAUI workload pins 1.7;
-             newer WinUIEx pulls 1.8 and breaks the build). -->
-        <PackageReference Include="WinUIEx" Version="2.9.1" />
+    <!-- Windows-only: screen-capture dependencies (GDI bitmap encode + UI Automation) for the
+         camera button, voice input, on-device embeddings and self-update. WinUIEx is gone with
+         MAUI - Avalonia's own Window plus the Win32 interop in Platforms/Windows replaces it. -->
+    <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
         <PackageReference Include="System.Drawing.Common" Version="10.0.9" />
         <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
         <!-- In-app auto-update for the unpackaged Windows build: atomic install/restart plus the
@@ -140,5 +108,15 @@
              Heads-up: xberg_ffi.dll is ~96 MB, which lands in every Velopack full package. -->
         <PackageReference Include="XbergIo.Xberg" Version="1.0.1" />
     </ItemGroup>
+
+    <!-- SkiaSharp and HarfBuzz ship ~100 MB of native .pdb symbols, which would otherwise land in
+         every Velopack full package for no benefit to end users. Debug builds keep them. -->
+    <Target Name="TrimPublishSymbols" AfterTargets="ComputeResolvedFilesToPublishList"
+            Condition="'$(Configuration)' == 'Release'">
+        <ItemGroup>
+            <_FloatyPublishPdb Include="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb'" />
+            <ResolvedFileToPublish Remove="@(_FloatyPublishPdb)" />
+        </ItemGroup>
+    </Target>
 
 </Project>

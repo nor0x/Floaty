@@ -1,0 +1,54 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             xmlns:svc="clr-namespace:Floaty.Services"
+             xmlns:views="clr-namespace:Floaty.Views.Settings"
+             x:Class="Floaty.Views.Settings.ExecView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Shell" />
+        <TextBlock Classes="hint"
+                   Text="Lets the model propose shell commands. Off by default: a command runs with your account's full privileges." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <CheckBox IsChecked="{Binding ExecEnabled}" Content="Allow the assistant to run shell commands" />
+                <TextBlock Text="Approval" FontWeight="SemiBold" />
+                <ComboBox ItemsSource="{Binding ExecApprovalModes}"
+                          SelectedItem="{Binding ExecApprovalMode}"
+                          IsEnabled="{Binding ExecEnabled}"
+                          HorizontalAlignment="Left" MinWidth="240">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBlock Classes="hint"
+                           Text="Prompting shows the command in the chat and waits for you. Automatic runs it immediately." />
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <TextBlock Text="Shell" FontWeight="SemiBold" />
+                <ComboBox ItemsSource="{Binding ExecShells}"
+                          SelectedItem="{Binding ExecShell}"
+                          IsEnabled="{Binding ExecEnabled}"
+                          HorizontalAlignment="Left" MinWidth="240">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBox PlaceholderText="Custom shell executable" Text="{Binding ExecCustomShellPath}"
+                         IsEnabled="{Binding ExecEnabled}" />
+                <TextBox PlaceholderText="Custom shell arguments" Text="{Binding ExecCustomShellArgs}"
+                         IsEnabled="{Binding ExecEnabled}" />
+                <TextBlock Classes="hint" Text="Only used when the shell is set to Custom." />
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "Windows Machine": {
+    "Floaty": {
       "commandName": "Project",
       "nativeDebugging": false
     }
