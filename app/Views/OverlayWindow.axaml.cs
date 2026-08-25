@@ -209,6 +209,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     /// the swollen ring would clip on that edge. Roughly 8% of the diameter covers both.
     /// </summary>
     private double RingSwellInset => _ringSize * 0.08;
+    private double RingHorizontalInset => -15;
 
     private double CompactHeight => _ringSize + (RingSwellInset * 2);
 
@@ -379,7 +380,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         // shutter - both of which scale about the ring's centre - have room instead of clipping on
         // that edge. The panel carries the identical inset so the two bottom edges stay level, and
         // both scale with the diameter that just changed.
-        RingHost.Margin = new Thickness(0, 0, 0, RingSwellInset);
+        RingHost.Margin = _chatOnLeft ? new Thickness(RingHorizontalInset, 0, 0, RingSwellInset) : new Thickness(0, 0, RingHorizontalInset, RingSwellInset);
         if (_panel is not null)
             ApplyChatSide(_chatOnLeft);
 
