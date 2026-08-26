@@ -1,0 +1,46 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Neutral surface/text tokens for both theme variants. The accent side of the palette is not
+         here: it is written into Application.Resources at runtime by AccentResources.Apply, because
+         it follows FloatyConfig.AccentColor and has to repaint live while Settings previews it.
+
+         Surfaces step in one direction only: window -> rail (recessed) -> card (raised, bordered)
+         -> row (recessed). Cards carry a border rather than relying on fill contrast, which is what
+         keeps the light variant from looking washed out. -->
+
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="AppWindowBackground" Color="#FAFAFA" />
+            <SolidColorBrush x:Key="NavRailBackground" Color="#F2F2F4" />
+            <SolidColorBrush x:Key="CardBackground" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#E3E3E7" />
+            <SolidColorBrush x:Key="RowBackground" Color="#F6F6F8" />
+            <SolidColorBrush x:Key="RowBorderBrush" Color="#E7E7EB" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#E6E6EA" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#17171A" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#6B6B75" />
+            <SolidColorBrush x:Key="DangerBrush" Color="#C53434" />
+            <!-- Neutral hover for nav rows: alpha so it reads the same over any rail fill. -->
+            <SolidColorBrush x:Key="NeutralHoverBrush" Color="#12000000" />
+        </ResourceDictionary>
+
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="AppWindowBackground" Color="#1C1C1F" />
+            <SolidColorBrush x:Key="NavRailBackground" Color="#171719" />
+            <SolidColorBrush x:Key="CardBackground" Color="#232327" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#2F2F35" />
+            <SolidColorBrush x:Key="RowBackground" Color="#2A2A2F" />
+            <SolidColorBrush x:Key="RowBorderBrush" Color="#35353B" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#2A2A30" />
+            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#ECECEE" />
+            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9A9AA3" />
+            <SolidColorBrush x:Key="DangerBrush" Color="#E06C6C" />
+            <SolidColorBrush x:Key="NeutralHoverBrush" Color="#16FFFFFF" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+
+    <CornerRadius x:Key="CardCornerRadius">10</CornerRadius>
+    <CornerRadius x:Key="ControlCornerRadiusSmall">6</CornerRadius>
+
+</ResourceDictionary>

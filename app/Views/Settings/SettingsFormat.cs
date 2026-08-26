@@ -1,5 +1,6 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
+using Floaty.IconFont;
 using Floaty.Services;
 using Floaty.ViewModels.Settings;
 
@@ -20,6 +21,30 @@ public static class SettingsFormat
 
     /// <summary>True when the bound section equals the one named by the converter parameter.</summary>
     public static readonly IValueConverter IsSection = new SectionMatchConverter();
+
+    /// <summary>The Tabler glyph shown beside a section in the rail.</summary>
+    public static readonly IValueConverter SectionIcon =
+        new FuncValueConverter<SettingsViewModel.SettingsSection, string>(section => section switch
+        {
+            SettingsViewModel.SettingsSection.Behavior => TablerLine.AdjustmentsHorizontal,
+            SettingsViewModel.SettingsSection.Appearance => TablerLine.Palette,
+            SettingsViewModel.SettingsSection.Sounds => TablerLine.Volume2,
+            SettingsViewModel.SettingsSection.ModelProvider => TablerLine.Sparkles,
+            SettingsViewModel.SettingsSection.ScreenHistory => TablerLine.History,
+            SettingsViewModel.SettingsSection.VoiceInput => TablerLine.Microphone,
+            SettingsViewModel.SettingsSection.Mcp => TablerLine.PlugConnected,
+            SettingsViewModel.SettingsSection.Exec => TablerLine.Terminal2,
+            SettingsViewModel.SettingsSection.Skills => TablerLine.Puzzle,
+            SettingsViewModel.SettingsSection.Updates => TablerLine.Download,
+            _ => TablerLine.Settings,
+        });
+
+    /// <summary>
+    /// True when the two bound strings are the same value - a swatch's own value against the one
+    /// currently selected. Used to light up the ring on the active accent colour and ring image,
+    /// neither of which showed any selected state before.
+    /// </summary>
+    public static readonly IMultiValueConverter SameValue = new SameValueConverter();
 
     public static readonly IValueConverter EnumLabel =
         new FuncValueConverter<object?, string>(value => value is null ? string.Empty : Humanize(value));
@@ -70,6 +95,15 @@ public static class SettingsFormat
         }
 
         return builder.ToString();
+    }
+
+    private sealed class SameValueConverter : IMultiValueConverter
+    {
+        public object Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture) =>
+            values.Count == 2
+            && values[0] is string a
+            && values[1] is string b
+            && string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class SectionMatchConverter : IValueConverter

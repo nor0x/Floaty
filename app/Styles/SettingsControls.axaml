@@ -1,0 +1,94 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Container themes for the two ListBoxes in Settings. Both exist to replace Fluent's
+         full-bleed accent block on the selected item, which is the loudest thing in the window. -->
+
+    <!-- Section rail. Selected = accent tint + a short accent bar on the leading edge, the way a
+         sidebar usually marks its current page. -->
+    <ControlTheme x:Key="NavItemTheme" TargetType="ListBoxItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,1" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Panel>
+                    <Border Name="Root"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="10,8">
+                        <ContentPresenter Name="PART_ContentPresenter"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                    <Border Name="Bar"
+                            Width="3" Height="16"
+                            CornerRadius="1.5"
+                            IsVisible="False"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            Background="{DynamicResource AccentBrush}" />
+                </Panel>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Root">
+            <Setter Property="Background" Value="{DynamicResource NeutralHoverBrush}" />
+        </Style>
+        <Style Selector="^:selected">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="^:selected /template/ Border#Root">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}" />
+        </Style>
+        <Style Selector="^:selected /template/ Border#Bar">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="^:selected:pointerover /template/ Border#Root">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleHoverBrush}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- Selectable list rows (the provider list), matching the plain Border.row used elsewhere so a
+         list of providers and a list of models look like the same kind of thing. -->
+    <ControlTheme x:Key="RowItemTheme" TargetType="ListBoxItem">
+        <Setter Property="Background" Value="{DynamicResource RowBackground}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource RowBorderBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,0,0,6" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Root"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="{TemplateBinding CornerRadius}"
+                        Padding="11,9">
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Root">
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
+        </Style>
+        <Style Selector="^:selected /template/ Border#Root">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
+        </Style>
+    </ControlTheme>
+
+</ResourceDictionary>

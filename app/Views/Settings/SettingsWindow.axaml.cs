@@ -27,6 +27,14 @@ public partial class SettingsWindow : Window
                 await launcher.LaunchUriAsync(uri);
         };
 
+        // Every section lives in the same ScrollViewer, so without this a long page leaves the next
+        // one scrolled halfway down.
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is null or nameof(SettingsViewModel.ActiveSection))
+                PageScroller.ScrollToHome();
+        };
+
         // Closing without saving must not leave the overlay wearing an uncommitted ring size or
         // accent, so the view-model reverts its live previews.
         Closed += (_, _) =>

@@ -3,75 +3,85 @@
         xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
         xmlns:svc="clr-namespace:Floaty.Services"
         xmlns:views="clr-namespace:Floaty.Views.Settings"
+        xmlns:icons="clr-namespace:Floaty.IconFont"
         x:Class="Floaty.Views.Settings.SettingsWindow"
         x:DataType="vm:SettingsViewModel"
         Title="Floaty Settings"
-        Width="820" Height="660"
+        Width="880" Height="680"
         MinWidth="720" MinHeight="520"
+        Background="{DynamicResource AppWindowBackground}"
         WindowStartupLocation="CenterScreen">
 
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Container themes for the rail and the provider list. -->
+                <ResourceInclude Source="avares://Floaty/Styles/SettingsControls.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <!-- The class vocabulary every page draws on: Border.card, TextBlock.h/.sub/.section/.hint,
+         Button.accent/.danger. -->
     <Window.Styles>
-        <Style Selector="TextBlock.h">
-            <Setter Property="FontSize" Value="15" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,0,0,2" />
-        </Style>
-        <Style Selector="TextBlock.hint">
-            <Setter Property="FontSize" Value="11.5" />
-            <Setter Property="Opacity" Value="0.65" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="Margin" Value="0,0,0,4" />
-        </Style>
-        <Style Selector="Border.card">
-            <Setter Property="Background" Value="{DynamicResource ThemeControlMidBrush}" />
-            <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="14" />
-            <Setter Property="Margin" Value="0,0,0,12" />
-        </Style>
-        <Style Selector="ListBoxItem.tab">
-            <Setter Property="Padding" Value="12,8" />
-        </Style>
+        <StyleInclude Source="avares://Floaty/Styles/SettingsTheme.axaml" />
     </Window.Styles>
 
     <DockPanel>
         <!-- Save bar. The whole page edits a clone of FloatyConfig; nothing reaches disk until here. -->
         <Border DockPanel.Dock="Bottom"
-                Padding="16,10"
+                Padding="20,12"
                 BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource ThemeBorderLowBrush}">
-            <Grid ColumnDefinitions="*,Auto,Auto">
-                <TextBlock Grid.Column="0"
-                           Text="Saved"
-                           VerticalAlignment="Center"
-                           Foreground="{DynamicResource SystemAccentColor}"
-                           IsVisible="{Binding Saved}" />
-                <Button Grid.Column="2"
+                BorderBrush="{DynamicResource DividerBrush}">
+            <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Grid.Column="0"
+                            Orientation="Horizontal"
+                            Spacing="6"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding Saved}">
+                    <TextBlock Text="{x:Static icons:TablerLine.Check}"
+                               FontFamily="{StaticResource TablerIcons}"
+                               FontSize="14"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource AccentBrush}" />
+                    <TextBlock Text="All changes saved"
+                               FontSize="12.5"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                </StackPanel>
+                <Button Grid.Column="1"
+                        Classes="accent"
                         Content="Save"
-                        Command="{Binding SaveSettingsCommand}"
-                        Padding="22,6"
-                        Background="{DynamicResource AccentColor}"
-                        Foreground="White" />
+                        Command="{Binding SaveSettingsCommand}" />
             </Grid>
         </Border>
 
         <!-- Section rail. The Blazor version was a row of tab buttons; a ListBox gives keyboard
              navigation for free. -->
         <ListBox DockPanel.Dock="Left"
-                 Width="176"
-                 Background="Transparent"
-                 BorderThickness="0,0,1,0"
-                 BorderBrush="{DynamicResource ThemeBorderLowBrush}"
+                 Width="200"
+                 Padding="8"
+                 Background="{DynamicResource NavRailBackground}"
+                 BorderThickness="0"
                  ItemsSource="{Binding Sections}"
-                 SelectedItem="{Binding ActiveSection}">
+                 SelectedItem="{Binding ActiveSection}"
+                 ItemContainerTheme="{StaticResource NavItemTheme}">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:SettingsViewModel+SettingsSection">
-                    <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.SectionLabel}}" />
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Classes="navIcon"
+                                   Text="{Binding Converter={x:Static views:SettingsFormat.SectionIcon}}" />
+                        <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.SectionLabel}}"
+                                   FontSize="13"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <ScrollViewer Padding="20,16" HorizontalScrollBarVisibility="Disabled">
-            <Panel>
+        <ScrollViewer Name="PageScroller" Padding="32,26,28,26" HorizontalScrollBarVisibility="Disabled">
+            <!-- Capped so a wide window does not stretch single-line text boxes across the screen. -->
+            <Panel MaxWidth="660" HorizontalAlignment="Left">
                 <views:BehaviorView      IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Behavior}" />
                 <views:AppearanceView    IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Appearance}" />
                 <views:SoundsView        IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Sounds}" />

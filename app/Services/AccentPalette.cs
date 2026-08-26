@@ -36,6 +36,13 @@ public sealed class AccentPalette
     /// <summary>Lightened accent that stays legible on the overlay's dark chrome.</summary>
     public string IconOnDark { get; }
 
+    /// <summary>
+    /// Black or white, whichever stays legible as text/glyphs sitting *on* <see cref="Base"/>.
+    /// The presets run from a dark blue to a pale teal, so a hardcoded white foreground fails the
+    /// light half of them.
+    /// </summary>
+    public string OnAccent { get; }
+
     private AccentPalette(byte r, byte g, byte b)
     {
         Base = ToHex(r, g, b);
@@ -46,6 +53,21 @@ public sealed class AccentPalette
         Border = MixWhite(r, g, b, 0.70);
         Glow = $"rgba({r}, {g}, {b}, 0.15)";
         IconOnDark = MixWhite(r, g, b, 0.50);
+        OnAccent = Luminance(r, g, b) > 0.45 ? "#101014" : "#ffffff";
+        (_r, _g, _b) = (r, g, b);
+    }
+
+    private readonly byte _r, _g, _b;
+
+    /// <summary>
+    /// The base accent at a given opacity, as "#aarrggbb". Alpha rather than a mix toward white,
+    /// so the same tint reads correctly in both theme variants - <see cref="Tint"/> and friends
+    /// only work on light backgrounds.
+    /// </summary>
+    public string WithAlpha(double alpha)
+    {
+        var a = (byte)Math.Round(Math.Clamp(alpha, 0, 1) * 255);
+        return $"#{a:x2}{_r:x2}{_g:x2}{_b:x2}";
     }
 
     /// <summary>Builds the palette from a hex string, falling back to <see cref="DefaultHex"/> when invalid.</summary>
@@ -84,6 +106,16 @@ public sealed class AccentPalette
     }
 
     private static string ToHex(byte r, byte g, byte b) => $"#{r:x2}{g:x2}{b:x2}";
+
+    /// <summary>WCAG relative luminance, used only to pick <see cref="OnAccent"/>.</summary>
+    private static double Luminance(byte r, byte g, byte b) =>
+        0.2126 * Channel(r) + 0.7152 * Channel(g) + 0.0722 * Channel(b);
+
+    private static double Channel(byte value)
+    {
+        var c = value / 255.0;
+        return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+    }
 
     private static string Darken(byte r, byte g, byte b, double amount) => ToHex(
         (byte)Math.Round(r * (1 - amount)),

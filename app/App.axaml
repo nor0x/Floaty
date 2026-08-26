@@ -4,17 +4,32 @@
              RequestedThemeVariant="Default">
 
     <Application.Styles>
-        <FluentTheme />
+        <!-- Seeding the palettes with Floaty's default accent means any Fluent resource we did not
+             enumerate in AccentResources still lands on our blue rather than the *operating
+             system's* accent. The live, user-chosen accent is applied over the top of this by
+             App.ApplyAccentColor. -->
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Light" Accent="#2b7fff" />
+                <ColorPaletteResources x:Key="Dark" Accent="#2b7fff" />
+            </FluentTheme.Palettes>
+        </FluentTheme>
     </Application.Styles>
 
     <Application.Resources>
-        <!-- Accent colors, replaced at runtime from the configured accent (see App.ApplyAccentColor).
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Neutral surface/text tokens, per theme variant. -->
+                <ResourceInclude Source="avares://Floaty/Styles/Tokens.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Accent colors, replaced at runtime from the configured accent (see App.ApplyAccentColor).
              They live on the Application rather than a window so the overlay, the fixed chat window
              and Settings all resolve the same DynamicResource. -->
-        <Color x:Key="AccentColor">#2b7fff</Color>
-        <Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
+            <Color x:Key="AccentColor">#2b7fff</Color>
+            <Color x:Key="AccentIconOnDarkColor">#95bfff</Color>
 
-        <!-- The two Tabler icon fonts, as separate families. Keep them separate, and keep their names
+            <!-- The two Tabler icon fonts, as separate families. Keep them separate, and keep their names
              distinct from each other - Avalonia's font matching is substring-based at both levels and
              will silently resolve the wrong file otherwise:
 
@@ -30,8 +45,9 @@
              so the table did not move. Neither the family names nor the filenames are substrings of
              one another now, which is what both rules above require.
              Codepoints are disjoint: line EA02..10267, solid EE80..101E7. -->
-        <FontFamily x:Key="TablerIcons">avares://Floaty/Resources/Fonts/tabler-icons.ttf#tabler-icons</FontFamily>
-        <FontFamily x:Key="TablerIconsFilled">avares://Floaty/Resources/Fonts/tabler-solid.ttf#tabler-solid</FontFamily>
+            <FontFamily x:Key="TablerIcons">avares://Floaty/Resources/Fonts/tabler-icons.ttf#tabler-icons</FontFamily>
+            <FontFamily x:Key="TablerIconsFilled">avares://Floaty/Resources/Fonts/tabler-solid.ttf#tabler-solid</FontFamily>
+        </ResourceDictionary>
     </Application.Resources>
 
 </Application>

@@ -8,15 +8,14 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Screen history" />
-        <TextBlock Classes="hint"
+        <TextBlock Classes="sub"
                    Text="Records the window you settle on as you move between apps, so you can ask about things you saw earlier." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="Mode" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="Mode" />
                 <ComboBox ItemsSource="{Binding ScreenHistoryModes}"
-                          SelectedItem="{Binding ScreenHistoryMode}"
-                          HorizontalAlignment="Left" MinWidth="240">
+                          SelectedItem="{Binding ScreenHistoryMode}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
@@ -30,7 +29,7 @@
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="Stored captures" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="Stored captures" />
                 <TextBlock Text="{Binding AutoCaptureCount, StringFormat={}{0} automatic captures in memory}" />
 
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding !ConfirmClearHistory}">
@@ -38,7 +37,7 @@
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ConfirmClearHistory}">
                     <TextBlock Text="Delete every automatic capture?" VerticalAlignment="Center" />
-                    <Button Content="Delete" Command="{Binding ConfirmClearHistoryNowCommand}" />
+                    <Button Classes="danger" Content="Delete" Command="{Binding ConfirmClearHistoryNowCommand}" />
                     <Button Content="Cancel" Command="{Binding CancelClearHistoryCommand}" />
                 </StackPanel>
                 <TextBlock Classes="hint" Text="Clearing…" IsVisible="{Binding ClearingHistory}" />
@@ -46,8 +45,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Re-index" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Re-index" />
                 <TextBlock Classes="hint"
                            Text="Re-chunks and re-embeds every saved capture. Needed after changing the embedding model, since vectors from different models are not comparable." />
                 <Button Content="Re-index captures"

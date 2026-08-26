@@ -8,11 +8,11 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Skills" />
-        <TextBlock Classes="hint"
+        <TextBlock Classes="sub"
                    Text="SKILL.md folders found in ~/.floaty/skills, ~/.claude/skills and ~/.agents/skills. Each enabled skill becomes a /name slash command." />
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
+            <StackPanel Spacing="10">
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button Content="Rescan" Command="{Binding RescanSkillsCommand}" />
                     <Button Content="Open skills folder" Command="{Binding OpenSkillsCommand}" />
@@ -21,9 +21,7 @@
                 <ItemsControl ItemsSource="{Binding SkillRows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:SettingsViewModel+SkillRow">
-                            <Border Margin="0,0,0,6" Padding="10"
-                                    CornerRadius="6"
-                                    Background="{DynamicResource ThemeControlLowBrush}">
+                            <Border Classes="row">
                                 <Grid ColumnDefinitions="Auto,*">
                                     <CheckBox Grid.Column="0"
                                               Margin="0,0,10,0"

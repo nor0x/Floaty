@@ -8,12 +8,12 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Appearance" />
-        <TextBlock Classes="hint" Text="Changes here preview live on the overlay and are only kept when you save." />
+        <TextBlock Classes="sub" Text="Changes here preview live on the overlay and are only kept when you save." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Grid.Column="0" Text="Ring image" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="0" Classes="section" Text="Ring image" VerticalAlignment="Center" />
                     <Button Grid.Column="1" Content="Rescan" Command="{Binding RefreshRingsCommand}" />
                 </Grid>
                 <TextBlock Classes="hint" Text="Drop your own PNGs into ~/.floaty/ring to add to this list." />
@@ -25,13 +25,29 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:SettingsViewModel+RingImageOption">
-                            <Button Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).PickRingCommand}"
-                                    CommandParameter="{Binding Value}"
-                                    Margin="0,0,8,8"
-                                    Padding="6"
-                                    ToolTip.Tip="{Binding Label}">
-                                <Image Source="{Binding Preview}" Width="56" Height="56" Stretch="Uniform" />
-                            </Button>
+                            <!-- The ring sits outside the button rather than on it, so the selected
+                                 state does not shift the artwork by a border width. -->
+                            <Panel Margin="0,0,10,10">
+                                <Button Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).PickRingCommand}"
+                                        CommandParameter="{Binding Value}"
+                                        Margin="4"
+                                        Padding="6"
+                                        CornerRadius="8"
+                                        ToolTip.Tip="{Binding Label}">
+                                    <Image Source="{Binding Preview}" Width="56" Height="56" Stretch="Uniform" />
+                                </Button>
+                                <Border BorderBrush="{DynamicResource AccentBrush}"
+                                        BorderThickness="2"
+                                        CornerRadius="12"
+                                        IsHitTestVisible="False">
+                                    <Border.IsVisible>
+                                        <MultiBinding Converter="{x:Static views:SettingsFormat.SameValue}">
+                                            <Binding Path="Value" />
+                                            <Binding Path="$parent[UserControl].((vm:SettingsViewModel)DataContext).SelectedRing" />
+                                        </MultiBinding>
+                                    </Border.IsVisible>
+                                </Border>
+                            </Panel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
@@ -39,8 +55,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Ring size" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Ring size" />
                 <Grid ColumnDefinitions="*,Auto">
                     <Slider Grid.Column="0" Minimum="50" Maximum="288" Value="{Binding RingSize}" />
                     <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
@@ -52,7 +68,7 @@
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="Accent colour" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="Accent colour" />
                 <ItemsControl ItemsSource="{Binding AccentSwatches}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -61,19 +77,34 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:SettingsViewModel+AccentSwatch">
-                            <Button Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).PickAccentCommand}"
-                                    CommandParameter="{Binding Value}"
-                                    Margin="0,0,8,8"
-                                    Padding="0"
-                                    Width="34" Height="34"
-                                    CornerRadius="17"
-                                    ToolTip.Tip="{Binding Label}"
-                                    Background="{Binding Value}" />
+                            <Panel Margin="0,0,10,10">
+                                <Button Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).PickAccentCommand}"
+                                        CommandParameter="{Binding Value}"
+                                        Margin="4"
+                                        Padding="0"
+                                        Width="32" Height="32"
+                                        CornerRadius="16"
+                                        BorderThickness="0"
+                                        ToolTip.Tip="{Binding Label}"
+                                        Background="{Binding Value}" />
+                                <Border BorderBrush="{DynamicResource AccentBrush}"
+                                        BorderThickness="2"
+                                        CornerRadius="20"
+                                        Width="40" Height="40"
+                                        IsHitTestVisible="False">
+                                    <Border.IsVisible>
+                                        <MultiBinding Converter="{x:Static views:SettingsFormat.SameValue}">
+                                            <Binding Path="Value" />
+                                            <Binding Path="$parent[UserControl].((vm:SettingsViewModel)DataContext).AccentColor" />
+                                        </MultiBinding>
+                                    </Border.IsVisible>
+                                </Border>
+                            </Panel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Custom" VerticalAlignment="Center" />
+                    <TextBlock Classes="hint" Text="Custom" VerticalAlignment="Center" />
                     <TextBox Text="{Binding AccentColor}" Width="120" PlaceholderText="#2b7fff" />
                 </StackPanel>
             </StackPanel>

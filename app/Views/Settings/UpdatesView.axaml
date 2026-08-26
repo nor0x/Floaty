@@ -8,7 +8,7 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Updates" />
-        <TextBlock Classes="hint" Text="Floaty updates itself from its GitHub releases when installed." />
+        <TextBlock Classes="sub" Text="Floaty updates itself from its GitHub releases when installed." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">

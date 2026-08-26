@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Themes.Fluent;
 using Floaty.Services;
 using Floaty.Views;
 using Microsoft.Extensions.DependencyInjection;
@@ -211,14 +212,37 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Pushes the configured accent into the two application-level Color resources every window
-    /// resolves through DynamicResource.
+    /// Pushes the configured accent into the application-level resources every window resolves
+    /// through DynamicResource - Floaty's own accent brushes and the FluentTheme keys that would
+    /// otherwise follow the OS accent. See <see cref="AccentResources"/>.
     /// </summary>
     public void ApplyAccentColor(string? hex)
     {
         var palette = AccentPalette.From(hex);
-        Resources["AccentColor"] = Color.Parse(palette.Base);
-        Resources["AccentIconOnDarkColor"] = Color.Parse(palette.IconOnDark);
+        AccentResources.Apply(Resources, palette);
+        ApplyFluentPalette(Color.Parse(palette.Base));
+    }
+
+    /// <summary>
+    /// Re-seeds FluentTheme's own palettes, which covers accent-derived resources
+    /// <see cref="AccentResources"/> does not name explicitly. Best-effort: the overrides in
+    /// Application.Resources are what the UI actually depends on.
+    /// </summary>
+    private void ApplyFluentPalette(Color accent)
+    {
+        try
+        {
+            var fluent = Styles.OfType<FluentTheme>().FirstOrDefault();
+            if (fluent is null)
+                return;
+
+            foreach (var palette in fluent.Palettes.Values)
+                palette.Accent = accent;
+        }
+        catch
+        {
+            // Palette mutation is not a documented runtime operation; never let it break startup.
+        }
     }
 
     private static void StartBackgroundUpdateCheck()

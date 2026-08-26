@@ -8,7 +8,7 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Sounds" />
-        <TextBlock Classes="hint" Text="Built-ins ship with Floaty; drop your own .wav or .mp3 into ~/.floaty/sounds." />
+        <TextBlock Classes="sub" Text="Built-ins ship with Floaty; drop your own .wav or .mp3 into ~/.floaty/sounds." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
@@ -21,7 +21,7 @@
                               SelectedValue="{Binding CaptureSoundFileName}"
                               SelectedValueBinding="{Binding Value}"
                               DisplayMemberBinding="{Binding Label}"
-                              MinWidth="240" />
+                              />
                     <Button Content="Preview"
                             Command="{Binding AuditionSoundCommand}"
                             CommandParameter="{Binding CaptureSoundFileName}" />
@@ -40,7 +40,7 @@
                               SelectedValue="{Binding AssistantDoneSoundFileName}"
                               SelectedValueBinding="{Binding Value}"
                               DisplayMemberBinding="{Binding Label}"
-                              MinWidth="240" />
+                              />
                     <Button Content="Preview"
                             Command="{Binding AuditionSoundCommand}"
                             CommandParameter="{Binding AssistantDoneSoundFileName}" />
@@ -49,8 +49,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Volume" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Volume" />
                 <Grid ColumnDefinitions="*,Auto">
                     <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding SoundVolumePercent}" />
                     <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"

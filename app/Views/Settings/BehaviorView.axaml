@@ -8,14 +8,13 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Behavior" />
-        <TextBlock Classes="hint" Text="Startup, and what gets written to memory without being asked." />
+        <TextBlock Classes="sub" Text="Startup, and what gets written to memory without being asked." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="Start with Windows" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="Start with Windows" />
                 <ComboBox ItemsSource="{Binding AutostartModes}"
-                          SelectedItem="{Binding AutostartMode}"
-                          HorizontalAlignment="Left" MinWidth="240">
+                          SelectedItem="{Binding AutostartMode}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
@@ -29,7 +28,7 @@
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="Memory" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="Memory" />
                 <CheckBox IsChecked="{Binding RememberTaggedCaptures}"
                           Content="Remember windows attached with @" />
                 <TextBlock Classes="hint"
@@ -47,10 +46,9 @@
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="Chat placement" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="Chat placement" />
                 <ComboBox ItemsSource="{Binding ChatPlacements}"
-                          SelectedItem="{Binding ChatPanelPlacement}"
-                          HorizontalAlignment="Left" MinWidth="240">
+                          SelectedItem="{Binding ChatPanelPlacement}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
@@ -63,8 +61,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="System prompt" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="System prompt" />
                 <TextBlock Classes="hint" Text="Stored as ~/.floaty/floaty.md. Leave empty to use Floaty's default." />
                 <TextBox Text="{Binding SystemPrompt}"
                          AcceptsReturn="True"

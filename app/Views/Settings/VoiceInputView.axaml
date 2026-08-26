@@ -8,15 +8,14 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Voice input" />
-        <TextBlock Classes="hint"
+        <TextBlock Classes="sub"
                    Text="Transcription runs entirely on this machine. The runtime and models download on first use into ~/.floaty." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Text="When you stop speaking" FontWeight="SemiBold" />
+                <TextBlock Classes="section" Text="When you stop speaking" />
                 <ComboBox ItemsSource="{Binding VoiceSendModes}"
-                          SelectedItem="{Binding VoiceSendMode}"
-                          HorizontalAlignment="Left" MinWidth="240">
+                          SelectedItem="{Binding VoiceSendMode}">
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
@@ -35,8 +34,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Speech-to-text model" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Speech-to-text model" />
                 <TextBlock Classes="hint"
                            Text="The microphone button only appears in the chat once a downloaded model is selected." />
                 <TextBlock Classes="hint" Text="{Binding SttError}"
@@ -45,15 +44,13 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Available models" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Available models" />
                 <TextBlock Classes="hint" Text="Downloads land in ~/.floaty/models. A model must be downloaded before it can be used." />
                 <ItemsControl ItemsSource="{Binding SttCatalog}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:SettingsViewModel+ModelRow">
-                            <Border Margin="0,0,0,6" Padding="10"
-                                    CornerRadius="6"
-                                    Background="{DynamicResource ThemeControlLowBrush}">
+                            <Border Classes="row">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <StackPanel Grid.Column="0" Spacing="2">
                                         <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
@@ -70,8 +67,9 @@
                                                 Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).SelectSttCommand}"
                                                 CommandParameter="{Binding Id}" />
                                         <TextBlock Text="In use" VerticalAlignment="Center"
+                                                   FontSize="12" FontWeight="SemiBold"
                                                    IsVisible="{Binding IsSelected}"
-                                                   Foreground="{DynamicResource AccentColor}" />
+                                                   Foreground="{DynamicResource AccentBrush}" />
                                         <Button Content="Download"
                                                 IsVisible="{Binding CanDownload}"
                                                 Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DownloadSttCommand}"
@@ -80,7 +78,7 @@
                                                 IsVisible="{Binding CanDelete}"
                                                 Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).AskDeleteSttCommand}"
                                                 CommandParameter="{Binding Id}" />
-                                        <Button Content="Really delete"
+                                        <Button Classes="danger" Content="Really delete"
                                                 IsVisible="{Binding ConfirmingDelete}"
                                                 Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DeleteSttCommand}"
                                                 CommandParameter="{Binding Id}" />

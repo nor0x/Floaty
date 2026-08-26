@@ -8,18 +8,21 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Model provider" />
-        <TextBlock Classes="hint"
+        <TextBlock Classes="sub"
                    Text="Providers hold the credentials; the three roles below decide which provider and model each feature uses." />
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Providers" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Providers" />
                 <TextBlock Classes="hint" Text="No providers configured yet."
                            IsVisible="{Binding !Providers.Count}" />
                 <ListBox ItemsSource="{Binding Providers}"
                          SelectedValue="{Binding ActiveProviderId}"
                          SelectedValueBinding="{Binding Id}"
+                         ItemContainerTheme="{StaticResource RowItemTheme}"
                          Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0"
                          MaxHeight="180">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="svc:ProviderProfile">
@@ -43,7 +46,7 @@
                             IsVisible="{Binding !ConfirmingRemoveProvider}"
                             Command="{Binding AskRemoveProviderCommand}"
                             IsEnabled="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                    <Button Content="Really remove"
+                    <Button Classes="danger" Content="Really remove"
                             IsVisible="{Binding ConfirmingRemoveProvider}"
                             Command="{Binding DeleteProviderCommand}"
                             CommandParameter="{Binding ActiveProvider}" />
@@ -55,8 +58,8 @@
         </Border>
 
         <Border Classes="card" IsVisible="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <StackPanel Spacing="8" DataContext="{Binding ActiveProvider}">
-                <TextBlock Text="Selected provider" FontWeight="SemiBold" />
+            <StackPanel Spacing="10" DataContext="{Binding ActiveProvider}">
+                <TextBlock Classes="section" Text="Selected provider" />
                 <TextBox PlaceholderText="Display name" Text="{Binding DisplayName}" />
                 <TextBox PlaceholderText="Base URL" Text="{Binding BaseUrl}" />
                 <TextBox PlaceholderText="API key" Text="{Binding ApiKey}" PasswordChar="•" />
@@ -66,8 +69,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Roles" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Roles" />
                 <TextBlock Classes="hint"
                            Text="Chat drives the conversation, Embedding powers memory search, and Vision captions screenshots. Changing the embedding model means re-indexing (see Screen history)." />
                 <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
@@ -82,15 +85,13 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="On-device embedding models" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="On-device embedding models" />
                 <TextBlock Classes="hint" Text="Run locally through ONNX Runtime, so memory and screen history work with no cloud key. Changing the embedding model means re-indexing (see Screen history)." />
                 <ItemsControl ItemsSource="{Binding EmbeddingCatalog}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:SettingsViewModel+ModelRow">
-                            <Border Margin="0,0,0,6" Padding="10"
-                                    CornerRadius="6"
-                                    Background="{DynamicResource ThemeControlLowBrush}">
+                            <Border Classes="row">
                                 <Grid ColumnDefinitions="*,Auto">
                                     <StackPanel Grid.Column="0" Spacing="2">
                                         <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
@@ -110,7 +111,7 @@
                                                 IsVisible="{Binding CanDelete}"
                                                 Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).AskDeleteEmbeddingCommand}"
                                                 CommandParameter="{Binding Id}" />
-                                        <Button Content="Really delete"
+                                        <Button Classes="danger" Content="Really delete"
                                                 IsVisible="{Binding ConfirmingDelete}"
                                                 Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).DeleteEmbeddingCommand}"
                                                 CommandParameter="{Binding Id}" />

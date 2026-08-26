@@ -8,20 +8,18 @@
 
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="MCP servers" />
-        <TextBlock Classes="hint"
+        <TextBlock Classes="sub"
                    Text="Each enabled server becomes a /name slash command that scopes a message to that server's tools." />
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Configured servers" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Configured servers" />
                 <TextBlock Classes="hint" Text="No servers configured yet."
                            IsVisible="{Binding !McpServers.Count}" />
                 <ItemsControl ItemsSource="{Binding McpServers}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="svc:McpServerConfig">
-                            <Border Margin="0,0,0,6" Padding="10"
-                                    CornerRadius="6"
-                                    Background="{DynamicResource ThemeControlLowBrush}">
+                            <Border Classes="row">
                                 <Grid ColumnDefinitions="Auto,*,Auto">
                                     <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" Margin="0,0,10,0" />
                                     <StackPanel Grid.Column="1" Spacing="2">
@@ -42,8 +40,8 @@
         </Border>
 
         <Border Classes="card">
-            <StackPanel Spacing="8">
-                <TextBlock Text="Add a server" FontWeight="SemiBold" />
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Add a server" />
                 <TextBox PlaceholderText="Name" Text="{Binding NewServer.Name}" />
                 <TextBox PlaceholderText="Command or URL" Text="{Binding NewServer.Command}" />
                 <TextBox PlaceholderText="Arguments (one per line)" Text="{Binding NewServerArgs}"
@@ -52,7 +50,7 @@
                          AcceptsReturn="True" MinHeight="60" />
                 <TextBox PlaceholderText="Headers (Key: value, one per line)" Text="{Binding NewServerHeaders}"
                          AcceptsReturn="True" MinHeight="60" />
-                <TextBlock Classes="hint" Foreground="#e06c6c" Text="{Binding McpError}"
+                <TextBlock Classes="hint" Foreground="{DynamicResource DangerBrush}" Text="{Binding McpError}"
                            IsVisible="{Binding McpError, Converter={x:Static ObjectConverters.IsNotNull}}" />
                 <Button Content="Add server" Command="{Binding AddMcpServerCommand}" HorizontalAlignment="Left" />
             </StackPanel>
