@@ -58,11 +58,13 @@ public partial class SettingsWindow : Window
 
         var viewModel = services.GetRequiredService<SettingsViewModel>();
         var window = new SettingsWindow(viewModel);
+
+        // Before Show(): the constructor has already bound the view to an empty view-model, so a
+        // window shown first would paint defaults. The load is synchronous and only touches local
+        // files, and running it here surfaces its failures instead of dropping them in a discarded task.
+        viewModel.Initialize();
+
         _open = window;
         window.Show();
-
-        // Deliberately after Show(): the initial load reads config and probes disk, and the window
-        // should already be on screen while that happens.
-        _ = viewModel.InitializeAsync();
     }
 }

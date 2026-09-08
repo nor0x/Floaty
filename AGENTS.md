@@ -139,7 +139,7 @@ There is no test suite currently; verify changes by building and, for UI/interop
 - **ModelContextProtocol is a preview package** (2.0.0-preview.1); its API surface may shift on update.
 - **The `Anthropic` package is versioned 10+ but still beta upstream** - breaking changes can land in minor releases, so it stays pinned.
 - **Never gate a feature on an API key.** `FloatyConfig`'s `OpenAiApiKey` / `Model` / `EmbeddingModel` / `SnapshotModel` are legacy migration inputs only (nullable + `WhenWritingNull`, so they vanish from `config.json` after one save). Ask `AiClientFactory.IsConfigured` or `IMemoryService.CanRemember` instead.
-- **`SettingsViewModel.InitializeAsync` hand-copies every `FloatyConfig` property into a working
+- **`SettingsViewModel.Initialize` hand-copies every `FloatyConfig` property into a working
   clone**, and the clone is saved wholesale - a new property omitted there is silently reset to its
   default on Save. This trap survived the Blazor to Avalonia port unchanged.
 - **transcribe.cpp is pre-1.0** - its ABI can change between 0.x versions. Its version is pinned in `NativeRuntimeService.Version` and the runtime is downloaded at first use, so a bump there must match the P/Invoke signatures in `TranscribeNative.cs`.

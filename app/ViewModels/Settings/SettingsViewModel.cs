@@ -12,7 +12,7 @@ namespace Floaty.ViewModels.Settings;
 /// </summary>
 /// <remarks>
 /// The clone is the part to preserve carefully: edits are not committed until Save, and the clone is
-/// written back wholesale, so <b>a config property missing from the copy in <c>InitializeAsync</c> is
+/// written back wholesale, so <b>a config property missing from the copy in <c>Initialize</c> is
 /// silently reset to its default when the user saves</b>. That trap survives the port intact.
 /// </remarks>
 public sealed partial class SettingsViewModel : ObservableObject
@@ -198,7 +198,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string? _updateStatus;
     private string? _notesHtml;
 
-    public async Task InitializeAsync()
+    /// <summary>
+    /// Loads the working clone and everything the page probes off disk. Synchronous on purpose:
+    /// nothing here awaits, and the window is shown only once it has run, so no section ever
+    /// paints the default <see cref="FloatyConfig"/> the bindings were attached to.
+    /// </summary>
+    public void Initialize()
     {
         // Work on a copy so edits aren't committed until the user clicks Save.
         var current = _settings.Current;
@@ -258,6 +263,10 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         ReloadRingImages();
         ReloadSounds();
+
+        // The DataContext is already bound to the old _config and an empty prompt; without this
+        // the window paints defaults until some unrelated command happens to repaint it.
+        RaiseAllChanged();
     }
 
     private async Task CheckForUpdates()
@@ -1004,7 +1013,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void SelectSection(SettingsSection section)
     {
         _activeSection = section;
-        _saved = false;
 
         if (section == SettingsSection.ScreenHistory)
         {
@@ -1054,6 +1062,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private async Task ClearScreenHistory()
     {
         _clearingHistory = true;
+        RaiseAllChanged();
+
         try
         {
             await _memory.DeleteAutoCapturesAsync();
@@ -1067,6 +1077,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         _clearingHistory = false;
         _confirmClearHistory = false;
+        RaiseAllChanged();
     }
 
     private async Task ReindexCaptures()
