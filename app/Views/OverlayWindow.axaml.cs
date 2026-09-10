@@ -175,6 +175,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         ApplyRingImage();
         ApplyRingSize(_settings.Current.RingSize);
         ApplyAlwaysOnTopMenuState();
+        ApplyDockedWindowMenuState();
         Topmost = _settings.Current.AlwaysOnTop;
 
         Ring.PointerPressed += OnRingPointerPressed;
@@ -321,6 +322,8 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
                 _placement = _settings.Current.ChatPanelPlacement;
                 BuildChatHost();
             }
+
+            ApplyDockedWindowMenuState();
         });
 
     // Live preview from the Appearance slider: apply without persisting (the settings page reverts to
@@ -400,6 +403,13 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // didn't propagate; an Avalonia TextBlock is just a control, so the glyph is set directly.
     private void ApplyAlwaysOnTopMenuState() =>
         AlwaysOnTopIcon.Text = _settings.Current.AlwaysOnTop ? TablerLine.Pinned : TablerLine.PinnedOff;
+
+    // The item toggles, so it has to name what the click does rather than the state it is in: with the
+    // chat glued to the ring the offer is to dock it into a window of its own, and vice versa.
+    private void ApplyDockedWindowMenuState() =>
+        DockedWindowMenuItem.Header = _settings.Current.ChatPanelPlacement == ChatPanelPlacement.Fixed
+            ? "Undock Window"
+            : "Dock Window";
 
     // --- Window controller binding ---
 

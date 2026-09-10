@@ -146,6 +146,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _saved;
     private SettingsSection _activeSection = SettingsSection.Behavior;
 
+    // Whether the user has touched the two settings this page shares with the live overlay. An
+    // untouched one follows the overlay (see AdoptExternalState); a touched one waits for Save.
+    private bool _placementEdited;
+    private bool _ringSizeEdited;
+
     // Add-MCP-server form state. Args/Env/Headers are edited as text and parsed on Add.
     private McpServerConfig _newServer = new();
     private string _newServerArgs = string.Empty;
@@ -227,6 +232,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             // anything left out here is silently reset to its default on Save.
             AlwaysOnTop = current.AlwaysOnTop,
             ChatPanelPlacement = current.ChatPanelPlacement,
+            OverlayWindowX = current.OverlayWindowX,
+            OverlayWindowY = current.OverlayWindowY,
             ChatWindowX = current.ChatWindowX,
             ChatWindowY = current.ChatWindowY,
             ChatWindowWidth = current.ChatWindowWidth,
@@ -245,6 +252,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             ExecCustomShellPath = current.ExecCustomShellPath,
             ExecCustomShellArgs = current.ExecCustomShellArgs,
         };
+
+        _placementEdited = false;
+        _ringSizeEdited = false;
+
+        // The overlay keeps editing the live config while this window is open, so follow it rather
+        // than sitting on the snapshot taken here (see OnLiveConfigChanged).
+        _settings.Changed -= OnLiveConfigChanged;
+        _settings.Changed += OnLiveConfigChanged;
 
         _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
         _originalEmbeddingRole = RoleKey(_config.EmbeddingRole);
@@ -267,6 +282,47 @@ public sealed partial class SettingsViewModel : ObservableObject
         // The DataContext is already bound to the old _config and an empty prompt; without this
         // the window paints defaults until some unrelated command happens to repaint it.
         RaiseAllChanged();
+    }
+
+    /// <summary>
+    /// Keeps the working clone in step with config the app writes while this window is open. Without
+    /// it the page shows whatever was true when it opened - the ring's context menu can flip the chat
+    /// placement or the always-on-top pin behind its back - and because the clone is saved wholesale,
+    /// the next Save would quietly put every one of those values back.
+    /// </summary>
+    private void OnLiveConfigChanged(object? sender, EventArgs e) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            // After a Save of our own the clone *is* the live config, so there is nothing to copy -
+            // but the controls still have to repaint, since a change made elsewhere reaches the
+            // clone without ever raising PropertyChanged.
+            if (!ReferenceEquals(_settings.Current, _config))
+                AdoptExternalState(_settings.Current);
+
+            RaiseAllChanged();
+        });
+
+    /// <summary>
+    /// Folds the state the rest of the app owns back into the clone: the ring's context menu
+    /// (placement, always-on-top), its drag and Ctrl+scroll (position, size), and the chat window's
+    /// own move/resize. Placement and ring size are also editable here, so an unsaved edit on this
+    /// page wins over the live value - everything else is not editable here at all and always follows.
+    /// </summary>
+    private void AdoptExternalState(FloatyConfig current)
+    {
+        _config.AlwaysOnTop = current.AlwaysOnTop;
+        _config.OverlayWindowX = current.OverlayWindowX;
+        _config.OverlayWindowY = current.OverlayWindowY;
+        _config.ChatWindowX = current.ChatWindowX;
+        _config.ChatWindowY = current.ChatWindowY;
+        _config.ChatWindowWidth = current.ChatWindowWidth;
+        _config.ChatWindowHeight = current.ChatWindowHeight;
+
+        if (!_placementEdited)
+            _config.ChatPanelPlacement = current.ChatPanelPlacement;
+
+        if (!_ringSizeEdited)
+            _config.RingSize = current.RingSize;
     }
 
     private async Task CheckForUpdates()
@@ -395,6 +451,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.Save(_config);
         _settings.SaveSystemPrompt(_systemPrompt);
         _saved = true;
+        _placementEdited = false;
+        _ringSizeEdited = false;
     }
 
     private bool IsSkillEnabled(string name) =>
@@ -879,6 +937,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 return;
 
             _config.RingSize = clamped;
+            _ringSizeEdited = true;
             _saved = false;
             _settings.PreviewRingSize(clamped);
             OnPropertyChanged();
@@ -998,6 +1057,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     // to the persisted values so the overlay doesn't keep uncommitted state.
     public void Dispose()
     {
+        _settings.Changed -= OnLiveConfigChanged;
         _settings.PreviewRingSize(_settings.Current.RingSize);
         _settings.PreviewAccentColor(_settings.Current.AccentColor);
     }

@@ -83,7 +83,7 @@ public sealed partial class SettingsViewModel
     public ChatPanelPlacement ChatPanelPlacement
     {
         get => _config.ChatPanelPlacement;
-        set { _config.ChatPanelPlacement = value; _saved = false; OnPropertyChanged(); }
+        set { _config.ChatPanelPlacement = value; _placementEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     // --- Appearance ---
