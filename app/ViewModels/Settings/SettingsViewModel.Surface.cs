@@ -47,8 +47,15 @@ public sealed partial class SettingsViewModel
             _systemPrompt = value;
             _saved = false;
             OnPropertyChanged();
+            RestoreSystemPromptCommand.NotifyCanExecuteChanged();
         }
     }
+
+    /// <summary>True while the prompt in the box differs from the one Floaty ships with.</summary>
+    public bool CanRestoreSystemPrompt => _systemPrompt != DefaultSystemPrompt;
+
+    [RelayCommand(CanExecute = nameof(CanRestoreSystemPrompt))]
+    private void RestoreSystemPrompt() => SystemPrompt = DefaultSystemPrompt;
 
     // --- Behavior ---
 

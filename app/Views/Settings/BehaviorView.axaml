@@ -62,7 +62,11 @@
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Classes="section" Text="System prompt" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Grid.Column="0" Classes="section" Text="System prompt" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="Restore default"
+                            Command="{Binding RestoreSystemPromptCommand}" />
+                </Grid>
                 <TextBlock Classes="hint" Text="Stored as ~/.floaty/floaty.md. Leave empty to use Floaty's default." />
                 <TextBox Text="{Binding SystemPrompt}"
                          AcceptsReturn="True"
