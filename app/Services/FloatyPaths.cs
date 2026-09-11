@@ -23,6 +23,13 @@ public static class FloatyPaths
     /// </summary>
     public static string Drops => EnsureDir(Path.Combine(Home, "drops"));
 
+    /// <summary>
+    /// <c>~/.floaty/generated</c> — images produced by the <c>generate_image</c> / <c>edit_image</c>
+    /// chat tools. Chat bubbles reference these by name rather than embedding them, so a saved
+    /// conversation stays small and the picture survives a restart.
+    /// </summary>
+    public static string GeneratedImages => EnsureDir(Path.Combine(Home, "generated"));
+
     /// <summary><c>~/.floaty/ring</c> — user-provided ring images available in Appearance settings.</summary>
     public static string RingImages => EnsureDir(Path.Combine(Home, "ring"));
 

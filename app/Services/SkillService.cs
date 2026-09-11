@@ -11,23 +11,38 @@ public sealed class FloatySkill
     public string Instructions { get; init; } = string.Empty;
     public string SourcePath { get; init; } = string.Empty;
     public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// True for a skill shipped inside the app rather than found on disk; <see cref="SourcePath"/> is
+    /// then empty. A same-named folder in one of the scanned roots overrides it.
+    /// </summary>
+    public bool IsBuiltIn { get; init; }
 }
 
 /// <summary>
 /// Discovers SKILL.md-based agent skills from common locations (<c>~/.floaty/skills</c>,
-/// <c>~/.claude/skills</c>, <c>~/.agents/skills</c>) and exposes them as enable-able skills the chat can
-/// scope to via a <c>/name</c> slash command.
+/// <c>~/.claude/skills</c>, <c>~/.agents/skills</c>), plus the ones Floaty ships with, and exposes them
+/// as enable-able skills the chat can scope to via a <c>/name</c> slash command.
 /// </summary>
 public sealed class SkillService
 {
     private const int MaxScanDepth = 4;
 
+    /// <summary>
+    /// Skills packaged with the app, under <c>Resources/Skills/&lt;name&gt;/SKILL.md</c>. Listed by name
+    /// rather than enumerated because <c>avares://</c> has no directory listing that stays cheap and
+    /// stable across build layouts.
+    /// </summary>
+    private static readonly string[] BuiltInSkills = ["generate-image", "ring-image"];
+
     private readonly SettingsService _settings;
+    private readonly IAppAssets _appAssets;
     private IReadOnlyList<FloatySkill>? _cache;
 
-    public SkillService(SettingsService settings)
+    public SkillService(SettingsService settings, IAppAssets appAssets)
     {
         _settings = settings;
+        _appAssets = appAssets;
         _settings.Changed += (_, _) => _cache = null; // re-evaluate enabled state / pick up edits
     }
 
@@ -69,7 +84,34 @@ public sealed class SkillService
             }
         }
 
+        // Last, so the same first-occurrence-wins rule lets a user's own ~/.floaty/skills/ring-image
+        // replace the shipped one wholesale rather than fighting with it.
+        foreach (var name in BuiltInSkills)
+        {
+            var skill = TryParseBuiltIn(name, disabled);
+            if (skill is null || byName.ContainsKey(skill.Name))
+                continue;
+            byName[skill.Name] = skill;
+        }
+
         return byName.Values.OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private FloatySkill? TryParseBuiltIn(string name, HashSet<string> disabled)
+    {
+        try
+        {
+            using var stream = _appAssets.Open($"Resources/Skills/{name}", "SKILL.md");
+            if (stream is null)
+                return null;
+
+            using var reader = new StreamReader(stream);
+            return Build(reader.ReadToEnd(), name, disabled, sourcePath: string.Empty, builtIn: true);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static IEnumerable<string> EnumerateSkillFiles(string root)
@@ -105,22 +147,8 @@ public sealed class SkillService
         try
         {
             var content = File.ReadAllText(path);
-            var (name, description, body) = ParseSkillMarkdown(content);
-
-            // Fall back to the containing folder name when frontmatter has no name.
-            if (string.IsNullOrWhiteSpace(name))
-                name = new DirectoryInfo(Path.GetDirectoryName(path)!).Name;
-            if (string.IsNullOrWhiteSpace(name))
-                return null;
-
-            return new FloatySkill
-            {
-                Name = name.Trim(),
-                Description = description.Trim(),
-                Instructions = string.IsNullOrWhiteSpace(body) ? content.Trim() : body.Trim(),
-                SourcePath = path,
-                Enabled = !disabled.Contains(name.Trim()),
-            };
+            var folder = new DirectoryInfo(Path.GetDirectoryName(path)!).Name;
+            return Build(content, folder, disabled, sourcePath: path, builtIn: false);
         }
         catch
         {
@@ -128,8 +156,38 @@ public sealed class SkillService
         }
     }
 
+    /// <summary>
+    /// Turns one SKILL.md's text into a skill. Shared by the disk and packaged sources so a bundled
+    /// skill is parsed by exactly the same rules as a user's own.
+    /// </summary>
+    private static FloatySkill? Build(
+        string content, string fallbackName, HashSet<string> disabled, string sourcePath, bool builtIn)
+    {
+        var (name, description, body) = ParseSkillMarkdown(content);
+
+        // Fall back to the containing folder name when frontmatter has no name.
+        if (string.IsNullOrWhiteSpace(name))
+            name = fallbackName;
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        return new FloatySkill
+        {
+            Name = name.Trim(),
+            Description = description.Trim(),
+            Instructions = string.IsNullOrWhiteSpace(body) ? content.Trim() : body.Trim(),
+            SourcePath = sourcePath,
+            Enabled = !disabled.Contains(name.Trim()),
+            IsBuiltIn = builtIn,
+        };
+    }
+
     // Splits a SKILL.md into (name, description, body). Frontmatter is the block between the first two
     // lines that are exactly "---"; body is everything after it. Frontmatter keys are simple "key: value".
+    // Flat by design: only name and description are read, and everything the Agent Skills spec allows
+    // besides them is ignored. Note that means a nested block's children are read as top-level keys — the
+    // spec's "metadata:" map shows up here as keys named "author" and "version" — so anything added to
+    // this parser later must not pick a name that a nested block could shadow.
     private static (string Name, string Description, string Body) ParseSkillMarkdown(string content)
     {
         var normalized = content.Replace("\r\n", "\n").Replace('\r', '\n');

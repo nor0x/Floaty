@@ -56,6 +56,7 @@ Everything Floaty knows lives under `~/.floaty`:
 | `floaty.db` | Local memory - capture embeddings + vector search (SQLite) |
 | `captures/` | Screen history: one markdown file per day plus per-capture blocks (and screenshots, in screenshot mode). An `AGENTS.md` in there explains the format |
 | `conversations/` | Saved chat threads, one JSON file each |
+| `generated/` | Images made by the chat's image tools |
 | `skills/` | Agent skills, each a folder with a `SKILL.md` |
 | `models/` | Downloaded speech-to-text models (`models/embed/` for on-device embedding models) |
 | `native/` | Downloaded native runtimes (transcribe.cpp) |

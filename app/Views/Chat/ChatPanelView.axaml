@@ -66,6 +66,29 @@
                     Background="{Binding IsUser, Converter={x:Static chat:ChatBrushes.BubbleFill}}"
                     HorizontalAlignment="{Binding IsUser, Converter={x:Static chat:ChatBrushes.BubbleAlign}}">
                 <StackPanel Spacing="6">
+                    <!-- The model's reasoning, when it showed any. Streams open, collapses to its header
+                         the moment the answer starts, and stays clickable from then on. Plain text rather
+                         than markdown: it is scaffolding, and reads as subordinate to the answer below. -->
+                    <StackPanel IsVisible="{Binding HasReasoning}" Spacing="3">
+                        <Button Classes="reason" Command="{Binding ToggleReasoningCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Text="{Binding ReasoningToggleGlyph}"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding ReasoningHeader}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <SelectableTextBlock Text="{Binding Reasoning}"
+                                             IsVisible="{Binding IsReasoningExpanded}"
+                                             Foreground="{StaticResource Dim}"
+                                             FontSize="11.5"
+                                             TextWrapping="Wrap"
+                                             Margin="2,0,0,2" />
+                    </StackPanel>
+
                     <!-- Literal text for user + system notes; markdown for assistant answers. -->
                     <SelectableTextBlock Text="{Binding Text}"
                                          IsVisible="{Binding RendersLiteralText}"
@@ -117,6 +140,21 @@
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Padding" Value="7,1" />
             <Setter Property="FontSize" Value="10" />
+        </Style>
+        <!-- The reasoning disclosure header: a button only so it is keyboard- and pointer-reachable;
+             visually it is just the dimmed chevron-and-label row. -->
+        <Style Selector="Button.reason">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource Dim}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.reason:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="TextElement.Foreground" Value="{StaticResource Muted}" />
         </Style>
         <!-- The chat input: MAUI needed native-TextBox interop for this; here it is a style. -->
         <Style Selector="TextBox.chat">

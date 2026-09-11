@@ -1853,6 +1853,8 @@ public partial class ChatPanelView : UserControl
             Text = m.Text,
             IsSystemNote = m.IsSystemNote,
             Citations = m.CitationSources.Count > 0 ? m.CitationSources.ToList() : null,
+            Reasoning = m.HasReasoning ? m.Reasoning : null,
+            ReasoningMs = m.ReasoningDuration is { } elapsed ? (int)elapsed.TotalMilliseconds : null,
         }).ToList();
 
         var hasRealMessages = stored.Any(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text));
@@ -1884,6 +1886,16 @@ public partial class ChatPanelView : UserControl
         foreach (var stored in conversation.Messages)
         {
             var vm = new ChatMessageVm(stored.IsUser, stored.Text, stored.IsSystemNote);
+
+            // Reasoning comes back folded, however it was left: reopening a thread is for reading the
+            // answers, and the header is one click away.
+            if (!string.IsNullOrEmpty(stored.Reasoning))
+            {
+                vm.Reasoning = stored.Reasoning;
+                if (stored.ReasoningMs is { } ms)
+                    vm.ReasoningDuration = TimeSpan.FromMilliseconds(ms);
+            }
+
             if (stored.Citations is { Count: > 0 } sources)
             {
                 vm.Citations = sources.Select(ToCitationVm).ToList();
@@ -2499,16 +2511,25 @@ public partial class ChatPanelView : UserControl
         // Sources the model retrieves this turn (filled by the search_captures tool), shown as citations.
         var citations = new List<MemoryCitation>();
 
+        // Pictures the model made this turn (filled by the image tools), appended to the bubble below.
+        var generatedImages = new List<GeneratedImageFile>();
+
+        // Runs from the first reasoning chunk to the first answer chunk; becomes "Thought for 4s".
+        // Declared out here so a turn that throws mid-thought can still stamp the header.
+        var thinking = new Stopwatch();
+
         try
         {
             var streamed = new StringBuilder();
+            var reasoned = new StringBuilder();
             var repaint = Stopwatch.StartNew();
             var lastScrollMs = 0L;
 
-            await foreach (var chunk in _chatService.GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions, ApproveExecAsync))
+            await foreach (var chunk in _chatService.GetStreamingResponseAsync(
+                history, mcpServer, citations, skillInstructions, ApproveExecAsync, generatedImages))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
-                if (string.IsNullOrEmpty(chunk))
+                if (string.IsNullOrEmpty(chunk.Text))
                     continue;
 
                 if (_waitingForFirstChunk)
@@ -2517,12 +2538,41 @@ public partial class ChatPanelView : UserControl
                     _host.SetBusy(false);
                 }
 
-                streamed.Append(chunk);
+                if (chunk.IsReasoning)
+                {
+                    // Only the reasoning that comes before the answer opens the section and is timed.
+                    // Reasoning that resumes after a tool call appends to the same, already-folded one.
+                    if (reasoned.Length == 0 && streamed.Length == 0)
+                    {
+                        thinking.Start();
+
+                        // The "…" placeholder would sit under the thinking section saying nothing.
+                        pending.Text = string.Empty;
+                        pending.IsReasoningExpanded = true;
+                    }
+
+                    reasoned.Append(chunk.Text);
+                }
+                else
+                {
+                    // The answer has started: stamp the header and fold the reasoning away - unless the
+                    // user opened it themselves mid-stream, in which case leave their choice alone.
+                    if (thinking.IsRunning)
+                    {
+                        thinking.Stop();
+                        pending.ReasoningDuration = thinking.Elapsed;
+                        if (!pending.UserToggledReasoning)
+                            pending.IsReasoningExpanded = false;
+                    }
+
+                    streamed.Append(chunk.Text);
+                }
 
                 // Repaint at ~30 FPS so streaming feels fluid without overwhelming the UI thread.
                 if (repaint.ElapsedMilliseconds < 33)
                     continue;
 
+                pending.Reasoning = reasoned.ToString();
                 pending.Text = streamed.ToString();
                 if (repaint.ElapsedMilliseconds - lastScrollMs >= 140)
                 {
@@ -2533,7 +2583,13 @@ public partial class ChatPanelView : UserControl
                 repaint.Restart();
             }
 
-            pending.Text = streamed.Length == 0 ? "(no response)" : streamed.ToString();
+            pending.Reasoning = reasoned.ToString();
+
+            // A reply that was all reasoning and no answer keeps its thinking on show rather than
+            // claiming nothing came back - the reasoning is what came back.
+            pending.Text = streamed.Length > 0 ? streamed.ToString()
+                : reasoned.Length > 0 ? string.Empty
+                : NoResponseText;
         }
         catch (Exception ex)
         {
@@ -2544,10 +2600,20 @@ public partial class ChatPanelView : UserControl
             // Ensure the loader always stops (errors, empty streams, or very fast responses).
             _waitingForFirstChunk = false;
             _host.SetBusy(false);
+
+            // A reply that was all reasoning, or a turn that died mid-thought, would otherwise be left
+            // saying "Thinking…" forever.
+            if (thinking.IsRunning)
+            {
+                thinking.Stop();
+                pending.ReasoningDuration = thinking.Elapsed;
+            }
         }
 
         // The turn is over — errors included, since "it stopped, come look" is the useful signal.
         _sounds.Play(FloatySound.AssistantDone);
+
+        AppendGeneratedImages(pending, generatedImages);
 
         if (citations.Count > 0)
         {
@@ -2557,6 +2623,32 @@ public partial class ChatPanelView : UserControl
 
         ScrollToLatest();
         PersistCurrentConversation();
+    }
+
+    /// <summary>Shown when a turn produced neither an answer nor reasoning.</summary>
+    private const string NoResponseText = "(no response)";
+
+    /// <summary>
+    /// Appends a markdown reference to each image the model generated this turn. The picture itself stays
+    /// in ~/.floaty/generated and only its name goes into the bubble, so the conversation this is about to
+    /// be persisted into stays small and the renderer still never touches the network.
+    /// Runs before PersistCurrentConversation, so reopening the thread re-renders from disk.
+    /// </summary>
+    private static void AppendGeneratedImages(ChatMessageVm pending, IReadOnlyList<GeneratedImageFile> images)
+    {
+        foreach (var image in images)
+        {
+            // A model that already embedded the reference itself doesn't need it twice.
+            if (pending.Text.Contains(image.FileName, StringComparison.Ordinal))
+                continue;
+
+            var markdown = $"![generated image]({GeneratedImageUri.For(image.FileName)})";
+
+            // A model that drew something and then said nothing about it did respond - replace the
+            // placeholder rather than captioning the picture with "(no response)".
+            var empty = string.IsNullOrWhiteSpace(pending.Text) || pending.Text == NoResponseText;
+            pending.Text = empty ? markdown : pending.Text + "\n\n" + markdown;
+        }
     }
 
     // Completes when the user clicks Run/Cancel on the exec approval panel; set while a command is pending.

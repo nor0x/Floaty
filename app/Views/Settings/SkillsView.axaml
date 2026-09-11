@@ -9,7 +9,7 @@
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Skills" />
         <TextBlock Classes="sub"
-                   Text="SKILL.md folders found in ~/.floaty/skills, ~/.claude/skills and ~/.agents/skills. Each enabled skill becomes a /name slash command." />
+                   Text="SKILL.md folders found in ~/.floaty/skills, ~/.claude/skills and ~/.agents/skills, plus the ones Floaty ships with. Each enabled skill becomes a /name slash command; a folder of the same name on disk replaces a built-in one." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">

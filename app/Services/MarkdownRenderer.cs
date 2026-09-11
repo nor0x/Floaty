@@ -90,9 +90,13 @@ public static class MarkdownRenderer
         Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && uri.Scheme is "http" or "https" or "mailto";
 
-    // Images are restricted to inline data URIs. A remote <img> would let a reply phone home from the
-    // overlay on every render. (The old https://localfiles host went away with the settings WebView
-    // and its WebResourceRequested interceptor: nothing serves that scheme any more.)
+    // Images are restricted to inline data URIs and Floaty's own generated-image scheme, which resolves
+    // under ~/.floaty/generated and nowhere else. A remote <img> would let a reply phone home from the
+    // overlay on every render, so http(s) stays blocked here even though IsAllowedLink permits it for
+    // links. (The old https://localfiles host went away with the settings WebView and its
+    // WebResourceRequested interceptor: nothing serves that scheme any more.)
     private static bool IsAllowedImage(string? url) =>
-        !string.IsNullOrEmpty(url) && url.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase);
+        !string.IsNullOrEmpty(url)
+        && (url.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase)
+            || GeneratedImageUri.TryGetFileName(url, out _));
 }

@@ -9,6 +9,13 @@ public sealed class StoredMessage
     public string Text { get; set; } = string.Empty;
     public bool IsSystemNote { get; set; }
     public List<MemoryCitation>? Citations { get; set; }
+
+    /// <summary>The model's reasoning for this answer, so a reopened thread keeps its folded sections.
+    /// Null on messages that had none, and absent from every file written before the feature existed.</summary>
+    public string? Reasoning { get; set; }
+
+    /// <summary>How long the model thought, in milliseconds; backs the "Thought for 4s" header.</summary>
+    public int? ReasoningMs { get; set; }
 }
 
 /// <summary>A saved chat thread, persisted as <c>~/.floaty/conversations/{Id}.json</c>.</summary>

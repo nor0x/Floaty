@@ -107,8 +107,8 @@ public sealed class FloatyConfig
 {
     /// <summary>
     /// Configured AI providers, one per Settings → Model Provider tab. Each carries its own key,
-    /// endpoint and default model ids; <see cref="ChatRole"/>, <see cref="EmbeddingRole"/> and
-    /// <see cref="VisionRole"/> decide which of them actually does what.
+    /// endpoint and default model ids; <see cref="ChatRole"/>, <see cref="EmbeddingRole"/>,
+    /// <see cref="VisionRole"/> and <see cref="ImageRole"/> decide which of them actually does what.
     /// </summary>
     public List<ProviderProfile> Providers { get; set; } = new();
 
@@ -126,6 +126,12 @@ public sealed class FloatyConfig
     /// (what a blank <c>SnapshotModel</c> used to mean).
     /// </summary>
     public ModelAssignment VisionRole { get; set; } = new();
+
+    /// <summary>
+    /// Which provider + model generates images. Unset hides the image tools from chat entirely —
+    /// the same "unassigned means feature off" rule the other roles follow.
+    /// </summary>
+    public ModelAssignment ImageRole { get; set; } = new();
 
     // --- Legacy single-provider fields (pre-multi-provider). Kept so an old config.json still
     // deserializes; ConfigMigration folds them into Providers on load and then nulls them out.
@@ -412,16 +418,32 @@ public sealed class ProviderProfile
     /// <summary>Default vision model id used for screenshot captioning. Empty means it can't see.</summary>
     public string VisionModel { get; set; } = string.Empty;
 
+    /// <summary>Default image-generation model id. Empty means this provider can't generate images.</summary>
+    public string ImageModel { get; set; } = string.Empty;
+
     /// <summary>
     /// <see cref="ProviderKind.OpenAI"/> only: use the Responses API rather than chat completions.
     /// On by default because that is what Floaty shipped with.
     /// </summary>
     public bool UseResponsesApi { get; set; } = true;
+
+    /// <summary>
+    /// Ask this provider to show its reasoning. Off by default, and only meaningful for the providers
+    /// that need it asked for: Anthropic's extended thinking and OpenAI's reasoning summaries. Every
+    /// OpenAI-compatible endpoint that reasons at all streams it unprompted.
+    /// </summary>
+    public bool RequestThinking { get; set; } = false;
+
+    /// <summary>
+    /// Anthropic only: tokens the model may spend thinking. Clamped up to the API's 1024 minimum, and
+    /// spent out of the same budget as the answer, so Floaty raises max_tokens to match.
+    /// </summary>
+    public int ThinkingBudgetTokens { get; set; } = 4096;
 }
 
 /// <summary>
-/// Binds one job (chat, embedding, captioning) to a provider and a model on it. An empty
-/// <see cref="ProviderId"/> means the role is unassigned, which disables the feature behind it.
+/// Binds one job (chat, embedding, captioning, image generation) to a provider and a model on it.
+/// An empty <see cref="ProviderId"/> means the role is unassigned, which disables the feature behind it.
 /// </summary>
 public sealed class ModelAssignment
 {

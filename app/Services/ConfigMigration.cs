@@ -15,6 +15,7 @@ public static class ConfigMigration
     {
         var changed = MigrateLegacyProvider(config);
         changed |= DropDanglingRoles(config);
+        changed |= AdoptImageRole(config);
         return changed;
     }
 
@@ -76,7 +77,7 @@ public static class ConfigMigration
         var known = config.Providers.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var changed = false;
 
-        foreach (var role in new[] { config.ChatRole, config.EmbeddingRole, config.VisionRole })
+        foreach (var role in new[] { config.ChatRole, config.EmbeddingRole, config.VisionRole, config.ImageRole })
         {
             if (role.IsAssigned && !known.Contains(role.ProviderId))
             {
@@ -84,6 +85,45 @@ public static class ConfigMigration
                 role.Model = string.Empty;
                 changed = true;
             }
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Backfills the image role for a config written before that role existed, so an existing OpenAI
+    /// or Gemini user gets image generation without a trip to Settings.
+    ///
+    /// Idempotent by guard rather than by being naturally repeatable: it does nothing once the role is
+    /// assigned or any profile already carries an image model, so in practice it can only fire on the
+    /// first load after the upgrade. The residual is deliberate — a user who clears both the role and
+    /// every <see cref="ProviderProfile.ImageModel"/> gets them adopted again next launch. Closing that
+    /// would need a version stamp on the config, which is more machinery than the rest of this file uses.
+    /// </summary>
+    private static bool AdoptImageRole(FloatyConfig config)
+    {
+        if (config.ImageRole.IsAssigned)
+            return false;
+
+        if (config.Providers.Any(p => !string.IsNullOrWhiteSpace(p.ImageModel)))
+            return false;
+
+        var changed = false;
+        foreach (var profile in config.Providers)
+        {
+            var preset = ProviderPresets.Find(profile.PresetId);
+            if (preset is null || string.IsNullOrWhiteSpace(preset.ImageModel))
+                continue;
+
+            profile.ImageModel = preset.ImageModel;
+            changed = true;
+        }
+
+        var first = config.Providers.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.ImageModel));
+        if (first is not null)
+        {
+            config.ImageRole = new ModelAssignment { ProviderId = first.Id, Model = first.ImageModel };
+            changed = true;
         }
 
         return changed;

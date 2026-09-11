@@ -7,6 +7,7 @@ namespace Floaty.Services;
 /// </summary>
 /// <param name="Id">Stable slug, also the default <see cref="ProviderProfile.Id"/> for single-instance presets.</param>
 /// <param name="BaseUrl">Default endpoint. Empty means "whatever the SDK defaults to".</param>
+/// <param name="ImageModel">Default text-to-image model id. Empty means the provider generates no images.</param>
 /// <param name="KeyUrl">Where to get a key, linked from the provider tab. Null when not applicable.</param>
 public sealed record ProviderPreset(
     string Id,
@@ -16,6 +17,7 @@ public sealed record ProviderPreset(
     string ChatModel,
     string EmbeddingModel,
     string VisionModel,
+    string ImageModel,
     string Blurb,
     string? KeyUrl = null,
     bool NeedsKey = true,
@@ -47,7 +49,8 @@ public static class ProviderPresets
             ChatModel: "gpt-4o-mini",
             EmbeddingModel: "text-embedding-3-small",
             VisionModel: "gpt-4o-mini",
-            Blurb: "Chat, embeddings and vision from one key.",
+            ImageModel: "gpt-image-1",
+            Blurb: "Chat, embeddings, vision and image generation from one key.",
             KeyUrl: "https://platform.openai.com/api-keys"),
         new(
             Id: "anthropic",
@@ -57,6 +60,7 @@ public static class ProviderPresets
             ChatModel: "claude-sonnet-4-5",
             EmbeddingModel: "",
             VisionModel: "claude-haiku-4-5",
+            ImageModel: "",
             Blurb: "Claude for chat and captioning. No embedding models — pair it with Local or OpenAI.",
             KeyUrl: "https://console.anthropic.com/settings/keys"),
         new(
@@ -67,7 +71,8 @@ public static class ProviderPresets
             ChatModel: "gemini-2.5-flash",
             EmbeddingModel: "text-embedding-004",
             VisionModel: "gemini-2.5-flash",
-            Blurb: "Reached through Gemini's OpenAI-compatible endpoint.",
+            ImageModel: "gemini-2.5-flash-image",
+            Blurb: "Reached through Gemini's OpenAI-compatible endpoint. Includes image generation (nano banana).",
             KeyUrl: "https://aistudio.google.com/apikey"),
         new(
             Id: "azure-openai",
@@ -77,6 +82,7 @@ public static class ProviderPresets
             ChatModel: "",
             EmbeddingModel: "",
             VisionModel: "",
+            ImageModel: "",
             Blurb: "Model ids here are your deployment names, not the underlying model names.",
             AllowMultiple: true),
         new(
@@ -87,6 +93,7 @@ public static class ProviderPresets
             ChatModel: "openai/gpt-4o-mini",
             EmbeddingModel: "",
             VisionModel: "openai/gpt-4o-mini",
+            ImageModel: "",
             Blurb: "One key, most models. Ids are namespaced, e.g. anthropic/claude-sonnet-4.5.",
             KeyUrl: "https://openrouter.ai/keys"),
         new(
@@ -97,6 +104,7 @@ public static class ProviderPresets
             ChatModel: "llama-3.3-70b-versatile",
             EmbeddingModel: "",
             VisionModel: "",
+            ImageModel: "",
             Blurb: "Very fast open-weight chat models.",
             KeyUrl: "https://console.groq.com/keys"),
         new(
@@ -107,6 +115,7 @@ public static class ProviderPresets
             ChatModel: "mistral-small-latest",
             EmbeddingModel: "mistral-embed",
             VisionModel: "pixtral-12b-latest",
+            ImageModel: "",
             Blurb: "Chat, embeddings and vision (Pixtral).",
             KeyUrl: "https://console.mistral.ai/api-keys"),
         new(
@@ -117,6 +126,7 @@ public static class ProviderPresets
             ChatModel: "deepseek-chat",
             EmbeddingModel: "",
             VisionModel: "",
+            ImageModel: "",
             Blurb: "Inexpensive chat and reasoning models.",
             KeyUrl: "https://platform.deepseek.com/api_keys"),
         new(
@@ -127,6 +137,7 @@ public static class ProviderPresets
             ChatModel: "grok-4-fast",
             EmbeddingModel: "",
             VisionModel: "grok-4-fast",
+            ImageModel: "",
             Blurb: "Grok models.",
             KeyUrl: "https://console.x.ai"),
         new(
@@ -137,6 +148,7 @@ public static class ProviderPresets
             ChatModel: "",
             EmbeddingModel: "",
             VisionModel: "",
+            ImageModel: "",
             Blurb: "Models you have pulled locally. Nothing leaves this machine.",
             NeedsKey: false),
         new(
@@ -147,6 +159,7 @@ public static class ProviderPresets
             ChatModel: "",
             EmbeddingModel: "",
             VisionModel: "",
+            ImageModel: "",
             Blurb: "Embedding models running in-process. Free and offline — the cheap way to keep "
                  + "screen history vectorized.",
             NeedsKey: false),
@@ -158,6 +171,7 @@ public static class ProviderPresets
             ChatModel: "",
             EmbeddingModel: "",
             VisionModel: "",
+            ImageModel: "",
             Blurb: "Anything speaking the OpenAI API: LM Studio, llama.cpp's server, vLLM, a gateway.",
             NeedsKey: false,
             AllowMultiple: true),
@@ -189,6 +203,7 @@ public static class ProviderPresets
             ChatModel = preset.ChatModel,
             EmbeddingModel = preset.EmbeddingModel,
             VisionModel = preset.VisionModel,
+            ImageModel = preset.ImageModel,
         };
     }
 }

@@ -35,6 +35,8 @@
         <AvaloniaResource Include="Resources\Sounds\*.wav" />
         <AvaloniaResource Include="Resources\Fonts\*.ttf" />
         <AvaloniaResource Include="Resources\AppIcon\floaty.ico" />
+        <!-- Agent skills shipped with the app; SkillService merges these with the ones on disk. -->
+        <AvaloniaResource Include="Resources\Skills\**\SKILL.md" />
     </ItemGroup>
 
     <ItemGroup>

@@ -146,10 +146,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _saved;
     private SettingsSection _activeSection = SettingsSection.Behavior;
 
-    // Whether the user has touched the two settings this page shares with the live overlay. An
+    // Whether the user has touched the three settings this page shares with the live overlay. An
     // untouched one follows the overlay (see AdoptExternalState); a touched one waits for Save.
     private bool _placementEdited;
     private bool _ringSizeEdited;
+    private bool _ringImageEdited;
 
     // Add-MCP-server form state. Args/Env/Headers are edited as text and parsed on Add.
     private McpServerConfig _newServer = new();
@@ -218,6 +219,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ChatRole = CloneRole(current.ChatRole),
             EmbeddingRole = CloneRole(current.EmbeddingRole),
             VisionRole = CloneRole(current.VisionRole),
+            ImageRole = CloneRole(current.ImageRole),
             RingImageFileName = current.RingImageFileName,
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
@@ -255,6 +257,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         _placementEdited = false;
         _ringSizeEdited = false;
+        _ringImageEdited = false;
 
         // The overlay keeps editing the live config while this window is open, so follow it rather
         // than sitting on the snapshot taken here (see OnLiveConfigChanged).
@@ -323,6 +326,17 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (!_ringSizeEdited)
             _config.RingSize = current.RingSize;
+
+        // The set_ring_image chat tool writes a new file and points the config at it while this page may
+        // be open. Without adopting it, the wholesale Save below would quietly put the old ring back.
+        if (!_ringImageEdited
+            && !string.Equals(_config.RingImageFileName, current.RingImageFileName, StringComparison.Ordinal))
+        {
+            _config.RingImageFileName = current.RingImageFileName;
+
+            // The generated file is on disk by now, so the gallery can show it as the selected thumbnail.
+            ReloadRingImages();
+        }
     }
 
     private async Task CheckForUpdates()
@@ -453,6 +467,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _saved = true;
         _placementEdited = false;
         _ringSizeEdited = false;
+        _ringImageEdited = false;
     }
 
     private bool IsSkillEnabled(string name) =>
@@ -555,9 +570,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private bool ShowOllamaPicker(ProviderProfile provider) => IsOllama(provider) && _ollamaModels.Count > 0;
 
-    /// <summary>How many of the three roles this provider currently serves; shown as a tab badge.</summary>
+    /// <summary>How many of the four roles this provider currently serves; shown as a tab badge.</summary>
     private int RoleCountFor(string providerId) =>
-        new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole }
+        new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole }
             .Count(r => r.ProviderId == providerId);
 
     /// <summary>
@@ -617,6 +632,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (!_config.VisionRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.VisionModel))
             _config.VisionRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.VisionModel };
+
+        if (!_config.ImageRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.ImageModel))
+            _config.ImageRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.ImageModel };
     }
 
     private void RemoveProvider(ProviderProfile provider)
@@ -627,7 +645,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Unassign rather than silently leaving a role pointing at nothing, which would read as
         // "configured" in the dropdown while failing on every call.
-        foreach (var role in new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole })
+        foreach (var role in new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole })
         {
             if (role.ProviderId == provider.Id)
             {
@@ -678,7 +696,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 ModelRole.Chat => provider.ChatModel,
                 ModelRole.Embedding => provider.EmbeddingModel,
-                _ => provider.VisionModel,
+                ModelRole.Vision => provider.VisionModel,
+                _ => provider.ImageModel,
             };
 
             if (string.IsNullOrWhiteSpace(model))
@@ -694,7 +713,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             ModelRole.Chat => _config.ChatRole,
             ModelRole.Embedding => _config.EmbeddingRole,
-            _ => _config.VisionRole,
+            ModelRole.Vision => _config.VisionRole,
+            _ => _config.ImageRole,
         };
 
         var key = RoleKey(current);
@@ -805,7 +825,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         ChatModel = p.ChatModel,
         EmbeddingModel = p.EmbeddingModel,
         VisionModel = p.VisionModel,
+        ImageModel = p.ImageModel,
         UseResponsesApi = p.UseResponsesApi,
+        RequestThinking = p.RequestThinking,
+        ThinkingBudgetTokens = p.ThinkingBudgetTokens,
     };
 
     private static ModelAssignment CloneRole(ModelAssignment a) => new()
@@ -920,6 +943,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
 
         _config.RingImageFileName = value;
+        _ringImageEdited = true;
         _saved = false;
     }
 

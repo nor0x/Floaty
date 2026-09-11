@@ -95,6 +95,8 @@ public partial class App : Application
         // Turns the configured providers + role assignments into IChatClient/IEmbeddingGenerator.
         // Everything that talks to a model goes through here rather than building its own client.
         services.AddSingleton<AiClientFactory>();
+        // Text-to-image through whichever provider holds the image role. Files land in ~/.floaty/generated.
+        services.AddSingleton<IImageGenerationService, ImageGenerationService>();
         services.AddSingleton<IChatService, ChatService>();
 
         // The day's screen-history log (~/.floaty/captures/YYYY-MM-DD.md) and the ledger of lines
@@ -114,7 +116,8 @@ public partial class App : Application
         // Persisted chat threads (~/.floaty/conversations), switchable via the /chats slash command.
         services.AddSingleton<ConversationService>();
 
-        // Agent skills (SKILL.md) discovered from disk, invokable via /skill slash commands.
+        // Agent skills (SKILL.md), shipped with the app and discovered from disk, invokable via
+        // /skill slash commands.
         services.AddSingleton<SkillService>();
 
         // In-app auto-update (Velopack) checking the GitHub Releases of nor0x/Floaty.

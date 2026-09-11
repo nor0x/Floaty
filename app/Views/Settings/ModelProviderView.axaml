@@ -9,7 +9,7 @@
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Model provider" />
         <TextBlock Classes="sub"
-                   Text="Providers hold the credentials; the three roles below decide which provider and model each feature uses." />
+                   Text="Providers hold the credentials; the roles below decide which provider and model each feature uses." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
@@ -65,6 +65,20 @@
                 <TextBox PlaceholderText="API key" Text="{Binding ApiKey}" PasswordChar="•" />
                 <TextBlock Classes="hint"
                            Text="Keys are stored in plain text in ~/.floaty/config.json." />
+
+                <CheckBox IsChecked="{Binding RequestThinking}"
+                          Content="Ask this provider to show its reasoning" />
+                <!-- Always shown rather than gated on the checkbox: this card binds straight to the
+                     ProviderProfile, which is a plain config object with no change notification, so an
+                     IsVisible/IsEnabled bound to RequestThinking would never react to ticking the box. -->
+                <Grid ColumnDefinitions="90,*">
+                    <TextBlock Grid.Column="0" Text="Budget" VerticalAlignment="Center" />
+                    <TextBox Grid.Column="1"
+                             Text="{Binding ThinkingBudgetTokens}"
+                             PlaceholderText="thinking tokens" />
+                </Grid>
+                <TextBlock Classes="hint"
+                           Text="Only Anthropic (extended thinking, budget in tokens) and OpenAI's Responses API need this asked for. Everything else that reasons — DeepSeek, Ollama, LM Studio, llama.cpp — streams it either way." />
             </StackPanel>
         </Border>
 
@@ -72,14 +86,16 @@
             <StackPanel Spacing="10">
                 <TextBlock Classes="section" Text="Roles" />
                 <TextBlock Classes="hint"
-                           Text="Chat drives the conversation, Embedding powers memory search, and Vision captions screenshots. Changing the embedding model means re-indexing (see Screen history)." />
-                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                           Text="Chat drives the conversation, Embedding powers memory search, Vision captions screenshots, and Image draws pictures from chat (gpt-image-1, dall-e-3, gemini-2.5-flash-image). Leave a row blank to switch that feature off. Changing the embedding model means re-indexing (see Screen history)." />
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Chat" VerticalAlignment="Center" />
                     <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding Config.ChatRole.Model}" PlaceholderText="model id" />
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Embedding" VerticalAlignment="Center" />
                     <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingRole.Model}" PlaceholderText="model id" />
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Vision" VerticalAlignment="Center" />
                     <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding Config.VisionRole.Model}" PlaceholderText="model id" />
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Image" VerticalAlignment="Center" />
+                    <TextBox  Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageRole.Model}" PlaceholderText="model id" />
                 </Grid>
             </StackPanel>
         </Border>

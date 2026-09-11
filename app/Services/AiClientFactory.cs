@@ -3,10 +3,11 @@ using Anthropic;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using OpenAI;
+using OpenAI.Images;
 
 namespace Floaty.Services;
 
-/// <summary>One of the three jobs a configured provider can be assigned to.</summary>
+/// <summary>One of the four jobs a configured provider can be assigned to.</summary>
 public enum ModelRole
 {
     /// <summary>Answers chats. Needs tool-calling support.</summary>
@@ -17,6 +18,9 @@ public enum ModelRole
 
     /// <summary>Describes captured screenshots.</summary>
     Vision,
+
+    /// <summary>Generates images from a text prompt. OpenAI-shaped transports only.</summary>
+    Image,
 }
 
 /// <summary>
@@ -39,12 +43,14 @@ public sealed class AiClientFactory : IDisposable
 
     private IChatClient? _chat;
     private IChatClient? _vision;
+    private ImageClient? _image;
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddings;
 
     // Identity of the config each cached client was built from, so a settings save that didn't
     // touch a role doesn't needlessly tear that role's client down.
     private string? _chatKey;
     private string? _visionKey;
+    private string? _imageKey;
     private string? _embeddingsKey;
 
     public AiClientFactory(SettingsService settings, ILocalEmbeddingFactory localEmbeddings)
@@ -69,6 +75,13 @@ public sealed class AiClientFactory : IDisposable
     /// incompatible embeddings.
     /// </summary>
     public string? GetModelId(ModelRole role) => Resolve(role)?.Model;
+
+    /// <summary>
+    /// The provider profile currently serving <paramref name="role"/>, or null when the role is
+    /// unassigned. Lets a caller read per-provider request options (extended thinking, say) that this
+    /// factory itself has no opinion about.
+    /// </summary>
+    public ProviderProfile? GetProfile(ModelRole role) => Resolve(role)?.Profile;
 
     /// <summary>
     /// The chat client, with function invocation wired up, or null when the chat role is unassigned
@@ -115,6 +128,29 @@ public sealed class AiClientFactory : IDisposable
             _visionKey = resolved.CacheKey;
             _vision = BuildChatClient(resolved);
             return _vision;
+        }
+    }
+
+    /// <summary>
+    /// The image-generation client and the model id it was built for, or null when the image role is
+    /// unassigned. Returned as a pair because <see cref="ImageClient"/> binds its model at construction
+    /// and the caller needs the id back to work around per-model request quirks — see
+    /// <see cref="ImageGenerationService"/>.
+    /// </summary>
+    public (ImageClient Client, string Model)? GetImageClient()
+    {
+        var resolved = Resolve(ModelRole.Image);
+        if (resolved is null)
+            return null;
+
+        lock (_gate)
+        {
+            if (_image is not null && _imageKey == resolved.CacheKey)
+                return (_image, resolved.Model);
+
+            _imageKey = resolved.CacheKey;
+            _image = OpenAiClientFor(resolved.Profile).GetImageClient(resolved.Model);
+            return (_image, resolved.Model);
         }
     }
 
@@ -199,7 +235,8 @@ public sealed class AiClientFactory : IDisposable
         {
             ModelRole.Chat => config.ChatRole,
             ModelRole.Embedding => config.EmbeddingRole,
-            _ => config.VisionRole,
+            ModelRole.Vision => config.VisionRole,
+            _ => config.ImageRole,
         };
 
         if (!assignment.IsAssigned)
@@ -219,7 +256,8 @@ public sealed class AiClientFactory : IDisposable
             {
                 ModelRole.Chat => profile.ChatModel,
                 ModelRole.Embedding => profile.EmbeddingModel,
-                _ => profile.VisionModel,
+                ModelRole.Vision => profile.VisionModel,
+                _ => profile.ImageModel,
             };
         }
 
@@ -249,14 +287,14 @@ public sealed class AiClientFactory : IDisposable
     }
 
     /// <summary>
-    /// Which roles a transport can serve at all: local ONNX models only embed, and Anthropic has no
-    /// embedding API. Everything else is assumed capable — whether a specific model can see images
-    /// is between the user and their provider.
+    /// Which roles a transport can serve at all: local ONNX models only embed, and Anthropic has
+    /// neither an embedding nor an image-generation API. Everything else is assumed capable —
+    /// whether a specific model can see or draw is between the user and their provider.
     /// </summary>
     private static bool CanServe(ProviderKind kind, ModelRole role) => kind switch
     {
         ProviderKind.LocalOnnx => role == ModelRole.Embedding,
-        ProviderKind.Anthropic => role != ModelRole.Embedding,
+        ProviderKind.Anthropic => role is ModelRole.Chat or ModelRole.Vision,
         _ => true,
     };
 
@@ -350,9 +388,11 @@ public sealed class AiClientFactory : IDisposable
 
             _chat = null;
             _vision = null;
+            _image = null;
             _embeddings = null;
             _chatKey = null;
             _visionKey = null;
+            _imageKey = null;
             _embeddingsKey = null;
         }
 
@@ -372,6 +412,9 @@ public sealed class AiClientFactory : IDisposable
             _chat = null;
             _vision = null;
             _embeddings = null;
+
+            // No Dispose: ImageClient holds no disposable state of its own.
+            _image = null;
         }
     }
 

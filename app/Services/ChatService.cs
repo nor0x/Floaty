@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Text;
+using Anthropic.Models.Messages;
 using Microsoft.Extensions.AI;
+using OpenAI.Responses;
 
 namespace Floaty.Services;
 
@@ -9,12 +11,13 @@ namespace Floaty.Services;
 /// </summary>
 public interface IChatService
 {
-    IAsyncEnumerable<string> GetStreamingResponseAsync(
+    IAsyncEnumerable<ChatChunk> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
         Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default);
 
     Task<string> GetResponseAsync(
@@ -23,8 +26,18 @@ public interface IChatService
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
         Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// One piece of a streaming reply: either a slice of the answer or a slice of the model's reasoning.
+/// </summary>
+/// <remarks>
+/// The stream carries both channels rather than two enumerables because their interleaving is the
+/// signal the UI acts on: reasoning collapses the moment the first answer chunk arrives.
+/// </remarks>
+public readonly record struct ChatChunk(string Text, bool IsReasoning);
 
 /// <summary>
 /// A pending shell command awaiting the user's approval before the <c>exec</c> tool runs it. Surfaced from
@@ -59,6 +72,12 @@ public sealed class ChatService : IChatService
     // it has decided a specific capture is worth reading in full.
     private const int ReadCaptureChars = 6000;
 
+    // Anthropic rejects an extended-thinking budget below this.
+    private const int MinThinkingBudgetTokens = 1024;
+
+    // Output tokens reserved for the answer on top of the thinking budget, since the two share max_tokens.
+    private const int AnswerTokenHeadroom = 4096;
+
     // Per-turn sink the search_captures tool writes its sources into; flows via the async call chain
     // from GetStreamingResponseAsync into the function-invocation middleware.
     private static readonly AsyncLocal<ICollection<MemoryCitation>?> _citationSink = new();
@@ -67,34 +86,55 @@ public sealed class ChatService : IChatService
     // approval mode is enabled. Flows via the async call chain just like the citation sink.
     private static readonly AsyncLocal<Func<ExecApprovalRequest, Task<bool>>?> _execApprovalSink = new();
 
+    // Per-turn sink the image tools record what they produced into, so the UI can show the picture
+    // rather than the model having to describe it back. Same mechanism as the citation sink.
+    private static readonly AsyncLocal<ICollection<GeneratedImageFile>?> _imageSink = new();
+
     private readonly SettingsService _settings;
     private readonly AiClientFactory _clients;
     private readonly IMemoryService _memory;
     private readonly IMcpService _mcp;
+    private readonly IImageGenerationService _images;
+    private readonly IAppAssets _appAssets;
     private readonly AIFunction _searchTool;
     private readonly AIFunction _readCaptureTool;
     private readonly AIFunction _saveTool;
     private readonly AIFunction _execTool;
+    private readonly AIFunction _generateImageTool;
+    private readonly AIFunction _editImageTool;
+    private readonly AIFunction _setRingImageTool;
 
-    public ChatService(SettingsService settings, AiClientFactory clients, IMemoryService memory, IMcpService mcp)
+    public ChatService(
+        SettingsService settings,
+        AiClientFactory clients,
+        IMemoryService memory,
+        IMcpService mcp,
+        IImageGenerationService images,
+        IAppAssets appAssets)
     {
         _settings = settings;
         _clients = clients;
         _memory = memory;
         _mcp = mcp;
+        _images = images;
+        _appAssets = appAssets;
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
         _readCaptureTool = AIFunctionFactory.Create(ReadCapture, name: "read_capture");
         _saveTool = AIFunctionFactory.Create(SaveMemory, name: "save_memory");
         _execTool = AIFunctionFactory.Create(Exec, name: "exec");
+        _generateImageTool = AIFunctionFactory.Create(GenerateImage, name: "generate_image");
+        _editImageTool = AIFunctionFactory.Create(EditImage, name: "edit_image");
+        _setRingImageTool = AIFunctionFactory.Create(SetRingImage, name: "set_ring_image");
     }
 
-    public async IAsyncEnumerable<string> GetStreamingResponseAsync(
+    public async IAsyncEnumerable<ChatChunk> GetStreamingResponseAsync(
         IReadOnlyList<ChatMessage> history,
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
         Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        ICollection<GeneratedImageFile>? generatedImages = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
@@ -102,7 +142,7 @@ public sealed class ChatService : IChatService
         var client = _clients.GetChatClient();
         if (client is null)
         {
-            yield return "Set up a model provider in Settings (⚙) to start chatting.";
+            yield return new ChatChunk("Set up a model provider in Settings (⚙) to start chatting.", IsReasoning: false);
             yield break;
         }
 
@@ -111,6 +151,9 @@ public sealed class ChatService : IChatService
 
         // Expose the approval callback so the exec tool can gate each command on the user's confirmation.
         _execApprovalSink.Value = execApproval;
+
+        // Expose the sink the image tools hand their results to, for the UI to render.
+        _imageSink.Value = generatedImages;
 
         var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
 
@@ -140,6 +183,23 @@ public sealed class ChatService : IChatService
                         "before running it."));
         }
 
+        // Only expose the image tools when a provider is actually bound to the image role — an
+        // unassigned role reads as "feature off" everywhere else too.
+        if (_clients.IsConfigured(ModelRole.Image))
+        {
+            tools.Add(_generateImageTool);
+            tools.Add(_editImageTool);
+            tools.Add(_setRingImageTool);
+            messages.Add(new ChatMessage(ChatRole.System,
+                "You can create pictures with the generate_image tool and restyle existing ones with " +
+                "edit_image. Call them when the user asks for a picture, drawing, illustration, logo, " +
+                "icon, avatar or wallpaper; expand a terse request into a detailed visual prompt yourself " +
+                "rather than interrogating the user first. Generated images are shown to the user " +
+                "automatically — never paste base64, and don't repeat the file name back unless asked. " +
+                "To restyle Floaty's floating ring overlay, make a square image with a transparent " +
+                "background and pass its file name to set_ring_image."));
+        }
+
         if (!string.IsNullOrWhiteSpace(mcpServer))
         {
             var mcpTools = await _mcp.GetToolsAsync(mcpServer, cancellationToken);
@@ -151,12 +211,111 @@ public sealed class ChatService : IChatService
         messages.AddRange(history);
 
         var options = new ChatOptions { Tools = tools };
+        ApplyThinking(options, _clients.GetProfile(ModelRole.Chat));
+
+        // Reasoning reaches us one of two ways: as TextReasoningContent (Anthropic's thinking blocks,
+        // and the reasoning_content field the OpenAI binding already parses out of DeepSeek/Ollama/
+        // LM Studio streams), or inlined as <think> tags in the ordinary text. Never both - a provider
+        // that reports it properly must not also get tag-scraped, or a code block about <think> would
+        // be swallowed on a model that never inlines anything.
+        // Null once the provider has proven it reports reasoning properly, and from then on text passes
+        // through untouched. Retired by flushing in place, so anything it was holding keeps its position
+        // in the stream rather than resurfacing at the end.
+        ThinkTagSplitter? splitter = new();
 
         await foreach (var update in client.GetStreamingResponseAsync(messages, options, cancellationToken)
             .WithCancellation(cancellationToken))
         {
-            if (!string.IsNullOrEmpty(update.Text))
-                yield return update.Text;
+            foreach (var content in update.Contents)
+            {
+                switch (content)
+                {
+                    // Not covered by update.Text: that concatenates TextContent only, and
+                    // TextReasoningContent deliberately does not derive from it.
+                    case TextReasoningContent { Text.Length: > 0 } reasoning:
+                        if (splitter is not null)
+                        {
+                            foreach (var chunk in splitter.Flush())
+                                yield return chunk;
+                            splitter = null;
+                        }
+
+                        yield return new ChatChunk(reasoning.Text, IsReasoning: true);
+                        break;
+
+                    case TextContent { Text.Length: > 0 } text:
+                        if (splitter is null)
+                        {
+                            yield return new ChatChunk(text.Text, IsReasoning: false);
+                            break;
+                        }
+
+                        foreach (var chunk in splitter.Feed(text.Text))
+                            yield return chunk;
+                        break;
+                }
+            }
+        }
+
+        // Whatever the splitter was still holding back in case it grew into a tag.
+        if (splitter is not null)
+        {
+            foreach (var chunk in splitter.Flush())
+                yield return chunk;
+        }
+    }
+
+    /// <summary>
+    /// Asks the provider for reasoning when the user opted in. Only the providers that need an explicit
+    /// request are handled: every OpenAI-compatible endpoint that reasons at all streams
+    /// <c>reasoning_content</c> unasked, so there is nothing to set for them.
+    /// </summary>
+    /// <remarks>
+    /// Lives here rather than in <see cref="AiClientFactory"/> because the factory also builds the vision
+    /// client used for screenshot captioning, which has no business thinking.
+    /// </remarks>
+    private static void ApplyThinking(ChatOptions options, ProviderProfile? profile)
+    {
+        if (profile is null || !profile.RequestThinking)
+            return;
+
+        switch (profile.Kind)
+        {
+            case ProviderKind.Anthropic:
+            {
+                var budget = Math.Max(MinThinkingBudgetTokens, profile.ThinkingBudgetTokens);
+
+                // The thinking budget is spent out of max_tokens, so the ceiling has to cover the
+                // budget plus room for the answer itself - otherwise the reply is cut off mid-thought.
+                var ceiling = budget + AnswerTokenHeadroom;
+                options.MaxOutputTokens = ceiling;
+
+                // Model/Messages/MaxTokens are required members the adapter overwrites from the request
+                // it is actually building; only Thinking survives, which is the whole point of the hook.
+                // They are still filled in with the real ceiling rather than junk, so this stays correct
+                // even if a future SDK stops overwriting one of them.
+                options.RawRepresentationFactory = _ => new MessageCreateParams
+                {
+                    Model = string.Empty,
+                    Messages = [],
+                    MaxTokens = ceiling,
+                    Thinking = new ThinkingConfigEnabled { BudgetTokens = budget },
+                };
+                break;
+            }
+
+            case ProviderKind.OpenAI when profile.UseResponsesApi:
+#pragma warning disable OPENAI001 // Same experimental Responses API surface AiClientFactory opts into.
+                options.RawRepresentationFactory = _ => new CreateResponseOptions
+                {
+                    ReasoningOptions = new ResponseReasoningOptions
+                    {
+                        // o-series and gpt-5 return no visible reasoning at all without a summary asked for.
+                        ReasoningSummaryVerbosity = ResponseReasoningSummaryVerbosity.Auto,
+                    },
+                };
+#pragma warning restore OPENAI001
+                break;
         }
     }
 
@@ -166,13 +325,18 @@ public sealed class ChatService : IChatService
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
         Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
-        await foreach (var chunk in GetStreamingResponseAsync(history, mcpServer, citations, skillInstructions, execApproval, cancellationToken)
+        await foreach (var chunk in GetStreamingResponseAsync(
+            history, mcpServer, citations, skillInstructions, execApproval, generatedImages, cancellationToken)
             .WithCancellation(cancellationToken))
         {
-            sb.Append(chunk);
+            // Reasoning is scaffolding, not the answer; a caller that wanted the whole reply as one
+            // string wants what the model actually said.
+            if (!chunk.IsReasoning)
+                sb.Append(chunk.Text);
         }
 
         return sb.Length == 0 ? "(no response)" : sb.ToString();
@@ -297,6 +461,144 @@ public sealed class ChatService : IChatService
             return "The user declined to run this command.";
 
         return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
+    }
+
+    [Description("Generate an image from a text description and show it to the user in the chat. Use when " +
+                 "the user asks for a picture, drawing, illustration, logo, icon, avatar, wallpaper or " +
+                 "concept art. Write a detailed visual prompt: subject, setting, art style, composition, " +
+                 "lighting and colors.")]
+    private async Task<string> GenerateImage(
+        [Description("A detailed description of the image to create.")] string prompt,
+        [Description("Optional size, e.g. '1024x1024' (square), '1024x1536' (portrait) or '1536x1024' (landscape).")] string? size = null,
+        [Description("True for a transparent background, for logos, icons, stickers and the ring. Only gpt-image models honor it.")] bool transparent = false)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return "No prompt was provided.";
+
+        try
+        {
+            var file = await _images.GenerateAsync(prompt, size, transparent);
+            _imageSink.Value?.Add(file);
+            return $"Image generated and saved as '{file.FileName}'. It is already displayed to the user. " +
+                   "Pass this file name to set_ring_image to make it Floaty's ring.";
+        }
+        catch (Exception ex)
+        {
+            // Returned rather than thrown, like exec and save_memory: a provider failure should become a
+            // sentence the model can relay, not a dead turn.
+            return $"Image generation failed: {ex.Message}";
+        }
+    }
+
+    [Description("Restyle an existing image according to a description, and show the result to the user. " +
+                 "Pass a file name from generate_image, a screen capture, a ring image (ring1.png … " +
+                 "ring7.png), or a file the user dropped on Floaty.")]
+    private async Task<string> EditImage(
+        [Description("The image file name to start from.")] string file,
+        [Description("What to change, described as the finished image should look.")] string prompt,
+        [Description("Optional output size, e.g. '1024x1024'.")] string? size = null,
+        [Description("True for a transparent background. Only gpt-image models honor it.")] bool transparent = false)
+    {
+        if (string.IsNullOrWhiteSpace(prompt))
+            return "No prompt was provided.";
+
+        // GetFileName strips any directory the model may have prepended, so an edit can only ever read
+        // from Floaty's own folders — never an arbitrary path on the machine.
+        var name = Path.GetFileName((file ?? string.Empty).Trim());
+        if (string.IsNullOrWhiteSpace(name))
+            return "No image file was specified.";
+
+        // A built-in ring ships inside the app, so it has to be unpacked before it can be sent.
+        string? temporary = null;
+        var source = new[] { FloatyPaths.GeneratedImages, FloatyPaths.Captures, FloatyPaths.Drops, FloatyPaths.RingImages }
+            .Select(dir => Path.Combine(dir, name))
+            .FirstOrDefault(File.Exists);
+
+        if (source is null && _settings.IsBuiltInRingImage(name))
+        {
+            try
+            {
+                using var packaged = _appAssets.Open("Resources/Images", name);
+                if (packaged is not null)
+                {
+                    temporary = Path.Combine(Path.GetTempPath(), $"floaty-{Guid.NewGuid():N}{Path.GetExtension(name)}");
+                    await using var target = File.Create(temporary);
+                    await packaged.CopyToAsync(target);
+                    source = temporary;
+                }
+            }
+            catch
+            {
+                temporary = null;
+            }
+        }
+
+        if (source is null)
+            return $"No image named '{name}'. Use a file name returned by generate_image, or a built-in ring (ring1.png … ring7.png).";
+
+        try
+        {
+            var edited = await _images.EditAsync(source, prompt, size, transparent);
+            _imageSink.Value?.Add(edited);
+            return $"Edited image saved as '{edited.FileName}'. It is already displayed to the user.";
+        }
+        catch (Exception ex)
+        {
+            return $"Image editing failed: {ex.Message}";
+        }
+        finally
+        {
+            if (temporary is not null)
+            {
+                try { File.Delete(temporary); } catch { /* a leftover temp file is not worth failing the turn */ }
+            }
+        }
+    }
+
+    [Description("Set the image of Floaty's floating ring overlay. Pass a file name returned by " +
+                 "generate_image or edit_image, or a built-in ring (ring1.png … ring7.png). The overlay " +
+                 "updates immediately and the choice persists.")]
+    private Task<string> SetRingImage(
+        [Description("The image file name to use as the ring.")] string file)
+    {
+        var name = Path.GetFileName((file ?? string.Empty).Trim());
+        if (string.IsNullOrWhiteSpace(name))
+            return Task.FromResult("No image file was specified.");
+
+        string ringName;
+        if (_settings.IsBuiltInRingImage(name))
+        {
+            ringName = name;
+        }
+        else
+        {
+            // Only generated images may be promoted to rings: this tool acts on model output, so its
+            // reach is deliberately limited to the folder Floaty itself writes.
+            var source = Path.Combine(FloatyPaths.GeneratedImages, name);
+            if (!File.Exists(source))
+                return Task.FromResult(
+                    $"No generated image named '{name}'. Call generate_image first, or name a built-in ring (ring1.png … ring7.png).");
+
+            // A distinct prefix in the destination, so a ring the user put there themselves can never
+            // be clobbered by a generated one that happens to share a name.
+            ringName = $"ring-{Path.GetFileNameWithoutExtension(name)}.png";
+            try
+            {
+                File.Copy(source, Path.Combine(FloatyPaths.RingImages, ringName), overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                return Task.FromResult($"Could not copy the image into the ring folder: {ex.Message}");
+            }
+        }
+
+        // Mutate-then-Save, the same way the ring's own context menu does it. The Changed event reaches
+        // OverlayWindow, which re-applies the ring on the UI thread — no restart, and it persists.
+        var config = _settings.Current;
+        config.RingImageFileName = ringName;
+        _settings.Save(config);
+
+        return Task.FromResult($"Floaty's ring is now '{ringName}'.");
     }
 
     // Records file-backed search hits into the current turn's citation sink (deduped by file path).

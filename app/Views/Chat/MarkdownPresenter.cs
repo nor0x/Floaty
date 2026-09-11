@@ -468,35 +468,51 @@ public sealed class MarkdownPresenter : ContentControl
 
     private void AppendImage(InlineCollection target, LinkInline image)
     {
-        // Only inline data: URIs survive MarkdownRenderer's allowlist, so this never touches the
-        // network. Anything else has already had its URL blanked.
-        if (string.IsNullOrEmpty(image.Url) || !image.Url.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
-        {
-            target.Add(new Run(image.Title ?? "[image]"));
-            return;
-        }
-
+        // Only inline data: URIs and floaty://image/ references survive MarkdownRenderer's allowlist, so
+        // this never touches the network and never reads outside ~/.floaty/generated. Anything else has
+        // already had its URL blanked.
         try
         {
-            var comma = image.Url.IndexOf(',');
-            if (comma < 0)
+            var bitmap = DecodeDataUri(image.Url) ?? LoadGeneratedImage(image.Url);
+            if (bitmap is null)
+            {
+                target.Add(new Run(image.Title ?? "[image]"));
                 return;
+            }
 
-            var bytes = Convert.FromBase64String(image.Url[(comma + 1)..]);
-            using var stream = new MemoryStream(bytes);
             target.Add(new InlineUIContainer(new Image
             {
-                Source = new Bitmap(stream),
+                Source = bitmap,
                 MaxWidth = 360,
                 Stretch = Stretch.Uniform,
             }));
         }
         catch
         {
-            // A malformed data URI is model output, not a bug: show the alt text and move on.
+            // A malformed data URI or an unreadable file is model output, not a bug: show the alt text
+            // and move on rather than taking a repaint down with it.
             target.Add(new Run(image.Title ?? "[image]"));
         }
     }
+
+    private static Bitmap? DecodeDataUri(string? url)
+    {
+        if (string.IsNullOrEmpty(url) || !url.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var comma = url.IndexOf(',');
+        if (comma < 0)
+            return null;
+
+        var bytes = Convert.FromBase64String(url[(comma + 1)..]);
+        using var stream = new MemoryStream(bytes);
+        return new Bitmap(stream);
+    }
+
+    // A picture the generate_image / edit_image tools wrote. Deleted out from under a saved conversation
+    // it simply resolves to null, which degrades to the alt text above.
+    private static Bitmap? LoadGeneratedImage(string? url) =>
+        GeneratedImageUri.ResolvePath(url) is { } path ? new Bitmap(path) : null;
 
     // How far the pointer may travel between press and release and still count as a click rather than
     // the start of a selection drag.
