@@ -153,6 +153,9 @@ public partial class App : Application
         services.AddSingleton<ISelectionCaptureService, Platforms.Windows.WindowsSelectionCaptureService>();
         // Capture shutter / assistant-reply sounds, played through NAudio (Settings → Sounds).
         services.AddSingleton<ISoundService, Platforms.Windows.WindowsSoundService>();
+        // Native toasts behind the chat's notify / list_notifications / cancel_notification tools.
+        // Scheduled ones are handed to Windows, so a reminder fires even after Floaty is quit.
+        services.AddSingleton<INotificationService, Platforms.Windows.WindowsNotificationService>();
         // On-device embedding models (ONNX Runtime), so memory and screen history can run without a cloud key.
         services.AddSingleton<ILocalEmbeddingFactory, Platforms.Windows.WindowsLocalEmbeddingFactory>();
 
@@ -173,6 +176,7 @@ public partial class App : Application
         services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
         services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
         services.AddSingleton<ISoundService, NullSoundService>();
+        services.AddSingleton<INotificationService, NullNotificationService>();
         services.AddSingleton<ILocalEmbeddingFactory, NullLocalEmbeddingFactory>();
 #endif
     }

@@ -17,6 +17,14 @@ internal static class Program
             .OnBeforeUninstallFastCallback(_ => Platforms.Windows.WindowsAutostartService.RemoveRunValue())
             .Run();
 
+#if WINDOWS
+        // Before any window exists: ties the process to the same AppUserModelID the Start Menu
+        // shortcut carries, so toast attribution, taskbar grouping and pinning all agree. Setting it
+        // after the first HWND would be too late for grouping. See WindowsNotificationService for why
+        // that id matters at all.
+        Platforms.Windows.WindowsNotificationService.SetProcessAumid();
+#endif
+
         // OnExplicitShutdown is load-bearing: the overlay hides rather than closes (tray + summon
         // bring it back), and closing the Settings window must not take the process with it.
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args, ShutdownMode.OnExplicitShutdown);

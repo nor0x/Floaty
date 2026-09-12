@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Floaty"
              xmlns:svc="clr-namespace:Floaty.Services"
@@ -361,12 +361,17 @@
                        VerticalAlignment="Center"
                        Margin="4,0,0,0"
                        MaxWidth="170">
+                    <!-- Foreground duplicates the label's below on purpose: it is what
+                         Styles/ButtonStates.axaml derives a transparent button's hover wash from,
+                         and without it the button would inherit Fluent's near-black and wash dark
+                         against this panel's dark chrome. -->
                     <Button x:Name="ConversationTitleChip"
                             Click="OnConversationTitleTapped"
                             Background="Transparent"
                             BorderThickness="0"
                             Padding="6,2"
-                            CornerRadius="6">
+                            CornerRadius="6"
+                            Foreground="{StaticResource Muted}">
                         <TextBlock x:Name="ConversationTitleLabel"
                                    Text="Conversation"
                                    Foreground="{StaticResource Muted}"
@@ -591,6 +596,7 @@
                                 <Button IsVisible="{Binding ShowPersistToggle}"
                                         Command="{Binding TogglePersistCommand}"
                                         Background="Transparent"
+                                        Foreground="{DynamicResource AccentIconOnDarkColor}"
                                         BorderThickness="0"
                                         Padding="2,0"
                                         Opacity="{Binding PersistOpacity}"

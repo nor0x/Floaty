@@ -281,7 +281,7 @@ public sealed class WindowsNotificationService : INotificationService
         try
         {
             var nodes = content.GetElementsByTagName("text");
-            return index < (int)nodes.Count ? nodes[(uint)index].InnerText ?? string.Empty : string.Empty;
+            return index < (int)nodes.Count ? nodes[index].InnerText ?? string.Empty : string.Empty;
         }
         catch
         {

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Text;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.AI;
@@ -96,6 +97,7 @@ public sealed class ChatService : IChatService
     private readonly IMcpService _mcp;
     private readonly IImageGenerationService _images;
     private readonly IAppAssets _appAssets;
+    private readonly INotificationService _notifications;
     private readonly AIFunction _searchTool;
     private readonly AIFunction _readCaptureTool;
     private readonly AIFunction _saveTool;
@@ -103,6 +105,9 @@ public sealed class ChatService : IChatService
     private readonly AIFunction _generateImageTool;
     private readonly AIFunction _editImageTool;
     private readonly AIFunction _setRingImageTool;
+    private readonly AIFunction _notifyTool;
+    private readonly AIFunction _listNotificationsTool;
+    private readonly AIFunction _cancelNotificationTool;
 
     public ChatService(
         SettingsService settings,
@@ -110,7 +115,8 @@ public sealed class ChatService : IChatService
         IMemoryService memory,
         IMcpService mcp,
         IImageGenerationService images,
-        IAppAssets appAssets)
+        IAppAssets appAssets,
+        INotificationService notifications)
     {
         _settings = settings;
         _clients = clients;
@@ -118,6 +124,7 @@ public sealed class ChatService : IChatService
         _mcp = mcp;
         _images = images;
         _appAssets = appAssets;
+        _notifications = notifications;
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
         _readCaptureTool = AIFunctionFactory.Create(ReadCapture, name: "read_capture");
@@ -126,6 +133,9 @@ public sealed class ChatService : IChatService
         _generateImageTool = AIFunctionFactory.Create(GenerateImage, name: "generate_image");
         _editImageTool = AIFunctionFactory.Create(EditImage, name: "edit_image");
         _setRingImageTool = AIFunctionFactory.Create(SetRingImage, name: "set_ring_image");
+        _notifyTool = AIFunctionFactory.Create(Notify, name: "notify");
+        _listNotificationsTool = AIFunctionFactory.Create(ListNotifications, name: "list_notifications");
+        _cancelNotificationTool = AIFunctionFactory.Create(CancelNotification, name: "cancel_notification");
     }
 
     public async IAsyncEnumerable<ChatChunk> GetStreamingResponseAsync(
@@ -198,6 +208,34 @@ public sealed class ChatService : IChatService
                 "automatically — never paste base64, and don't repeat the file name back unless asked. " +
                 "To restyle Floaty's floating ring overlay, make a square image with a transparent " +
                 "background and pass its file name to set_ring_image."));
+        }
+
+        // Notifications are always on where the platform can deliver them: they are additive and
+        // non-destructive, unlike exec, so they need no opt-in. Deliberately no config flag either —
+        // with no Settings section it would be an invisible switch, and it would drag in the
+        // SettingsViewModel.Initialize hand-copy trap for no user benefit. A platform that cannot
+        // deliver simply never offers the tools, rather than promising reminders that never arrive.
+        if (_notifications.IsSupported)
+        {
+            tools.Add(_notifyTool);
+            tools.Add(_listNotificationsTool);
+            tools.Add(_cancelNotificationTool);
+
+            // The model has no other way to know what time it is — nothing else in Floaty puts a clock
+            // in the prompt — and "remind me at 3pm" is unanswerable without one. Stated in the user's
+            // own time zone, because that is the frame every reminder they ask for is in.
+            var now = DateTimeOffset.Now;
+            messages.Add(new ChatMessage(ChatRole.System,
+                $"The current local date and time is {now:dddd, d MMMM yyyy, HH:mm} " +
+                $"({TimeZoneInfo.Local.DisplayName}). You can raise notifications on the user's " +
+                "desktop with the notify tool — use it to remind them of something, set an alarm or " +
+                "timer, or flag that a long task finished. Leave both time arguments off to notify " +
+                "immediately; pass in_seconds for anything relative (\"in 20 minutes\" is 1200) and " +
+                "at_local_time only for an explicit clock time, computed from the current time above. " +
+                "Prefer in_seconds when either would work. Scheduled notifications are handed to the " +
+                "operating system, so they still fire when Floaty is closed. Use list_notifications " +
+                "to see what is pending and cancel_notification with an id from that list to remove " +
+                "one. Tell the user the time you actually scheduled, so a mistake is visible."));
         }
 
         if (!string.IsNullOrWhiteSpace(mcpServer))
@@ -599,6 +637,147 @@ public sealed class ChatService : IChatService
         _settings.Save(config);
 
         return Task.FromResult($"Floaty's ring is now '{ringName}'.");
+    }
+
+    [Description("Show a notification on the user's desktop, now or at a future time. Use it to remind " +
+                 "the user of something, set an alarm or a timer, or tell them a long-running task " +
+                 "finished. With no time argument it appears immediately. Scheduled notifications are " +
+                 "handed to the operating system and still fire when Floaty is closed.")]
+    private Task<string> Notify(
+        [Description("Short headline, shown in bold on the notification.")] string title,
+        [Description("The message body, one or two sentences.")] string body,
+        [Description("Delay before showing it, in seconds. Use this for anything relative: " +
+                     "'in 20 minutes' is 1200. Leave at 0 to show it right away.")] int in_seconds = 0,
+        [Description("Absolute local time instead of a delay, as ISO-8601 without a zone offset, e.g. " +
+                     "'2026-09-12T15:00'. A bare time like '15:00' means today, or tomorrow if that " +
+                     "time has already passed. Compute it from the current time given in the system " +
+                     "message; prefer in_seconds when either would work.")] string? at_local_time = null)
+    {
+        if (string.IsNullOrWhiteSpace(title) && string.IsNullOrWhiteSpace(body))
+            return Task.FromResult("A notification needs at least a title or a body.");
+
+        // in_seconds wins: it is the argument models get right, because it needs no knowledge of the
+        // current time. at_local_time is only consulted when no delay was given.
+        DateTimeOffset? when = null;
+        if (in_seconds > 0)
+        {
+            when = DateTimeOffset.Now.AddSeconds(in_seconds);
+        }
+        else if (!string.IsNullOrWhiteSpace(at_local_time))
+        {
+            if (!TryParseLocalTime(at_local_time, out var parsed))
+                return Task.FromResult($"Could not read '{at_local_time}' as a time. Use a delay in " +
+                                       "seconds, or an ISO-8601 local time like '2026-09-12T15:00'.");
+            when = parsed;
+        }
+
+        var result = when is null
+            ? _notifications.Show(title, body)
+            : _notifications.Schedule(title, body, when.Value);
+
+        if (!result.Ok)
+            return Task.FromResult(result.Error ?? "The notification could not be shown.");
+
+        // No ISoundService.Play here on purpose: the toast carries the OS notification sound, and
+        // layering Floaty's own chime on top would double up.
+        if (result.Id is null)
+            return Task.FromResult("Notification shown.");
+
+        // Echo both the absolute time and the offset: the absolute time is what the user will check,
+        // the offset is what makes the model's own arithmetic error visible if it made one.
+        var delivery = when!.Value;
+        return Task.FromResult(
+            $"Scheduled for {delivery:dddd d MMMM, HH:mm} ({Describe(delivery - DateTimeOffset.Now)} " +
+            $"from now). Id: {result.Id} — pass it to cancel_notification to call it off.");
+    }
+
+    [Description("List the desktop notifications still scheduled for a future time, with the id needed " +
+                 "to cancel each one.")]
+    private Task<string> ListNotifications()
+    {
+        var pending = _notifications.ListScheduled();
+        if (pending.Count == 0)
+            return Task.FromResult("No notifications are scheduled.");
+
+        var sb = new StringBuilder();
+        sb.Append(pending.Count)
+          .Append(pending.Count == 1 ? " scheduled notification:" : " scheduled notifications:");
+
+        foreach (var n in pending)
+        {
+            sb.AppendLine().AppendLine()
+              .Append("id: ").Append(n.Id).AppendLine()
+              .Append("when: ").Append(n.DeliveryTime.ToLocalTime().ToString("dddd d MMMM, HH:mm"))
+              .Append(" (in ").Append(Describe(n.DeliveryTime - DateTimeOffset.Now)).Append(')').AppendLine()
+              .Append("title: ").Append(string.IsNullOrWhiteSpace(n.Title) ? "(none)" : n.Title);
+
+            if (!string.IsNullOrWhiteSpace(n.Body))
+                sb.AppendLine().Append("body: ").Append(n.Body);
+        }
+
+        return Task.FromResult(sb.ToString());
+    }
+
+    [Description("Cancel a scheduled desktop notification. Pass the id from notify or " +
+                 "list_notifications. A notification that has already fired cannot be cancelled.")]
+    private Task<string> CancelNotification(
+        [Description("The notification's id, exactly as given by notify or list_notifications.")] string id)
+    {
+        var result = _notifications.Cancel(id);
+        return Task.FromResult(result.Ok
+            ? $"Cancelled notification {result.Id}."
+            : $"{result.Error} Call list_notifications to see what is still pending — it may have " +
+              "already fired or been cancelled.");
+    }
+
+    /// <summary>
+    /// Reads the model's absolute-time argument. Deliberately forgiving: a bare "15:00" is taken as
+    /// today, and rolled to tomorrow when that moment has already passed, which is what a user who
+    /// says "remind me at 3" at 4pm means. AssumeLocal because the model is told the time in local
+    /// terms, and the invariant culture is tried first so an ISO-8601 string parses the same way
+    /// whatever the machine's locale is.
+    /// </summary>
+    private static bool TryParseLocalTime(string text, out DateTimeOffset value)
+    {
+        value = default;
+        var trimmed = text.Trim();
+        const DateTimeStyles styles = DateTimeStyles.AssumeLocal | DateTimeStyles.AllowWhiteSpaces;
+
+        if (!DateTime.TryParse(trimmed, CultureInfo.InvariantCulture, styles, out var parsed)
+            && !DateTime.TryParse(trimmed, CultureInfo.CurrentCulture, styles, out parsed))
+            return false;
+
+        var local = new DateTimeOffset(DateTime.SpecifyKind(parsed, DateTimeKind.Local));
+
+        // A time-only value that has already gone by means the next one, not one in the past. A value
+        // carrying a date is taken at face value, so "remind me yesterday" still fails loudly.
+        if (local <= DateTimeOffset.Now && !trimmed.Contains('-') && !trimmed.Contains('/'))
+            local = local.AddDays(1);
+
+        value = local;
+        return true;
+    }
+
+    /// <summary>
+    /// "2 hours 5 minutes" — the model repeats this back to the user, so it reads as prose rather than
+    /// as a TimeSpan.
+    /// </summary>
+    private static string Describe(TimeSpan span)
+    {
+        if (span < TimeSpan.FromMinutes(1))
+            return "less than a minute";
+
+        var parts = new List<string>();
+        if (span.Days > 0)
+            parts.Add($"{span.Days} day{(span.Days == 1 ? "" : "s")}");
+        if (span.Hours > 0)
+            parts.Add($"{span.Hours} hour{(span.Hours == 1 ? "" : "s")}");
+
+        // Minutes are noise once we are days out, and the reader only ever needs two units.
+        if (span.Minutes > 0 && parts.Count < 2)
+            parts.Add($"{span.Minutes} minute{(span.Minutes == 1 ? "" : "s")}");
+
+        return string.Join(' ', parts);
     }
 
     // Records file-backed search hits into the current turn's citation sink (deduped by file path).
