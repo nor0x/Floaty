@@ -33,6 +33,7 @@ public sealed class ConversationItemVm
     public ICommand? DeleteCommand { get; }
 
     public bool HasDelete => DeleteCommand is not null;
+    public bool IsSavedThread => !IsNewAction;
 }
 
 /// <summary>

@@ -34,6 +34,24 @@ public interface IChatPanelHost
     double AvailableListHeightDip(double chromeDip);
 
     /// <summary>
+    /// The panel size the expand toggle should adopt: the full work-area height above the window's
+    /// anchored bottom edge, and a third of the work area's width. Deliberately not bounded by
+    /// <c>MaxChatWidth</c> / <c>MaxChatListHeight</c> — those are the manual grip's limits, and
+    /// expanding is bounded by the screen instead. <paramref name="chromeDip"/> is the panel's fixed
+    /// height around the list, as in <see cref="AvailableListHeightDip"/>.
+    /// </summary>
+    (double WidthDip, double ListHeightDip) ExpandedPanelSize(double chromeDip);
+
+    /// <summary>
+    /// The panel is entering or leaving expanded mode. The standalone window docks its bottom edge to
+    /// the bottom of the work area on the way in — every resize grows upward from that edge, so
+    /// without docking "full height" would only reach up from wherever the user left the window — and
+    /// moves back on the way out. The overlay host's panel is positioned by the ring, so it has no
+    /// window to dock and only records the state.
+    /// </summary>
+    void SetExpanded(bool expanded);
+
+    /// <summary>
     /// Pins the window input-opaque for the duration of a gesture. The corner grip and drag bar are small
     /// targets that a fast drag leaves behind, and the click-through poll would otherwise drop the gesture.
     /// </summary>

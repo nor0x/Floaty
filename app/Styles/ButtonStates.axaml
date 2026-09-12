@@ -1,0 +1,55 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:svc="clr-namespace:Floaty.Services">
+
+    <!-- Hover and pressed, for every Button in the app, derived from the colour the button already
+         has. Fluent's own states throw that colour away: its template is a single
+         PART_ContentPresenter, and its :pointerover style overwrites that presenter's Background
+         with a flat neutral and its Foreground with near-black (light variant) - which on the chat
+         panel's always-dark chrome is the black-icon-on-grey the user reported. Foreground on a
+         ContentPresenter *is* TextElement.Foreground (an AddOwner of an inheriting property), so it
+         cascades into every child TextBlock, including the Tabler glyphs; a Foreground set on the
+         Button is merely inherited and loses to it. Rebinding it to the button's own value is what
+         keeps content looking the same in every state.
+
+         Four things here are load-bearing:
+
+         * Selector="Button" is exact-type (Selectors.OfType, not Is), so CheckBox and RadioButton
+           keep Fluent's states. The app uses no ToggleButton/RepeatButton/SplitButton - do not
+           widen this to :is(Button) without deciding what :checked should look like.
+         * :pressed must stay *after* :pointerover. Both pseudo-classes are live while the mouse is
+           down, both styles are StyleTrigger priority, and equal-priority ties go to the frame
+           added later.
+         * :not(:disabled) is required, not cosmetic. IsEffectivelyEnabled does not clear
+           IsPointerOver, so a disabled button under the cursor still carries :pointerover, and
+           these styles (StyleTrigger) outrank Fluent's :disabled (StyleTriggerTheme).
+         * Never write Foreground and TextElement.Foreground in one style: same AvaloniaProperty,
+           duplicate-setter exception.
+
+         Per-window and per-view styles still win over these - ApplyStyles adds Application.Styles
+         first and equal-priority ties go to the later frame - so ChatPanelView's convOpen /
+         convDelete / reason and SettingsTheme's accent / danger keep their own looks. -->
+
+    <Style Selector="Button:pointerover:not(:disabled) /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background">
+            <MultiBinding Converter="{x:Static svc:ButtonStateShade.Hover}">
+                <Binding Path="Background" RelativeSource="{RelativeSource TemplatedParent}" />
+                <Binding Path="Foreground" RelativeSource="{RelativeSource TemplatedParent}" />
+            </MultiBinding>
+        </Setter>
+        <Setter Property="Foreground" Value="{TemplateBinding Foreground}" />
+        <Setter Property="BorderBrush" Value="{TemplateBinding BorderBrush}" />
+    </Style>
+
+    <Style Selector="Button:pressed:not(:disabled) /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background">
+            <MultiBinding Converter="{x:Static svc:ButtonStateShade.Pressed}">
+                <Binding Path="Background" RelativeSource="{RelativeSource TemplatedParent}" />
+                <Binding Path="Foreground" RelativeSource="{RelativeSource TemplatedParent}" />
+            </MultiBinding>
+        </Setter>
+        <Setter Property="Foreground" Value="{TemplateBinding Foreground}" />
+        <Setter Property="BorderBrush" Value="{TemplateBinding BorderBrush}" />
+    </Style>
+
+</Styles>

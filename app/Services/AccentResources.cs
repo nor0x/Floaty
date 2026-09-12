@@ -1,4 +1,4 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using Avalonia.Media;
 
 namespace Floaty.Services;
@@ -130,13 +130,25 @@ public static class AccentResources
 
     private static SolidColorBrush Brush(string hex) => new(Color.Parse(hex));
 
-    private static Color MixWhite(Color c, double amount) => Color.FromRgb(
+    // internal, not private: ButtonStateShade shades arbitrary button backgrounds with the same
+    // three operations, and the app should have one definition of "12% darker".
+    internal static Color MixWhite(Color c, double amount) => Color.FromRgb(
         (byte)Math.Round(c.R * (1 - amount) + 255 * amount),
         (byte)Math.Round(c.G * (1 - amount) + 255 * amount),
         (byte)Math.Round(c.B * (1 - amount) + 255 * amount));
 
-    private static Color Darken(Color c, double amount) => Color.FromRgb(
+    internal static Color Darken(Color c, double amount) => Color.FromRgb(
         (byte)Math.Round(c.R * (1 - amount)),
         (byte)Math.Round(c.G * (1 - amount)),
         (byte)Math.Round(c.B * (1 - amount)));
+
+    /// <summary>WCAG relative luminance. Mirrors AccentPalette's, over a <see cref="Color"/>.</summary>
+    internal static double Luminance(Color c) =>
+        0.2126 * Channel(c.R) + 0.7152 * Channel(c.G) + 0.0722 * Channel(c.B);
+
+    private static double Channel(byte value)
+    {
+        var c = value / 255.0;
+        return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+    }
 }

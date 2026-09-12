@@ -75,6 +75,13 @@ public partial class ChatPanelView : UserControl
     private double _resizeStartListHeight;
     private double _resizeStartChromeDip;
 
+    // Expanded mode (the corner expand toggle): the panel fills the work area - full height, a third
+    // of the width - ignoring the Max* limits above, which stay the manual grip's. The pre-expand
+    // *panel* geometry is snapshotted here; the pre-expand *window position* belongs to the host.
+    private bool _expanded;
+    private double _restoreWidth = DefaultChatWidth;
+    private double? _restoreListHeight;
+
     // Panel height fallback before the first real measurement (matches the old ChatBaseHeight + 80).
     private const double InitialPanelHeight = 80;
 
@@ -157,6 +164,9 @@ public partial class ChatPanelView : UserControl
 
     /// <summary>Current panel width in device-independent units, as set by the corner grip.</summary>
     public double PanelWidth => _chatWidth;
+
+    /// <summary>True while the panel is sized to fill the work area (the corner expand toggle).</summary>
+    public bool IsExpanded => _expanded;
 
     /// <summary>Panel height last reported to the host, or a sensible starting height before first measure.</summary>
     public double PanelHeightOrDefault => _lastPanelHeight > 0 ? _lastPanelHeight : InitialPanelHeight;
@@ -251,8 +261,17 @@ public partial class ChatPanelView : UserControl
     {
         _host = host;
         _chatWidth = Math.Clamp(startWidth, MinChatWidth, MaxChatWidth);
+        _restoreWidth = _chatWidth;
         RefreshConversationTitle();
     }
+
+    /// <summary>
+    /// Re-enters expanded mode for a panel that was left expanded when the app last closed. Separate
+    /// from <see cref="Attach"/> because the expanded size is measured from the host window's position,
+    /// which is only final once the host has placed it — and because the host has to snapshot what to
+    /// restore to, which is exactly the geometry it just restored from settings.
+    /// </summary>
+    public void RestoreExpanded() => ApplyExpanded(true);
 
     /// <summary>
     /// Unhooks the shared singleton services this panel listens to. Called when the host is torn down
@@ -349,8 +368,9 @@ public partial class ChatPanelView : UserControl
     public void SetDragBarVisible(bool visible) => DragBar.IsVisible = visible;
 
     /// <summary>
-    /// Whether the point (window-client DIPs) lands on the panel. The corner grip overhangs the panel's
-    /// outer top corner via negative margins, so it is tested separately.
+    /// Whether the point (window-client DIPs) lands on the panel. The corner tools (expand toggle and
+    /// resize grip) overhang the panel's outer top corner via negative margins, so they are tested
+    /// separately.
     /// </summary>
     public bool IsInteractiveAt(double x, double y)
     {
@@ -359,7 +379,7 @@ public partial class ChatPanelView : UserControl
 
         // BoundsInPage walked MAUI's Frame chain by hand; Avalonia can translate a control's own
         // bounds into the window's coordinate space directly.
-        return ContainsInWindow(this, x, y) || ContainsInWindow(ResizeCornerGrip, x, y);
+        return ContainsInWindow(this, x, y) || ContainsInWindow(TopCornerTools, x, y);
     }
 
     private static bool ContainsInWindow(Visual visual, double x, double y)
@@ -373,21 +393,25 @@ public partial class ChatPanelView : UserControl
     }
 
     /// <summary>
-    /// Places the panel on the given side of the ring: mirrors the collapse chevron and the corner resize
-    /// grip. The resize handle shares the top row with the drag bar but stays in its own edge cell so the
-    /// gestures don't compete: column 0 when the panel sits left of the ring, column 2 otherwise.
+    /// Places the panel on the given side of the ring: mirrors the collapse chevron and the corner tools
+    /// (expand toggle + resize grip). The tools share the top row with the drag bar but stay in their own
+    /// edge cell so the gestures don't compete: column 0 when the panel sits left of the ring, column 2
+    /// otherwise. Within that cell the grip always takes the outermost corner.
     /// </summary>
     public void ApplyPanelSide(bool onLeft)
     {
         _onLeft = onLeft;
         if (onLeft)
         {
-            CollapseButton.Content = TablerLine.CaretRight;
+            CollapseGlyph.Text = TablerLine.CaretRight;
             CollapseButton.Margin = new Thickness(0, 0, 6, 0);
             Grid.SetColumn(CollapseButton, 2);
+            Grid.SetColumn(TopCornerTools, 0);
+            TopCornerTools.HorizontalAlignment = HorizontalAlignment.Left;
+            TopCornerTools.Margin = new Thickness(-5, -5, 0, 0);
+            // The grip takes the outermost corner, so on the left it leads and the button follows.
             Grid.SetColumn(ResizeCornerGrip, 0);
-            ResizeCornerGrip.HorizontalAlignment = HorizontalAlignment.Left;
-            ResizeCornerGrip.Margin = new Thickness(-5, -5, 0, 0);
+            Grid.SetColumn(ExpandButton, 1);
             ResizeCornerGlyph.Text = TablerLine.RadiusTopLeft;
             Grid.SetColumn(ConversationTitleHost, 2);
             ConversationTitleHost.HorizontalAlignment = HorizontalAlignment.Right;
@@ -396,12 +420,14 @@ public partial class ChatPanelView : UserControl
         }
         else
         {
-            CollapseButton.Content = TablerLine.CaretLeft;
+            CollapseGlyph.Text = TablerLine.CaretLeft;
             CollapseButton.Margin = new Thickness(6, 0, 0, 0);
             Grid.SetColumn(CollapseButton, 0);
-            Grid.SetColumn(ResizeCornerGrip, 2);
-            ResizeCornerGrip.HorizontalAlignment = HorizontalAlignment.Right;
-            ResizeCornerGrip.Margin = new Thickness(0, -5, 2, 0);
+            Grid.SetColumn(TopCornerTools, 2);
+            TopCornerTools.HorizontalAlignment = HorizontalAlignment.Right;
+            TopCornerTools.Margin = new Thickness(0, -5, 2, 0);
+            Grid.SetColumn(ExpandButton, 0);
+            Grid.SetColumn(ResizeCornerGrip, 1);
             ResizeCornerGlyph.Text = TablerLine.RadiusTopRight;
             Grid.SetColumn(ConversationTitleHost, 0);
             ConversationTitleHost.HorizontalAlignment = HorizontalAlignment.Left;
@@ -722,9 +748,14 @@ public partial class ChatPanelView : UserControl
     /// </remarks>
     private void RequestHostSize()
     {
+        // With an explicit height the panel reports the height the message area was *given*, not the
+        // height its content happens to need: MaxHeight is only a ceiling, so a short conversation would
+        // otherwise ask for a short window and an expanded panel could never fill the screen.
         var listHeight = _listMode
             ? ConversationList.Bounds.Height
-            : Math.Min(MessagesList.Bounds.Height, MessagesScroller.MaxHeight);
+            : _userListHeight is not null
+                ? MessagesScroller.Height
+                : Math.Min(MessagesList.Bounds.Height, MessagesScroller.MaxHeight);
 
         if (double.IsNaN(listHeight) || double.IsInfinity(listHeight))
             listHeight = 0;
@@ -744,8 +775,13 @@ public partial class ChatPanelView : UserControl
     // problem and is simply collapsed when there is nothing to show.
     private void RefreshMessageAreaHeight()
     {
+        // A panel the user has given an explicit height - by dragging the grip or by expanding - keeps
+        // the message area on screen at that height even when the conversation is short or empty, the
+        // same way ApplyUserListHeight already pins the conversation list. "Fill the screen" has to mean
+        // the panel actually fills it, and an area that only hugs its content leaves the panel the
+        // height of its chrome. Without one, the area hugs its content and collapses when empty.
         var hasMessages = !_listMode && Messages.Count > 0;
-        MessagesScroller.IsVisible = hasMessages;
+        MessagesScroller.IsVisible = hasMessages || (_userListHeight is not null && !_listMode);
 
         // Cap the list at whatever the host says still fits on screen, not just at the nominal
         // maximum. Without this the panel keeps asking for a taller window than the work area can
@@ -756,8 +792,18 @@ public partial class ChatPanelView : UserControl
         // rows that got pushed out, chrome comes out near zero, and the list is allowed to grow over
         // the input row - which is how the input row ended up off the bottom of the screen.
         var chrome = ChromeHeightDip;
-        var ceiling = Math.Min(MaxChatListHeight, _host.AvailableListHeightDip(chrome));
-        MessagesScroller.MaxHeight = Math.Clamp(_userListHeight ?? DefaultListMaxHeight, 1, ceiling);
+        var ceiling = ListCeilingDip(chrome);
+        if (_userListHeight is { } userHeight)
+        {
+            var pinned = Math.Clamp(userHeight, 1, ceiling);
+            MessagesScroller.MaxHeight = pinned;
+            MessagesScroller.Height = pinned;
+        }
+        else
+        {
+            MessagesScroller.Height = double.NaN; // no explicit height: hug the content
+            MessagesScroller.MaxHeight = Math.Clamp(DefaultListMaxHeight, 1, ceiling);
+        }
 
         // The list's ceiling just moved, so the height the panel wants may have moved with it.
         if (IsOpen)
@@ -809,6 +855,11 @@ public partial class ChatPanelView : UserControl
     {
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
             return;
+
+        // Dragging the grip is a manual size: keep what is on screen but drop expanded mode, so the
+        // glyph flips back and the normal Max* limits apply again from here on.
+        if (_expanded)
+            ApplyExpanded(false, restoreGeometry: false);
 
         _resizing = true;
         _resizeOrigin = e.GetPosition(this);
@@ -954,6 +1005,82 @@ public partial class ChatPanelView : UserControl
         ConversationList.MaxHeight = heightDip;
         ConversationList.Height = heightDip;
         RefreshMessageAreaHeight();
+    }
+
+    // Drop the user-dragged height and go back to the content-driven default: the lists hug their
+    // content again, up to the maximum their XAML started with. The counterpart to ApplyUserListHeight,
+    // used when leaving expanded mode on a panel that had never been dragged vertically.
+    private void ClearUserListHeight()
+    {
+        _userListHeight = null;
+        ConversationList.MaxHeight = DefaultListMaxHeight;
+        ConversationList.Height = double.NaN;
+        RefreshMessageAreaHeight();
+    }
+
+    // How tall the message list may get: normally the smaller of the manual cap and whatever still
+    // fits on screen, but in expanded mode the manual cap doesn't apply and only the work area bounds
+    // it. Without the second branch the host's ceiling would claw an expanded list straight back to
+    // MaxChatListHeight on the next layout pass.
+    private double ListCeilingDip(double chromeDip) =>
+        _expanded
+            ? _host.ExpandedPanelSize(chromeDip).ListHeightDip
+            : Math.Min(MaxChatListHeight, _host.AvailableListHeightDip(chromeDip));
+
+    // --- Expand toggle ---
+
+    private void OnExpandToggleClicked(object? sender, RoutedEventArgs e) => ApplyExpanded(!_expanded);
+
+    /// <summary>
+    /// Enters or leaves expanded mode. Entering snapshots the current panel geometry and adopts the
+    /// host's work-area-sized target; leaving puts the snapshot back.
+    /// </summary>
+    /// <param name="restoreGeometry">
+    /// False when the user starts a grip drag: that leaves the mode but keeps the size on screen, so
+    /// the drag continues from what they can see rather than snapping back first.
+    /// </param>
+    private void ApplyExpanded(bool expanded, bool restoreGeometry = true)
+    {
+        if (expanded)
+        {
+            _restoreWidth = _chatWidth;
+            _restoreListHeight = _userListHeight;
+            _expanded = true;
+
+            // Tell the host first: the standalone window docks itself to the bottom of the work area,
+            // and the size below is measured from that docked position.
+            _host.SetExpanded(true);
+
+            var (width, listHeight) = _host.ExpandedPanelSize(ChromeHeightDip);
+            _chatWidth = width;
+            ApplyUserListHeight(listHeight);
+        }
+        else
+        {
+            _expanded = false;
+
+            // Again the host first: the standalone window moves back to where it was before it docked,
+            // so the ceilings the restore below measures against are the ones it will actually have.
+            _host.SetExpanded(false);
+
+            if (restoreGeometry)
+            {
+                _chatWidth = _restoreWidth;
+                if (_restoreListHeight is { } listHeight)
+                    ApplyUserListHeight(listHeight);
+                else
+                    ClearUserListHeight();
+            }
+        }
+
+        UpdateExpandGlyph();
+        _host.RequestPanelSize(_chatWidth, PanelHeightOrDefault);
+    }
+
+    private void UpdateExpandGlyph()
+    {
+        ExpandButton.Content = _expanded ? TablerLine.ArrowsMinimize : TablerLine.ArrowsMaximize;
+        ToolTip.SetTip(ExpandButton, _expanded ? "Restore size" : "Expand");
     }
 
     // --- Input parsing: slash commands and @-window mentions ---
@@ -1936,7 +2063,7 @@ public partial class ChatPanelView : UserControl
         _conversationItems.Clear();
         _conversationItems.Add(new ConversationItemVm(
             title: "New conversation",
-            subtitle: "Start a fresh thread",
+            subtitle: "",
             isCurrent: false,
             isNewAction: true,
             openCommand: new RelayCommand(NewConversation),
@@ -1947,7 +2074,7 @@ public partial class ChatPanelView : UserControl
             var id = c.Id;
             var count = c.Messages.Count(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text));
             var isCurrent = id == _currentConversation?.Id;
-            var subtitle = $"{count} message{(count == 1 ? "" : "s")} · {RelativeTime(c.UpdatedUtc)}{(isCurrent ? " · current" : "")}";
+            var subtitle = $"{count} message{(count == 1 ? "" : "s")} · {RelativeTime(c.UpdatedUtc)}";
 
             _conversationItems.Add(new ConversationItemVm(
                 title: string.IsNullOrWhiteSpace(c.Title) ? "Conversation" : c.Title,
@@ -2912,6 +3039,9 @@ internal sealed class NullChatPanelHost : IChatPanelHost
     public void RequestPanelSize(double widthDip, double heightDip) { }
     public double AvailableWidthDip() => ChatPanelView.MaxChatWidth;
     public double AvailableListHeightDip(double chromeDip) => ChatPanelView.MaxChatListHeight;
+    public (double WidthDip, double ListHeightDip) ExpandedPanelSize(double chromeDip) =>
+        (ChatPanelView.DefaultChatWidth, ChatPanelView.MaxChatListHeight);
+    public void SetExpanded(bool expanded) { }
     public void SetForceInteractive(bool force) { }
     public void KeepInteractiveFor(TimeSpan duration) { }
     public void MoveWindowBy(double dxDip, double dyDip) { }

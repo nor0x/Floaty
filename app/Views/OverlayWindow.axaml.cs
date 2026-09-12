@@ -753,6 +753,11 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         _panel.BeginOpen();
         _windowController?.Resize(_panel.PanelWidth, WindowHeightForPanel(80), ChatAnchor);
 
+        // Re-enter the mode the app was closed in. After the resize above, so the expanded size is
+        // measured from the window's open rect rather than the compact one it had a moment ago.
+        if (_settings.Current.ChatWindowExpanded && !_panel.IsExpanded)
+            _panel.RestoreExpanded();
+
         await _panel.AnimateInAsync();
     }
 
@@ -809,6 +814,43 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     double IChatPanelHost.AvailableWidthDip() => AvailableChatWidthDip();
 
     double IChatPanelHost.AvailableListHeightDip(double chromeDip) => AvailableChatListHeightDip(chromeDip);
+
+    (double WidthDip, double ListHeightDip) IChatPanelHost.ExpandedPanelSize(double chromeDip)
+    {
+        var wa = _windowController?.GetWorkArea() ?? default;
+        if (wa.Width <= 0 || _windowController is null)
+            return (ChatPanelView.MaxChatWidth, ChatPanelView.MaxChatListHeight);
+
+        // A third of the screen, but never wider than the room beside the ring: the panel is anchored
+        // to the ring, and expanding does not move the ring to make space for it.
+        var (ringLeft, ringRight) = RingScreenEdgesPx();
+        var spacePx = _chatOnLeft ? ringLeft - wa.X : (wa.X + wa.Width) - ringRight;
+        var width = Math.Max(ChatPanelView.MinChatWidth,
+            Math.Min(wa.Width / 3.0, spacePx) / DisplayScale);
+
+        // As AvailableChatListHeightDip, minus its Max* clamp: expanding is bounded by the screen.
+        // "Full height" here means from the ring's bottom edge upward, so a ring parked mid-screen
+        // expands to less than a standalone chat window would.
+        var (_, winY) = _windowController.GetPosition();
+        var (_, winH) = _windowController.GetSize();
+        var maxWindowDip = ((winY + winH - wa.Y) / DisplayScale) - 8;
+        var listHeight = Math.Max(ChatPanelView.MinChatListHeight,
+            maxWindowDip - PanelTopMargin - RingSwellInset - chromeDip);
+
+        return (width, listHeight);
+    }
+
+    // The floating panel is positioned by the ring, so there is no window to dock - only the flag,
+    // which the standalone placement reads back through the same setting.
+    void IChatPanelHost.SetExpanded(bool expanded)
+    {
+        var config = _settings.Current;
+        if (config.ChatWindowExpanded == expanded)
+            return;
+
+        config.ChatWindowExpanded = expanded;
+        _settings.Save(config);
+    }
 
     void IChatPanelHost.SetForceInteractive(bool force) => _windowController?.SetForceInteractive(force);
 

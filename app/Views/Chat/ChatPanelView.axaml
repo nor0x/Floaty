@@ -16,42 +16,121 @@
         <SolidColorBrush x:Key="Dim" Color="#99FFFFFF" />
         <SolidColorBrush x:Key="PopoverFill" Color="#CC151517" />
 
-        <!-- Conversation switcher row (shown in the message list under /chats). -->
+        <!-- The container behind each conversation row. It exists for the same reason as Settings'
+             NavItemTheme: Fluent's stock ListBoxItem paints the selected row as a full-bleed accent
+             block, which in an accent colour is by far the loudest thing in the panel. This template
+             deliberately paints nothing at all - the row inside it carries every visual, driven by
+             this container's pseudo-classes (see the ConversationList styles below). -->
+        <ControlTheme x:Key="ConversationItemTheme" TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <ContentPresenter Name="PART_ContentPresenter"
+                                      Background="Transparent"
+                                      Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      HorizontalAlignment="Stretch" />
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+
+        <!-- Conversation switcher row (shown in the message list under /chats). Two mutually exclusive
+             layouts: the "New conversation" action reads as a button - accent pill, plus icon, one line -
+             while saved threads read as data. A row's visuals all live on its Border so the ListBoxItem's
+             :selected / :pointerover states can drive them from outside the template; the Buttons inside
+             are transparent hit targets. -->
         <DataTemplate x:Key="ConversationTemplate" DataType="local:ConversationItemVm">
-            <Grid Margin="0,3" ColumnDefinitions="*,Auto">
-                <Button Grid.Column="0"
-                        Command="{Binding OpenCommand}"
-                        Background="#2EFFFFFF"
-                        BorderThickness="0"
-                        CornerRadius="10"
-                        Padding="10,7"
-                        HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Left">
-                    <StackPanel Spacing="1">
-                        <TextBlock Text="{Binding Title}"
-                                   Foreground="White"
-                                   FontSize="13"
-                                   TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Subtitle}"
-                                   Foreground="{StaticResource Dim}"
-                                   FontSize="11"
-                                   TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                </Button>
-                <Button Grid.Column="1"
-                        IsVisible="{Binding HasDelete}"
-                        Command="{Binding DeleteCommand}"
-                        Content="✕"
-                        Width="30" Height="30"
-                        Margin="6,0,0,0"
-                        Padding="0"
-                        CornerRadius="15"
-                        FontSize="12"
-                        VerticalAlignment="Center"
-                        HorizontalContentAlignment="Center"
-                        Background="{StaticResource Subtle}"
-                        BorderThickness="0"
-                        Foreground="White" />
+            <Grid Margin="0,3">
+                <StackPanel IsVisible="{Binding IsNewAction}" Spacing="0">
+                    <Border x:Name="NewRow"
+                            Background="{DynamicResource AccentFaintBrush}"
+                            BorderBrush="{DynamicResource AccentBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10">
+                        <Panel>
+                            <Button Classes="convOpen"
+                                    Command="{Binding OpenCommand}"
+                                    Padding="10,8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{x:Static icons:TablerLine.Plus}"
+                                               FontFamily="{StaticResource TablerIcons}"
+                                               Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                               FontSize="15"
+                                               Width="18"
+                                               TextAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Title}"
+                                               Foreground="White"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Border Classes="selectionBar" />
+                        </Panel>
+                    </Border>
+                    <!-- Keeps the action from reading as the first item of the list below it. -->
+                    <Border Height="1" Background="#1AFFFFFF" Margin="2,8,2,0" />
+                </StackPanel>
+
+                <Border x:Name="ConvRow"
+                        IsVisible="{Binding IsSavedThread}"
+                        Background="#1EFFFFFF"
+                        BorderBrush="Transparent"
+                        BorderThickness="1"
+                        CornerRadius="10">
+                    <Panel>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Button Grid.Column="0"
+                                    Classes="convOpen"
+                                    Command="{Binding OpenCommand}"
+                                    Padding="10,7">
+                                <StackPanel Spacing="1">
+                                    <!-- A Grid, not a StackPanel: the title needs a finite width or
+                                         TextTrimming never kicks in. -->
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding Title}"
+                                                   Foreground="White"
+                                                   FontSize="13"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <Border Grid.Column="1"
+                                                IsVisible="{Binding IsCurrent}"
+                                                Background="{DynamicResource AccentSubtleBrush}"
+                                                BorderBrush="{DynamicResource AccentBorderBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="6"
+                                                Padding="5,0"
+                                                Margin="6,0,0,0"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="Current"
+                                                       Foreground="{DynamicResource AccentIconOnDarkColor}"
+                                                       FontSize="9" />
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Text="{Binding Subtitle}"
+                                               Foreground="{StaticResource Dim}"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="1"
+                                    Classes="convDelete"
+                                    Command="{Binding DeleteCommand}">
+                                <TextBlock Text="{x:Static icons:TablerLine.X}"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           FontSize="14"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center" />
+                            </Button>
+                        </Grid>
+                        <Border Classes="selectionBar" />
+                    </Panel>
+                </Border>
             </Grid>
         </DataTemplate>
 
@@ -133,6 +212,83 @@
     </UserControl.Resources>
 
     <UserControl.Styles>
+        <!-- Conversation rows. The row Border carries every visual, so hover and selection are driven
+             from the ListBoxItem's pseudo-classes rather than from the Button inside it. Scoped to
+             ConversationList by name so the slash-command popover keeps its own look. -->
+        <Style Selector="ListBox#ConversationList ListBoxItem:pointerover Border#ConvRow">
+            <Setter Property="Background" Value="#2EFFFFFF" />
+        </Style>
+        <Style Selector="ListBox#ConversationList ListBoxItem:selected Border#ConvRow">
+            <Setter Property="Background" Value="#2EFFFFFF" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBorderBrush}" />
+        </Style>
+        <!-- The New-conversation pill is already accent-tinted, so it deepens 9% -> 16% instead. -->
+        <Style Selector="ListBox#ConversationList ListBoxItem:pointerover Border#NewRow">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}" />
+        </Style>
+        <Style Selector="ListBox#ConversationList ListBoxItem:selected Border#NewRow">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}" />
+        </Style>
+
+        <!-- Selection marker: a short accent bar on the leading edge of the selected row, the same
+             language the Settings section rail uses. -->
+        <Style Selector="Border.selectionBar">
+            <Setter Property="Width" Value="3" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="CornerRadius" Value="1.5" />
+            <Setter Property="IsVisible" Value="False" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="ListBox#ConversationList ListBoxItem:selected Border.selectionBar">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+
+        <!-- The row's click target: invisible by design, since the Border around it is the row. -->
+        <Style Selector="Button.convOpen">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.convOpen /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.convOpen:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.convOpen:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <!-- Delete a saved thread. Stays visible at rest rather than revealing on hover, so it is still
+             findable by keyboard and touch; it just sits back until pointed at. -->
+        <Style Selector="Button.convDelete">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Margin" Value="6,0,0,0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{StaticResource Dim}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.convDelete /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.convDelete:pointerover">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.convDelete:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource Subtle}" />
+        </Style>
         <Style Selector="Button.pill">
             <Setter Property="Background" Value="#33FFFFFF" />
             <Setter Property="Foreground" Value="#CCFFFFFF" />
@@ -246,21 +402,44 @@
                             CornerRadius="2" />
                 </Border>
 
-                <!-- Corner resize grip: drag to change panel width/height. Same row as the drag bar,
-                     but in a dedicated edge cell to avoid gesture overlap. -->
-                <Border x:Name="ResizeCornerGrip"
-                        Grid.Column="2"
-                        Width="26" Height="26"
-                        HorizontalAlignment="Right"
-                        VerticalAlignment="Top"
-                        Background="Transparent">
-                    <TextBlock x:Name="ResizeCornerGlyph"
-                               FontFamily="{StaticResource TablerIcons}"
-                               Foreground="#33FFFFFF"
-                               FontSize="20"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center" />
-                </Border>
+                <!-- Corner tools: the expand toggle and the resize grip. Same row as the drag bar,
+                     but in a dedicated edge cell to avoid gesture overlap. ApplyPanelSide mirrors the
+                     pair as a unit, keeping the grip on the panel's outermost corner. -->
+                <Grid x:Name="TopCornerTools"
+                      Grid.Column="2"
+                      ColumnDefinitions="Auto,Auto"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Top">
+
+                    <!-- Expand / restore: fills the work area, or puts the previous size back. -->
+                    <Button x:Name="ExpandButton"
+                            Grid.Column="0"
+                            Click="OnExpandToggleClicked"
+                            Content="{x:Static icons:TablerLine.ArrowsMaximize}"
+                            FontFamily="{StaticResource TablerIcons}"
+                            Foreground="{StaticResource Subtle}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Width="26" Height="26"
+                            Padding="0"
+                            CornerRadius="6"
+                            FontSize="14"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            ToolTip.Tip="Expand" />
+
+                    <Border x:Name="ResizeCornerGrip"
+                            Grid.Column="1"
+                            Width="26" Height="26"
+                            Background="Transparent">
+                        <TextBlock x:Name="ResizeCornerGlyph"
+                                   FontFamily="{StaticResource TablerIcons}"
+                                   Foreground="#33FFFFFF"
+                                   FontSize="20"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                </Grid>
             </Grid>
 
             <!-- The message list. An ItemsControl sizes to its content, so unlike the BlazorWebView it
@@ -271,7 +450,12 @@
                           Grid.Row="1"
                           HorizontalScrollBarVisibility="Disabled"
                           VerticalScrollBarVisibility="Auto">
-                <ItemsControl x:Name="MessagesList" ItemTemplate="{StaticResource MessageTemplate}" />
+                <!-- Bottom-aligned so a short conversation in a tall (expanded or dragged) panel sits
+                     just above the input row rather than stranded at the top. Ignored once the content
+                     is taller than the viewport, which is when the scroller takes over. -->
+                <ItemsControl x:Name="MessagesList"
+                              VerticalAlignment="Bottom"
+                              ItemTemplate="{StaticResource MessageTemplate}" />
             </ScrollViewer>
 
             <ListBox x:Name="ConversationList"
@@ -281,6 +465,7 @@
                      Background="Transparent"
                      BorderThickness="0"
                      SelectionChanged="OnConversationSelectionChanged"
+                     ItemContainerTheme="{StaticResource ConversationItemTheme}"
                      ItemTemplate="{StaticResource ConversationTemplate}" />
 
             <Border x:Name="SlashSuggestionsPanel"
@@ -498,18 +683,25 @@
                 <Button x:Name="CollapseButton"
                         Grid.Column="0"
                         Click="OnCollapseChatClicked"
-                        Content="{x:Static icons:TablerLine.CaretLeft}"
-                        FontFamily="{StaticResource TablerIcons}"
-                        Width="16"
+                        Width="18"
                         Padding="0"
-                        FontSize="14"
                         CornerRadius="0"
                         BorderThickness="0"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
+                        VerticalContentAlignment="Center"
                         Background="#55FFFFFF"
-                        Foreground="White" />
+                        Foreground="White">
+                    <!-- The glyph is a child rather than the Button's Content so it can be centred on
+                         its own box; ApplyPanelSide flips its Text, the way it flips ResizeCornerGlyph. -->
+                    <TextBlock x:Name="CollapseGlyph"
+                               Text="{x:Static icons:TablerLine.CaretLeft}"
+                               FontFamily="{StaticResource TablerIcons}"
+                               FontSize="14"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Button>
                 <Border Grid.Column="1"
                         Background="{StaticResource Faint}"
                         CornerRadius="6"

@@ -270,6 +270,14 @@ public sealed class FloatyConfig
     public double ChatWindowHeight { get; set; } = 420;
 
     /// <summary>
+    /// Whether the chat panel is in expanded mode (the corner expand toggle): full work-area height
+    /// and a third of its width, bypassing the panel's manual resize limits. While expanded,
+    /// <see cref="ChatWindowWidth"/>, <see cref="ChatWindowHeight"/>, <see cref="ChatWindowX"/> and
+    /// <see cref="ChatWindowY"/> hold the geometry to restore to, not the size currently on screen.
+    /// </summary>
+    public bool ChatWindowExpanded { get; set; }
+
+    /// <summary>
     /// Whether Floaty starts automatically on OS sign-in, and if so whether it starts hidden or
     /// visible. Windows-only; mirrored into the HKCU Run registry key on save.
     /// </summary>

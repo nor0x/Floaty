@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 
 namespace Floaty.Services;
 
@@ -11,6 +11,15 @@ public sealed class AccentPalette
 {
     /// <summary>Default accent used when unset or invalid.</summary>
     public const string DefaultHex = "#2b7fff";
+
+    /// <summary>
+    /// How far <see cref="Hover"/> and <see cref="Deep"/> sit below <see cref="Base"/>. Public
+    /// because <see cref="ButtonStateShade"/> shades every *other* button by the same amounts:
+    /// sharing the constants is what makes the chat panel's accent Send button land on exactly the
+    /// same colour as Settings' accent Save button in the same state.
+    /// </summary>
+    public const double HoverDarken = 0.12;
+    public const double DeepDarken = 0.30;
 
     /// <summary>The normalized base accent, "#rrggbb".</summary>
     public string Base { get; }
@@ -46,8 +55,8 @@ public sealed class AccentPalette
     private AccentPalette(byte r, byte g, byte b)
     {
         Base = ToHex(r, g, b);
-        Hover = Darken(r, g, b, 0.12);
-        Deep = Darken(r, g, b, 0.30);
+        Hover = Darken(r, g, b, HoverDarken);
+        Deep = Darken(r, g, b, DeepDarken);
         Tint = MixWhite(r, g, b, 0.92);
         TintFaint = MixWhite(r, g, b, 0.96);
         Border = MixWhite(r, g, b, 0.70);

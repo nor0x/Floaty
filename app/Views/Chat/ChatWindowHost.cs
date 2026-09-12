@@ -26,6 +26,15 @@ public sealed class ChatWindowHost : IChatPanelHost
 	private double _panelHeight;
 	private DispatcherTimer? _persistTimer;
 
+	// Expanded mode (the panel's corner expand toggle). While it is on, the window is docked to the
+	// bottom of the work area and sized to fill it, and these hold the geometry to come back to - which
+	// is also what gets persisted, so config.json always stores the user's own chosen size.
+	private bool _expanded;
+	private int _restoreX;
+	private int _restoreY;
+	private double _restoreWidth;
+	private double _restoreHeight;
+
 	public ChatWindowHost(IServiceProvider services, SettingsService settings, IRingFeedback ringFeedback)
 	{
 		_services = services;
@@ -35,6 +44,8 @@ public sealed class ChatWindowHost : IChatPanelHost
 
 		_panelWidth = ClampWidth(_settings.Current.ChatWindowWidth);
 		_panelHeight = ClampHeight(_settings.Current.ChatWindowHeight);
+		_restoreWidth = _panelWidth;
+		_restoreHeight = _panelHeight;
 	}
 
 	public bool IsOpen { get; private set; }
@@ -71,6 +82,12 @@ public sealed class ChatWindowHost : IChatPanelHost
 
 		_ = _panel.AnimateInAsync();
 		IsOpen = true;
+
+		// Re-enter the mode the app was closed in. After EnsureWindow, so the expanded size is measured
+		// from the window's real position rather than the zero rect it has before it is placed.
+		if (_settings.Current.ChatWindowExpanded && !_expanded)
+			_panel.RestoreExpanded();
+
 		SchedulePersistWindowBounds();
 	}
 
@@ -132,8 +149,10 @@ public sealed class ChatWindowHost : IChatPanelHost
 
 	public void RequestPanelSize(double widthDip, double heightDip)
 	{
-		_panelWidth = ClampWidth(widthDip);
-		_panelHeight = ClampHeight(heightDip);
+		// While expanded the panel is bounded by the screen, not by the manual resize limits, so the
+		// usual clamps would cut it straight back to MaxChatWidth / MaxChatListHeight.
+		_panelWidth = _expanded ? Math.Max(ChatPanelView.MinChatWidth, widthDip) : ClampWidth(widthDip);
+		_panelHeight = _expanded ? Math.Max(ChatPanelView.MinChatListHeight, heightDip) : ClampHeight(heightDip);
 
 		_chatController.Resize(
 			_panelWidth + (WindowMarginDip * 2),
@@ -165,6 +184,59 @@ public sealed class ChatWindowHost : IChatPanelHost
 		var maxWindowDip = (y + h - wa.Y) / DisplayScale - 8;
 		return Math.Clamp(maxWindowDip - chromeDip - (WindowMarginDip * 2),
 			ChatPanelView.MinChatListHeight, ChatPanelView.MaxChatListHeight);
+	}
+
+	public (double WidthDip, double ListHeightDip) ExpandedPanelSize(double chromeDip)
+	{
+		var wa = _chatController.GetWorkArea();
+		if (wa.Width <= 0)
+			return (ChatPanelView.MaxChatWidth, ChatPanelView.MaxChatListHeight);
+
+		var scale = DisplayScale;
+		var width = Math.Max(ChatPanelView.MinChatWidth,
+			(wa.Width / 3.0 / scale) - (WindowMarginDip * 2));
+
+		// Same measurement as AvailableListHeightDip - distance from the window's anchored bottom edge
+		// up to the work-area top - minus that method's Max* clamp, which expanding deliberately skips.
+		var (_, y) = _chatController.GetPosition();
+		var (_, h) = _chatController.GetSize();
+		var maxWindowDip = (y + h - wa.Y) / scale - 8;
+		var listHeight = Math.Max(ChatPanelView.MinChatListHeight,
+			maxWindowDip - chromeDip - (WindowMarginDip * 2));
+
+		return (width, listHeight);
+	}
+
+	public void SetExpanded(bool expanded)
+	{
+		if (_expanded == expanded)
+			return;
+
+		if (expanded)
+		{
+			// Snapshot what to come back to, then dock the window's bottom edge to the bottom of the
+			// work area: every resize anchors that edge and grows upward, so a window left mid-screen
+			// could otherwise only reach the top of the screen, never fill it.
+			(_restoreX, _restoreY) = _chatController.GetPosition();
+			_restoreWidth = _panelWidth;
+			_restoreHeight = _panelHeight;
+
+			var wa = _chatController.GetWorkArea();
+			if (wa.Height > 0)
+			{
+				var (_, h) = _chatController.GetSize();
+				_chatController.MoveTo(_restoreX, wa.Y + wa.Height - h);
+			}
+		}
+		else
+		{
+			_panelWidth = _restoreWidth;
+			_panelHeight = _restoreHeight;
+			_chatController.MoveTo(_restoreX, _restoreY);
+		}
+
+		_expanded = expanded;
+		SchedulePersistWindowBounds();
 	}
 
 	public void SetForceInteractive(bool force) => _chatController.SetForceInteractive(force);
@@ -273,14 +345,18 @@ public sealed class ChatWindowHost : IChatPanelHost
 
 	private void PersistWindowBounds()
 	{
-		var (x, y) = _chatController.GetPosition();
+		// Expanded geometry is derived from the work area and is restored by the flag alone, so what
+		// gets written is always the un-expanded geometry: the size and place the user chose, and the
+		// one the toggle comes back to.
+		var (x, y) = _expanded ? (_restoreX, _restoreY) : _chatController.GetPosition();
 
 		var config = _settings.Current;
-		var width = ClampWidth(_panelWidth);
-		var height = ClampHeight(_panelHeight);
+		var width = ClampWidth(_expanded ? _restoreWidth : _panelWidth);
+		var height = ClampHeight(_expanded ? _restoreHeight : _panelHeight);
 
 		if (config.ChatWindowX == x
 			&& config.ChatWindowY == y
+			&& config.ChatWindowExpanded == _expanded
 			&& Math.Abs(config.ChatWindowWidth - width) < 0.5
 			&& Math.Abs(config.ChatWindowHeight - height) < 0.5)
 			return;
@@ -289,6 +365,7 @@ public sealed class ChatWindowHost : IChatPanelHost
 		config.ChatWindowY = y;
 		config.ChatWindowWidth = width;
 		config.ChatWindowHeight = height;
+		config.ChatWindowExpanded = _expanded;
 		_settings.Save(config);
 	}
 
