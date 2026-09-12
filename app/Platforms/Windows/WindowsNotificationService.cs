@@ -346,14 +346,15 @@ public sealed class WindowsNotificationService : INotificationService
     /// </summary>
     private static string? AdoptShortcut(string path)
     {
-        var link = (IShellLinkW)new ShellLink();
-        var file = (System.Runtime.InteropServices.ComTypes.IPersistFile)link;
-        file.Load(path, StgmReadWrite);
-
-        var store = (IPropertyStore)link;
         var key = AppUserModelIdKey;
 
-        store.GetValue(ref key, out var current);
+        // Read-only first. On an installed build this is the whole story, and opening for write would
+        // be the one thing that could fail (a read-only or momentarily locked .lnk) on the path that
+        // needs no writing at all.
+        var probe = (IShellLinkW)new ShellLink();
+        ((System.Runtime.InteropServices.ComTypes.IPersistFile)probe).Load(path, StgmRead);
+
+        ((IPropertyStore)probe).GetValue(ref key, out var current);
         var existing = current.AsString();
         PropVariantClear(ref current);
 
@@ -361,9 +362,16 @@ public sealed class WindowsNotificationService : INotificationService
         if (string.Equals(existing, Aumid, StringComparison.Ordinal))
             return null;
 
+        // Absent or different — reopen for write. A fresh link object, because the first was bound to
+        // a read-only stream.
+        var link = (IShellLinkW)new ShellLink();
+        var file = (System.Runtime.InteropServices.ComTypes.IPersistFile)link;
+        file.Load(path, StgmReadWrite);
+
         var value = PropVariant.FromString(Aumid);
         try
         {
+            var store = (IPropertyStore)link;
             store.SetValue(ref key, ref value);
             store.Commit();
             file.Save(null!, true); // null = save back over the file it was loaded from
@@ -416,6 +424,7 @@ public sealed class WindowsNotificationService : INotificationService
     // both the shell link and the WinRT notification APIs are happy there.
     // ---------------------------------------------------------------------------------------------
 
+    private const int StgmRead = 0x00000000;
     private const int StgmReadWrite = 0x00000002;
 
     [ComImport, Guid("00021401-0000-0000-C000-000000000046"), ClassInterface(ClassInterfaceType.None)]
