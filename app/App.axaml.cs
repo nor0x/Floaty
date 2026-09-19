@@ -97,6 +97,8 @@ public partial class App : Application
         services.AddSingleton<AiClientFactory>();
         // Text-to-image through whichever provider holds the image role. Files land in ~/.floaty/generated.
         services.AddSingleton<IImageGenerationService, ImageGenerationService>();
+        // Text-to-speech through whichever provider holds the speech role (voice output).
+        services.AddSingleton<ISpeechSynthesisService, SpeechSynthesisService>();
         services.AddSingleton<IChatService, ChatService>();
 
         // The day's screen-history log (~/.floaty/captures/YYYY-MM-DD.md) and the ledger of lines
@@ -153,6 +155,8 @@ public partial class App : Application
         services.AddSingleton<ISelectionCaptureService, Platforms.Windows.WindowsSelectionCaptureService>();
         // Capture shutter / assistant-reply sounds, played through NAudio (Settings → Sounds).
         services.AddSingleton<ISoundService, Platforms.Windows.WindowsSoundService>();
+        // Spoken replies: the speech role's audio, played through its own NAudio device.
+        services.AddSingleton<IVoiceOutputService, Platforms.Windows.WindowsVoiceOutputService>();
         // Native toasts behind the chat's notify / list_notifications / cancel_notification tools.
         // Scheduled ones are handed to Windows, so a reminder fires even after Floaty is quit.
         services.AddSingleton<INotificationService, Platforms.Windows.WindowsNotificationService>();
@@ -176,6 +180,7 @@ public partial class App : Application
         services.AddSingleton<ITextExtractionService, NullTextExtractionService>();
         services.AddSingleton<ISelectionCaptureService, NullSelectionCaptureService>();
         services.AddSingleton<ISoundService, NullSoundService>();
+        services.AddSingleton<IVoiceOutputService, NullVoiceOutputService>();
         services.AddSingleton<INotificationService, NullNotificationService>();
         services.AddSingleton<ILocalEmbeddingFactory, NullLocalEmbeddingFactory>();
 #endif

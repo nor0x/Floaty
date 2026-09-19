@@ -16,6 +16,7 @@ public static class ConfigMigration
         var changed = MigrateLegacyProvider(config);
         changed |= DropDanglingRoles(config);
         changed |= AdoptImageRole(config);
+        changed |= AdoptSpeechRole(config);
         return changed;
     }
 
@@ -77,7 +78,7 @@ public static class ConfigMigration
         var known = config.Providers.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var changed = false;
 
-        foreach (var role in new[] { config.ChatRole, config.EmbeddingRole, config.VisionRole, config.ImageRole })
+        foreach (var role in new[] { config.ChatRole, config.EmbeddingRole, config.VisionRole, config.ImageRole, config.SpeechRole })
         {
             if (role.IsAssigned && !known.Contains(role.ProviderId))
             {
@@ -123,6 +124,40 @@ public static class ConfigMigration
         if (first is not null)
         {
             config.ImageRole = new ModelAssignment { ProviderId = first.Id, Model = first.ImageModel };
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Backfills the speech role for a config written before voice output existed, exactly like
+    /// <see cref="AdoptImageRole"/> and with the same deliberate residual. Assigning the role is harmless:
+    /// nothing is spoken until <see cref="FloatyConfig.VoiceOutputEnabled"/> is switched on.
+    /// </summary>
+    private static bool AdoptSpeechRole(FloatyConfig config)
+    {
+        if (config.SpeechRole.IsAssigned)
+            return false;
+
+        if (config.Providers.Any(p => !string.IsNullOrWhiteSpace(p.SpeechModel)))
+            return false;
+
+        var changed = false;
+        foreach (var profile in config.Providers)
+        {
+            var preset = ProviderPresets.Find(profile.PresetId);
+            if (preset is null || string.IsNullOrWhiteSpace(preset.SpeechModel))
+                continue;
+
+            profile.SpeechModel = preset.SpeechModel;
+            changed = true;
+        }
+
+        var first = config.Providers.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.SpeechModel));
+        if (first is not null)
+        {
+            config.SpeechRole = new ModelAssignment { ProviderId = first.Id, Model = first.SpeechModel };
             changed = true;
         }
 

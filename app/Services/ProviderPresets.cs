@@ -8,6 +8,7 @@ namespace Floaty.Services;
 /// <param name="Id">Stable slug, also the default <see cref="ProviderProfile.Id"/> for single-instance presets.</param>
 /// <param name="BaseUrl">Default endpoint. Empty means "whatever the SDK defaults to".</param>
 /// <param name="ImageModel">Default text-to-image model id. Empty means the provider generates no images.</param>
+/// <param name="SpeechModel">Default text-to-speech model id. Empty means the provider speaks no replies.</param>
 /// <param name="KeyUrl">Where to get a key, linked from the provider tab. Null when not applicable.</param>
 public sealed record ProviderPreset(
     string Id,
@@ -21,7 +22,8 @@ public sealed record ProviderPreset(
     string Blurb,
     string? KeyUrl = null,
     bool NeedsKey = true,
-    bool AllowMultiple = false);
+    bool AllowMultiple = false,
+    string SpeechModel = "");
 
 /// <summary>
 /// The built-in catalog of providers offered by the "+ Add" button in Settings → Model Provider.
@@ -50,8 +52,9 @@ public static class ProviderPresets
             EmbeddingModel: "text-embedding-3-small",
             VisionModel: "gpt-4o-mini",
             ImageModel: "gpt-image-1",
-            Blurb: "Chat, embeddings, vision and image generation from one key.",
-            KeyUrl: "https://platform.openai.com/api-keys"),
+            Blurb: "Chat, embeddings, vision, image generation and speech from one key.",
+            KeyUrl: "https://platform.openai.com/api-keys",
+            SpeechModel: "gpt-4o-mini-tts"),
         new(
             Id: "anthropic",
             DisplayName: "Anthropic",
@@ -204,6 +207,7 @@ public static class ProviderPresets
             EmbeddingModel = preset.EmbeddingModel,
             VisionModel = preset.VisionModel,
             ImageModel = preset.ImageModel,
+            SpeechModel = preset.SpeechModel,
         };
     }
 }

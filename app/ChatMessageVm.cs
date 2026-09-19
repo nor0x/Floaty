@@ -200,6 +200,24 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     /// <inheritdoc cref="RendersMarkdown"/>
     public bool RendersLiteralText => !RendersMarkdown;
 
+    /// <summary>
+    /// Whether the bubble offers its read-aloud button: an assistant answer that has finished streaming,
+    /// while a speech model is configured. Set by the chat panel, which knows both.
+    /// </summary>
+    public bool ShowReadAloud
+    {
+        get => _showReadAloud;
+        set
+        {
+            if (_showReadAloud == value)
+                return;
+            _showReadAloud = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _showReadAloud;
+
     /// <summary>Raw citation data backing <see cref="Citations"/>, kept so threads round-trip through persistence.</summary>
     public IReadOnlyList<MemoryCitation> CitationSources { get; set; } = System.Array.Empty<MemoryCitation>();
 

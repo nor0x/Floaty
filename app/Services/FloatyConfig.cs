@@ -133,6 +133,12 @@ public sealed class FloatyConfig
     /// </summary>
     public ModelAssignment ImageRole { get; set; } = new();
 
+    /// <summary>
+    /// Which provider + model turns assistant replies into speech. Unset hides voice output entirely;
+    /// assigned, it still stays silent until <see cref="VoiceOutputEnabled"/> is switched on.
+    /// </summary>
+    public ModelAssignment SpeechRole { get; set; } = new();
+
     // --- Legacy single-provider fields (pre-multi-provider). Kept so an old config.json still
     // deserializes; ConfigMigration folds them into Providers on load and then nulls them out.
     // Nullable + WhenWritingNull is what keeps them out of the file afterwards: WhenWritingDefault
@@ -304,6 +310,27 @@ public sealed class FloatyConfig
     public double AutoSendPauseSeconds { get; set; } = 2.0;
 
     /// <summary>
+    /// Whether assistant replies are also spoken aloud through <see cref="SpeechRole"/>. Off by default:
+    /// every spoken sentence is a paid request, and a talking window is a surprise nobody asked for.
+    /// </summary>
+    public bool VoiceOutputEnabled { get; set; }
+
+    /// <summary>Voice name passed to the speech endpoint (OpenAI: alloy, coral, nova, …).</summary>
+    public string SpeechVoice { get; set; } = "alloy";
+
+    /// <summary>Playback speed ratio for synthesized speech. Clamped to 0.25–4 on use.</summary>
+    public double SpeechSpeed { get; set; } = 1.0;
+
+    /// <summary>
+    /// Free-text tone/style instructions for the voice. Only the gpt-4o TTS models honour it; it is not
+    /// sent to anything else, which would reject the parameter.
+    /// </summary>
+    public string SpeechInstructions { get; set; } = string.Empty;
+
+    /// <summary>Playback volume for spoken replies, 0–1. Separate from <see cref="SoundVolume"/>. Clamped on use.</summary>
+    public double SpeechVolume { get; set; } = 1.0;
+
+    /// <summary>
     /// Whether the <c>exec</c> agent tool is exposed to the model. Off by default: shell execution is a
     /// powerful capability, and when on it follows <see cref="ExecApprovalMode"/>.
     /// </summary>
@@ -456,6 +483,9 @@ public sealed class ProviderProfile
 
     /// <summary>Default image-generation model id. Empty means this provider can't generate images.</summary>
     public string ImageModel { get; set; } = string.Empty;
+
+    /// <summary>Default text-to-speech model id. Empty means this provider can't speak.</summary>
+    public string SpeechModel { get; set; } = string.Empty;
 
     /// <summary>
     /// <see cref="ProviderKind.OpenAI"/> only: use the Responses API rather than chat completions.

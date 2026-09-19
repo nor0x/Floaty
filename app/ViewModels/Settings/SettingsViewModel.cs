@@ -102,6 +102,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ModelDownloadService _modelDownloads;
     private readonly AiClientFactory _aiClients;
     private readonly ILocalEmbeddingFactory _localEmbeddings;
+    private readonly ISpeechSynthesisService _speech;
+    private readonly IVoiceOutputService _voiceOutput;
 
     public SettingsViewModel(
         SettingsService settings,
@@ -110,7 +112,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         IMemoryService memory,
         ModelDownloadService modelDownloads,
         AiClientFactory aiClients,
-        ILocalEmbeddingFactory localEmbeddings)
+        ILocalEmbeddingFactory localEmbeddings,
+        ISpeechSynthesisService speech,
+        IVoiceOutputService voiceOutput)
     {
         _settings = settings;
         _skillService = skillService;
@@ -119,6 +123,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _modelDownloads = modelDownloads;
         _aiClients = aiClients;
         _localEmbeddings = localEmbeddings;
+        _speech = speech;
+        _voiceOutput = voiceOutput;
     }
 
     /// <summary>
@@ -151,6 +157,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool _placementEdited;
     private bool _ringSizeEdited;
     private bool _ringImageEdited;
+
+    // Voice output can also be flipped from the chat panel's speaker button while this page is open;
+    // like placement, an untouched checkbox here follows it and a touched one waits for Save.
+    private bool _voiceOutputEdited;
 
     // Add-MCP-server form state. Args/Env/Headers are edited as text and parsed on Add.
     private McpServerConfig _newServer = new();
@@ -220,6 +230,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             EmbeddingRole = CloneRole(current.EmbeddingRole),
             VisionRole = CloneRole(current.VisionRole),
             ImageRole = CloneRole(current.ImageRole),
+            SpeechRole = CloneRole(current.SpeechRole),
             RingImageFileName = current.RingImageFileName,
             RingSize = current.RingSize,
             AccentColor = current.AccentColor,
@@ -248,6 +259,11 @@ public sealed partial class SettingsViewModel : ObservableObject
             SttSelectedModelId = current.SttSelectedModelId,
             VoiceSendMode = current.VoiceSendMode,
             AutoSendPauseSeconds = current.AutoSendPauseSeconds,
+            VoiceOutputEnabled = current.VoiceOutputEnabled,
+            SpeechVoice = current.SpeechVoice,
+            SpeechSpeed = current.SpeechSpeed,
+            SpeechInstructions = current.SpeechInstructions,
+            SpeechVolume = current.SpeechVolume,
             ExecEnabled = current.ExecEnabled,
             ExecApprovalMode = current.ExecApprovalMode,
             ExecShell = current.ExecShell,
@@ -258,6 +274,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _placementEdited = false;
         _ringSizeEdited = false;
         _ringImageEdited = false;
+        _voiceOutputEdited = false;
+        _speechTestStatus = null;
 
         // The overlay keeps editing the live config while this window is open, so follow it rather
         // than sitting on the snapshot taken here (see OnLiveConfigChanged).
@@ -326,6 +344,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (!_ringSizeEdited)
             _config.RingSize = current.RingSize;
+
+        if (!_voiceOutputEdited)
+            _config.VoiceOutputEnabled = current.VoiceOutputEnabled;
 
         // The set_ring_image chat tool writes a new file and points the config at it while this page may
         // be open. Without adopting it, the wholesale Save below would quietly put the old ring back.
@@ -468,6 +489,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _placementEdited = false;
         _ringSizeEdited = false;
         _ringImageEdited = false;
+        _voiceOutputEdited = false;
     }
 
     private bool IsSkillEnabled(string name) =>
@@ -570,9 +592,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private bool ShowOllamaPicker(ProviderProfile provider) => IsOllama(provider) && _ollamaModels.Count > 0;
 
-    /// <summary>How many of the four roles this provider currently serves; shown as a tab badge.</summary>
+    /// <summary>How many of the five roles this provider currently serves; shown as a tab badge.</summary>
     private int RoleCountFor(string providerId) =>
-        new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole }
+        new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole, _config.SpeechRole }
             .Count(r => r.ProviderId == providerId);
 
     /// <summary>
@@ -635,6 +657,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (!_config.ImageRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.ImageModel))
             _config.ImageRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.ImageModel };
+
+        if (!_config.SpeechRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.SpeechModel))
+            _config.SpeechRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.SpeechModel };
     }
 
     private void RemoveProvider(ProviderProfile provider)
@@ -645,7 +670,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Unassign rather than silently leaving a role pointing at nothing, which would read as
         // "configured" in the dropdown while failing on every call.
-        foreach (var role in new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole })
+        foreach (var role in new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole, _config.SpeechRole })
         {
             if (role.ProviderId == provider.Id)
             {
@@ -697,7 +722,8 @@ public sealed partial class SettingsViewModel : ObservableObject
                 ModelRole.Chat => provider.ChatModel,
                 ModelRole.Embedding => provider.EmbeddingModel,
                 ModelRole.Vision => provider.VisionModel,
-                _ => provider.ImageModel,
+                ModelRole.Image => provider.ImageModel,
+                _ => provider.SpeechModel,
             };
 
             if (string.IsNullOrWhiteSpace(model))
@@ -714,7 +740,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             ModelRole.Chat => _config.ChatRole,
             ModelRole.Embedding => _config.EmbeddingRole,
             ModelRole.Vision => _config.VisionRole,
-            _ => _config.ImageRole,
+            ModelRole.Image => _config.ImageRole,
+            _ => _config.SpeechRole,
         };
 
         var key = RoleKey(current);
@@ -741,6 +768,72 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// capture unsearchable until it is re-indexed, so the section says so before the user saves.
     /// </summary>
     private bool EmbeddingRoleChanged => RoleKey(_config.EmbeddingRole) != _originalEmbeddingRole;
+
+    // --- Voice output ---
+
+    private string? _speechTestStatus;
+    private bool _speechTesting;
+
+    /// <summary>
+    /// The provider and model the unsaved speech role points at, falling back to the provider's default
+    /// model the way <see cref="AiClientFactory"/> does. Null when the role is effectively unassigned.
+    /// </summary>
+    private (ProviderProfile Profile, string Model)? ResolveSpeechRole()
+    {
+        var role = _config.SpeechRole;
+        if (!role.IsAssigned)
+            return null;
+
+        var profile = _config.Providers.FirstOrDefault(p =>
+            string.Equals(p.Id, role.ProviderId, StringComparison.OrdinalIgnoreCase));
+        if (profile is null)
+            return null;
+
+        var model = string.IsNullOrWhiteSpace(role.Model) ? profile.SpeechModel : role.Model;
+        return string.IsNullOrWhiteSpace(model) ? null : (profile, model.Trim());
+    }
+
+    /// <summary>
+    /// Speaks a short sample with the settings as they stand on this page, saved or not, so the user
+    /// can hear a voice before committing to it. Goes through the real playback path.
+    /// </summary>
+    private async Task TestSpeechVoice()
+    {
+        var resolved = ResolveSpeechRole();
+        var client = resolved is { } r ? AiClientFactory.CreateSpeechClient(r.Profile, r.Model) : null;
+        if (resolved is null || client is null)
+        {
+            _speechTestStatus = "Assign a Speech model to an OpenAI-compatible provider first.";
+            RaiseAllChanged();
+            return;
+        }
+
+        _speechTesting = true;
+        _speechTestStatus = "Synthesizing…";
+        RaiseAllChanged();
+
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var settings = new SpeechVoiceSettings(_config.SpeechVoice, _config.SpeechSpeed, _config.SpeechInstructions);
+            var wav = await _speech.SynthesizeAsync(
+                client, resolved.Value.Model, settings,
+                "Hi, I'm Floaty. This is how I'll sound when I read my replies to you.",
+                timeout.Token);
+
+            _voiceOutput.PlayClip(wav, _config.SpeechVolume);
+            _speechTestStatus = "Works.";
+        }
+        catch (Exception ex)
+        {
+            _speechTestStatus = $"Failed: {ex.Message}";
+        }
+        finally
+        {
+            _speechTesting = false;
+            RaiseAllChanged();
+        }
+    }
 
     // --- Local (on-device) embedding models ---
 
@@ -826,6 +919,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         EmbeddingModel = p.EmbeddingModel,
         VisionModel = p.VisionModel,
         ImageModel = p.ImageModel,
+        SpeechModel = p.SpeechModel,
         UseResponsesApi = p.UseResponsesApi,
         RequestThinking = p.RequestThinking,
         ThinkingBudgetTokens = p.ThinkingBudgetTokens,
