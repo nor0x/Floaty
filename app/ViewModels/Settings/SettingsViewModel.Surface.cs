@@ -292,7 +292,7 @@ public sealed partial class SettingsViewModel
 
     public bool HasCaptureRules => _config.CaptureRules.Count > 0;
 
-    public IReadOnlyList<string> CaptureRuleTriggerLabels { get; } = ["When it opens", "Every N minutes"];
+    public IReadOnlyList<string> CaptureRuleTriggerLabels { get; } = ["When it opens", "After it opens", "Every N minutes"];
 
     public string NewRuleMatch
     {
@@ -300,19 +300,36 @@ public sealed partial class SettingsViewModel
         set { _newRuleMatch = value ?? string.Empty; OnPropertyChanged(); }
     }
 
-    /// <summary>Index into <see cref="CaptureRuleTriggerLabels"/>: 0 on open, 1 interval.</summary>
+    /// <summary>Index into <see cref="CaptureRuleTriggerLabels"/>: 0 on open, 1 after open, 2 interval.</summary>
     public int NewRuleTriggerIndex
     {
         get => _newRuleTriggerIndex;
-        set { _newRuleTriggerIndex = value; OnPropertyChanged(); OnPropertyChanged(nameof(NewRuleIsInterval)); }
+        set
+        {
+            _newRuleTriggerIndex = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(NewRuleNeedsMinutes));
+            OnPropertyChanged(nameof(NewRuleAmountLabel));
+            OnPropertyChanged(nameof(NewRuleAmountMaximum));
+            // Switching units: seed a sensible value rather than reading 5 minutes as 5 seconds.
+            _newRuleAmount = value == 1 ? 30 : 5;
+            OnPropertyChanged(nameof(NewRuleAmount));
+        }
     }
 
-    public bool NewRuleIsInterval => _newRuleTriggerIndex == 1;
+    /// <summary>One number box serves both the after-open delay (seconds) and the interval (minutes).</summary>
+    public bool NewRuleNeedsMinutes => _newRuleTriggerIndex != 0;
 
-    public double NewRuleIntervalMinutes
+    public string NewRuleAmountLabel =>
+        _newRuleTriggerIndex == 1 ? "seconds after it opens" : "minutes between captures";
+
+    /// <summary>A day either way: 86400 seconds of delay, or 1440 minutes between captures.</summary>
+    public double NewRuleAmountMaximum => _newRuleTriggerIndex == 1 ? 86400 : 1440;
+
+    public double NewRuleAmount
     {
-        get => _newRuleIntervalMinutes;
-        set { _newRuleIntervalMinutes = value; OnPropertyChanged(); }
+        get => _newRuleAmount;
+        set { _newRuleAmount = value; OnPropertyChanged(); }
     }
 
     public bool NewRuleIncludeScreenshot

@@ -173,7 +173,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     // Add-capture-rule form state (Screen history page).
     private string _newRuleMatch = string.Empty;
     private int _newRuleTriggerIndex;
-    private double _newRuleIntervalMinutes = 5;
+    private double _newRuleAmount = 5;
     private bool _newRuleIncludeScreenshot = true;
     private string? _captureRuleError;
 
@@ -588,12 +588,19 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        var amount = (int)Math.Round(_newRuleAmount);
         _config.CaptureRules.Add(new CaptureRule
         {
             Id = Services.Tools.CaptureTools.NewId(),
             Match = match,
-            Trigger = _newRuleTriggerIndex == 1 ? CaptureRuleTrigger.Interval : CaptureRuleTrigger.OnOpen,
-            IntervalMinutes = (int)Math.Clamp(Math.Round(_newRuleIntervalMinutes), 1, 1440),
+            Trigger = _newRuleTriggerIndex switch
+            {
+                1 => CaptureRuleTrigger.AfterOpen,
+                2 => CaptureRuleTrigger.Interval,
+                _ => CaptureRuleTrigger.OnOpen,
+            },
+            IntervalMinutes = Math.Clamp(amount, 1, 1440),
+            DelaySeconds = Math.Clamp(amount, 1, 86400),
             IncludeScreenshot = _newRuleIncludeScreenshot,
             CreatedAt = DateTimeOffset.Now,
         });

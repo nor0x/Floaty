@@ -31,7 +31,7 @@
             <StackPanel Spacing="10">
                 <TextBlock Classes="section" Text="Capture rules" />
                 <TextBlock Classes="hint"
-                           Text="Capture a specific app when it opens, or every few minutes while it's open, even in the background. Rules run even when screen history is disabled, and never capture password managers or private browser windows. You can also ask in chat: &quot;capture Notepad every time it opens&quot;." />
+                           Text="Capture a specific app when it opens, a set time after it opens, or every few minutes while it's open, even in the background. Rules run even when screen history is disabled, and never capture password managers or private browser windows. You can also ask in chat: &quot;capture Notepad every time it opens&quot;." />
                 <TextBlock Classes="hint" Text="No capture rules yet."
                            IsVisible="{Binding !HasCaptureRules}" />
                 <ItemsControl ItemsSource="{Binding CaptureRuleRows}">
@@ -67,12 +67,12 @@
                     <ComboBox ItemsSource="{Binding CaptureRuleTriggerLabels}"
                               SelectedIndex="{Binding NewRuleTriggerIndex}"
                               MinWidth="160" />
-                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding NewRuleIsInterval}">
-                        <NumericUpDown Value="{Binding NewRuleIntervalMinutes}"
-                                       Minimum="1" Maximum="1440" Increment="1"
+                    <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding NewRuleNeedsMinutes}">
+                        <NumericUpDown Value="{Binding NewRuleAmount}"
+                                       Minimum="1" Maximum="{Binding NewRuleAmountMaximum}" Increment="1"
                                        FormatString="0"
                                        Width="120" />
-                        <TextBlock Text="minutes" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding NewRuleAmountLabel}" VerticalAlignment="Center" />
                     </StackPanel>
                 </StackPanel>
                 <CheckBox Content="Include a screenshot (not just the text)"

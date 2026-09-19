@@ -107,6 +107,9 @@ public enum CaptureRuleTrigger
     /// <summary>Once for each matching window that opens while the rule is active.</summary>
     OnOpen,
 
+    /// <summary>Once for each matching window, <see cref="CaptureRule.DelaySeconds"/> after it opens.</summary>
+    AfterOpen,
+
     /// <summary>Every <see cref="CaptureRule.IntervalMinutes"/> while a matching window is open.</summary>
     Interval,
 }
@@ -133,6 +136,13 @@ public sealed class CaptureRule
 
     /// <summary>Minutes between captures for <see cref="CaptureRuleTrigger.Interval"/>. Clamped to 1–1440 on use.</summary>
     public int IntervalMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Seconds to wait after a window opens for <see cref="CaptureRuleTrigger.AfterOpen"/>. Clamped to
+    /// 1–86400 on use. Measured from when the rule's poll first sees the window, so it lands up to one
+    /// poll (10 s) later than the exact open.
+    /// </summary>
+    public int DelaySeconds { get; set; } = 30;
 
     /// <summary>Also save a screenshot (and caption it, if a vision model is assigned), not just the text.</summary>
     public bool IncludeScreenshot { get; set; } = true;

@@ -47,8 +47,8 @@ public sealed class CaptureTools : IChatToolset
     public string Guidance =>
         "You can capture a specific open window into memory: capture_window does it once, right now, and " +
         "returns its text, so use it when the user asks about a window that is open but not in front. " +
-        "create_capture_rule sets up a standing capture — when a matching window opens, or every N " +
-        "minutes while it is open. Match on the app's process name where you know it (Visual Studio is " +
+        "create_capture_rule sets up a standing capture — when a matching window opens, once N minutes " +
+        "after it opens, or every N minutes while it is open. Match on the app's process name where you know it (Visual Studio is " +
         "devenv, VS Code is Code, Word is WINWORD, Excel is EXCEL, Notepad is notepad), otherwise on a " +
         "word from its window title. Include a screenshot unless the user asks for text only. Rule " +
         "captures land in memory, where search_captures finds them. Rules can also be managed in " +
@@ -92,12 +92,14 @@ public sealed class CaptureTools : IChatToolset
     }
 
     [Description("Set up a standing capture of an app's windows into memory: once each time a matching " +
-                 "window opens, or repeatedly every N minutes while one is open. Runs in the background " +
+                 "window opens, once a set delay after it opens, or repeatedly every N minutes while one is open. Runs in the background " +
                  "until deleted or expired, even with screen history off.")]
     private async Task<string> CreateCaptureRule(
         [Description("App process name (e.g. 'devenv', 'notepad') or a word from the window title.")] string match,
-        [Description("'on_open' to capture each newly opened window once, or 'interval' to capture every interval_minutes.")] string trigger,
+        [Description("'on_open' to capture each newly opened window once, 'after_open' to capture it once " +
+                     "delay_seconds after it opens, or 'interval' to capture every interval_minutes.")] string trigger,
         [Description("For 'interval': minutes between captures, 1-1440 (default 5).")] int interval_minutes = 5,
+        [Description("For 'after_open': seconds to wait after the window opens, 1-86400 (default 30; 5 minutes is 300).")] int delay_seconds = 30,
         [Description("Also save screenshots, not just the text.")] bool include_screenshot = true,
         [Description("Optional: stop after this many hours. Leave at 0 to keep running until deleted.")] double expires_in_hours = 0,
         [Description("The user's request in a few words, shown in rule lists.")] string? note = null)
@@ -111,11 +113,14 @@ public sealed class CaptureTools : IChatToolset
             case "on_open" or "open" or "opens" or "when_opened":
                 kind = CaptureRuleTrigger.OnOpen;
                 break;
+            case "after_open" or "after_opened" or "delay" or "delayed":
+                kind = CaptureRuleTrigger.AfterOpen;
+                break;
             case "interval" or "every" or "periodic" or "repeat":
                 kind = CaptureRuleTrigger.Interval;
                 break;
             default:
-                return $"Unknown trigger '{trigger}'. Use 'on_open' or 'interval'.";
+                return $"Unknown trigger '{trigger}'. Use 'on_open', 'after_open' or 'interval'.";
         }
 
         var rule = new CaptureRule
@@ -124,6 +129,7 @@ public sealed class CaptureTools : IChatToolset
             Match = match.Trim(),
             Trigger = kind,
             IntervalMinutes = Math.Clamp(interval_minutes, 1, 1440),
+            DelaySeconds = Math.Clamp(delay_seconds, 1, 86400),
             IncludeScreenshot = include_screenshot,
             ExpiresAt = expires_in_hours > 0 ? DateTimeOffset.Now.AddHours(Math.Min(expires_in_hours, 24 * 365)) : null,
             Note = note?.Trim() ?? string.Empty,
@@ -140,16 +146,19 @@ public sealed class CaptureTools : IChatToolset
         if (open.Count == 0)
         {
             sb.Append($" No window matches '{rule.Match}' right now");
-            sb.Append(rule.Trigger == CaptureRuleTrigger.OnOpen
-                ? "; the next one that opens will be captured about 20 seconds after it appears."
-                : "; capturing starts once one opens.");
+            sb.Append(rule.Trigger switch
+            {
+                CaptureRuleTrigger.OnOpen => "; the next one that opens will be captured about 20 seconds after it appears.",
+                CaptureRuleTrigger.AfterOpen => $"; the next one that opens will be captured about {FormatDelay(rule.DelaySeconds)} later.",
+                _ => "; capturing starts once one opens.",
+            });
         }
         else
         {
             sb.Append($" Currently matching: {string.Join("; ", open.Take(5).Select(w => $"\"{w.Title}\" ({w.ProcessName})"))}.");
-            sb.Append(rule.Trigger == CaptureRuleTrigger.OnOpen
-                ? " Those are already open, so they are skipped; windows opened from now on are captured."
-                : " The first capture happens within about 20 seconds.");
+            sb.Append(rule.Trigger == CaptureRuleTrigger.Interval
+                ? " The first capture happens within about 20 seconds."
+                : " Those are already open, so they are skipped; windows opened from now on are captured.");
         }
 
         if (open.Count > 0 && !open.Any(w => string.Equals(w.ProcessName, rule.Match, StringComparison.OrdinalIgnoreCase)))
@@ -226,11 +235,25 @@ public sealed class CaptureTools : IChatToolset
     /// <summary>"notepad · when it opens · screenshot + text" — shared with the Settings list.</summary>
     public static string Describe(CaptureRule rule)
     {
-        var when = rule.Trigger == CaptureRuleTrigger.OnOpen
-            ? "when it opens"
-            : $"every {Math.Clamp(rule.IntervalMinutes, 1, 1440)} min";
+        var when = rule.Trigger switch
+        {
+            CaptureRuleTrigger.OnOpen => "when it opens",
+            CaptureRuleTrigger.AfterOpen => $"{FormatDelay(rule.DelaySeconds)} after it opens",
+            _ => $"every {Math.Clamp(rule.IntervalMinutes, 1, 1440)} min",
+        };
         var what = rule.IncludeScreenshot ? "screenshot + text" : "text only";
         return $"{rule.Match} · {when} · {what}";
+    }
+
+    /// <summary>"45 s", "5 min", "1 h 30 min" — a delay in seconds as people would say it.</summary>
+    public static string FormatDelay(int seconds)
+    {
+        var span = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 86400));
+        if (span.TotalMinutes < 1)
+            return $"{span.Seconds} s";
+        if (span.TotalHours < 1)
+            return span.Seconds == 0 ? $"{span.Minutes} min" : $"{span.Minutes} min {span.Seconds} s";
+        return span.Minutes == 0 ? $"{(int)span.TotalHours} h" : $"{(int)span.TotalHours} h {span.Minutes} min";
     }
 
     /// <summary>Short, readable, and unique enough for a handful of rules.</summary>

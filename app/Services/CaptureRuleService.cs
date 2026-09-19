@@ -281,12 +281,13 @@ public sealed class CaptureRuleService : IDisposable
                 {
                     if (!seen.TryGetValue(window.Hwnd, out var state))
                     {
-                        // An on-open rule ignores what was already open when it started; an interval
-                        // rule covers those too. Either way, wait a tick so the window has content.
+                        // On-open and after-open rules ignore what was already open when they started
+                        // (its open time is unknown); an interval rule covers those too. Either way,
+                        // wait at least a tick so the window has content.
                         seen[window.Hwnd] = new WindowState
                         {
                             FirstSeen = now,
-                            Done = firstTick && rule.Trigger == CaptureRuleTrigger.OnOpen,
+                            Done = firstTick && rule.Trigger != CaptureRuleTrigger.Interval,
                         };
                         continue;
                     }
@@ -294,10 +295,14 @@ public sealed class CaptureRuleService : IDisposable
                     if (state.Done)
                         continue;
 
-                    var isDue = rule.Trigger == CaptureRuleTrigger.OnOpen
-                        ? true
-                        : state.LastCapture is not { } last
-                          || now - last >= TimeSpan.FromMinutes(Math.Clamp(rule.IntervalMinutes, 1, 1440));
+                    var isDue = rule.Trigger switch
+                    {
+                        CaptureRuleTrigger.OnOpen => true,
+                        CaptureRuleTrigger.AfterOpen =>
+                            now - state.FirstSeen >= TimeSpan.FromSeconds(Math.Clamp(rule.DelaySeconds, 1, 86400)),
+                        _ => state.LastCapture is not { } last
+                             || now - last >= TimeSpan.FromMinutes(Math.Clamp(rule.IntervalMinutes, 1, 1440)),
+                    };
 
                     if (isDue)
                         due.Add((rule, window));
@@ -329,7 +334,7 @@ public sealed class CaptureRuleService : IDisposable
                 if (StateFor(rule.Id, window.Hwnd) is { } state)
                 {
                     state.LastCapture = now;
-                    if (rule.Trigger == CaptureRuleTrigger.OnOpen)
+                    if (rule.Trigger != CaptureRuleTrigger.Interval)
                         state.Done = true;
                 }
 
