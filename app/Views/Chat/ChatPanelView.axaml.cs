@@ -16,6 +16,7 @@ using Avalonia.VisualTree;
 using CommunityToolkit.Mvvm.Input;
 using Floaty.IconFont;
 using Floaty.Services;
+using Floaty.Services.Tools;
 using Floaty.Ui;
 using Microsoft.Extensions.AI;
 
@@ -2735,7 +2736,7 @@ public partial class ChatPanelView : UserControl
             var lastScrollMs = 0L;
 
             await foreach (var chunk in _chatService.GetStreamingResponseAsync(
-                history, mcpServer, citations, skillInstructions, ApproveExecAsync, generatedImages))
+                history, mcpServer, citations, skillInstructions, ApproveToolAsync, generatedImages))
             {
                 Debug.WriteLine($"[Chat] Received chunk: {chunk}");
                 if (string.IsNullOrEmpty(chunk.Text))
@@ -2868,31 +2869,29 @@ public partial class ChatPanelView : UserControl
         }
     }
 
-    // Completes when the user clicks Run/Cancel on the exec approval panel; set while a command is pending.
+    // Completes when the user clicks confirm/Cancel on the approval panel; set while a request is pending.
     private TaskCompletionSource<bool>? _pendingExecApproval;
 
-    // Called by the exec tool (possibly off the UI thread) before it runs a command: shows the approval
-    // panel with the exact command, waits for Run/Cancel, records the outcome as a system note, and returns
-    // whether the user approved. All UI mutation is marshaled to the main thread.
-    private async Task<bool> ApproveExecAsync(ExecApprovalRequest request)
+    // Called by a gated tool (exec, update_system_prompt, install_update — possibly off the UI thread)
+    // before it acts: shows the approval panel with exactly what will happen, waits for the user,
+    // records the outcome as a system note, and returns whether they approved. All UI mutation is
+    // marshaled to the main thread.
+    private async Task<bool> ApproveToolAsync(ToolApprovalRequest request)
     {
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            // A second request while one is open would orphan the first; decline it rather than hang.
+            _pendingExecApproval?.TrySetResult(false);
             _pendingExecApproval = tcs;
-            ExecApprovalHeaderLabel.Text = $"Run this command in {request.ShellName}?";
-            ExecApprovalCommandLabel.Text = request.Command;
+            ExecApprovalIcon.Text = request.Icon;
+            ExecApprovalHeaderLabel.Text = request.Header;
+            ExecApprovalCommandLabel.Text = request.Detail;
+            ExecApprovalRunButton.Content = request.ConfirmLabel;
 
-            if (!string.IsNullOrWhiteSpace(request.WorkingDirectory))
-            {
-                ExecApprovalDirLabel.Text = $"in {request.WorkingDirectory}";
-                ExecApprovalDirLabel.IsVisible = true;
-            }
-            else
-            {
-                ExecApprovalDirLabel.IsVisible = false;
-            }
+            ExecApprovalDirLabel.Text = request.SubDetail ?? string.Empty;
+            ExecApprovalDirLabel.IsVisible = !string.IsNullOrWhiteSpace(request.SubDetail);
 
             ExecApprovalPanel.IsVisible = true;
             ScrollToLatest();
@@ -2902,10 +2901,10 @@ public partial class ChatPanelView : UserControl
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            ExecApprovalPanel.IsVisible = false;
-            var note = approved ? $"⚡ Ran in {request.ShellName}: {request.Command}"
-                                : $"🚫 Declined: {request.Command}";
-            Messages.Add(new ChatMessageVm(isUser: false, note, isSystemNote: true));
+            if (_pendingExecApproval is null)
+                ExecApprovalPanel.IsVisible = false;
+            Messages.Add(new ChatMessageVm(isUser: false,
+                approved ? request.ApprovedNote : request.DeclinedNote, isSystemNote: true));
             RefreshMessageAreaHeight();
             ScrollToLatest();
         });

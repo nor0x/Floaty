@@ -94,6 +94,9 @@ public sealed class AccentPalette
     public static string Normalize(string? hex) =>
         TryParse(hex, out var r, out var g, out var b) ? ToHex(r, g, b) : DefaultHex;
 
+    /// <summary>True when <paramref name="hex"/> parses as "#RGB"/"#RRGGBB" (the "#" is optional).</summary>
+    public static bool IsValid(string? hex) => TryParse(hex, out _, out _, out _);
+
     private static bool TryParse(string? hex, out byte r, out byte g, out byte b)
     {
         r = g = b = 0;

@@ -17,13 +17,8 @@ namespace Floaty.ViewModels.Settings;
 /// </remarks>
 public sealed partial class SettingsViewModel : ObservableObject
 {
-    private const string DefaultSystemPrompt =
-        "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
-        "what's on their screen, and Floaty may also snapshot windows automatically as the user switches " +
-        "between them (screen history); both are stored in local memory. When the user asks about " +
-        "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
-        "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
-        "it returns. Be concise.";
+    // One copy shared with ChatService, so "Restore default" restores the prompt the chat actually uses.
+    private const string DefaultSystemPrompt = SettingsService.DefaultSystemPrompt;
 
     public enum SettingsSection
     {
@@ -104,6 +99,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ILocalEmbeddingFactory _localEmbeddings;
     private readonly ISpeechSynthesisService _speech;
     private readonly IVoiceOutputService _voiceOutput;
+    private readonly CaptureRuleService _captureRules;
 
     public SettingsViewModel(
         SettingsService settings,
@@ -114,7 +110,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         AiClientFactory aiClients,
         ILocalEmbeddingFactory localEmbeddings,
         ISpeechSynthesisService speech,
-        IVoiceOutputService voiceOutput)
+        IVoiceOutputService voiceOutput,
+        CaptureRuleService captureRules)
     {
         _settings = settings;
         _skillService = skillService;
@@ -125,6 +122,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _localEmbeddings = localEmbeddings;
         _speech = speech;
         _voiceOutput = voiceOutput;
+        _captureRules = captureRules;
     }
 
     /// <summary>
@@ -161,6 +159,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     // Voice output can also be flipped from the chat panel's speaker button while this page is open;
     // like placement, an untouched checkbox here follows it and a touched one waits for Save.
     private bool _voiceOutputEdited;
+
+    // The chat's settings tools (set_appearance, set_sounds, set_voice_output, update_system_prompt) write
+    // these while this page may be open. Same rule: untouched here follows the live value.
+    private bool _accentEdited;
+    private bool _soundsEdited;
+    private bool _speechEdited;
+    private bool _systemPromptEdited;
+
+    // Capture rules are added/removed both here and by the chat's capture-rule tools.
+    private bool _captureRulesEdited;
+
+    // Add-capture-rule form state (Screen history page).
+    private string _newRuleMatch = string.Empty;
+    private int _newRuleTriggerIndex;
+    private double _newRuleAmount = 5;
+    private bool _newRuleIncludeScreenshot = true;
+    private string? _captureRuleError;
 
     // Add-MCP-server form state. Args/Env/Headers are edited as text and parsed on Add.
     private McpServerConfig _newServer = new();
@@ -255,6 +270,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             RememberDroppedFiles = current.RememberDroppedFiles,
             AttachSelectionOnSummon = current.AttachSelectionOnSummon,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
+            CaptureRules = current.CaptureRules.Select(r => r.Clone()).ToList(),
             DisabledSkills = new List<string>(current.DisabledSkills),
             SttSelectedModelId = current.SttSelectedModelId,
             VoiceSendMode = current.VoiceSendMode,
@@ -275,12 +291,21 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ringSizeEdited = false;
         _ringImageEdited = false;
         _voiceOutputEdited = false;
+        _accentEdited = false;
+        _soundsEdited = false;
+        _speechEdited = false;
+        _systemPromptEdited = false;
+        _captureRulesEdited = false;
         _speechTestStatus = null;
 
         // The overlay keeps editing the live config while this window is open, so follow it rather
         // than sitting on the snapshot taken here (see OnLiveConfigChanged).
         _settings.Changed -= OnLiveConfigChanged;
         _settings.Changed += OnLiveConfigChanged;
+
+        // "Last captured" in the rule list moves whenever a rule fires.
+        _captureRules.Captured -= OnCaptureRuleFired;
+        _captureRules.Captured += OnCaptureRuleFired;
 
         _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
         _originalEmbeddingRole = RoleKey(_config.EmbeddingRole);
@@ -347,6 +372,31 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         if (!_voiceOutputEdited)
             _config.VoiceOutputEnabled = current.VoiceOutputEnabled;
+
+        if (!_speechEdited)
+        {
+            _config.SpeechVoice = current.SpeechVoice;
+            _config.SpeechSpeed = current.SpeechSpeed;
+        }
+
+        if (!_accentEdited)
+            _config.AccentColor = current.AccentColor;
+
+        if (!_soundsEdited)
+        {
+            _config.CaptureSoundEnabled = current.CaptureSoundEnabled;
+            _config.CaptureSoundFileName = current.CaptureSoundFileName;
+            _config.AssistantDoneSoundEnabled = current.AssistantDoneSoundEnabled;
+            _config.AssistantDoneSoundFileName = current.AssistantDoneSoundFileName;
+            _config.SoundVolume = current.SoundVolume;
+        }
+
+        if (!_captureRulesEdited)
+            _config.CaptureRules = current.CaptureRules.Select(r => r.Clone()).ToList();
+
+        // update_system_prompt writes floaty.md directly; the Save below writes this box back wholesale.
+        if (!_systemPromptEdited)
+            _systemPrompt = _settings.GetSystemPrompt(DefaultSystemPrompt);
 
         // The set_ring_image chat tool writes a new file and points the config at it while this page may
         // be open. Without adopting it, the wholesale Save below would quietly put the old ring back.
@@ -490,6 +540,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ringSizeEdited = false;
         _ringImageEdited = false;
         _voiceOutputEdited = false;
+        _accentEdited = false;
+        _soundsEdited = false;
+        _speechEdited = false;
+        _systemPromptEdited = false;
+        _captureRulesEdited = false;
     }
 
     private bool IsSkillEnabled(string name) =>
@@ -522,6 +577,55 @@ public sealed partial class SettingsViewModel : ObservableObject
             // Opening the folder is best-effort.
         }
     }
+
+    private void AddRule()
+    {
+        _captureRuleError = null;
+        var match = _newRuleMatch.Trim();
+        if (match.Length == 0)
+        {
+            _captureRuleError = "Enter an app name (e.g. notepad, devenv) or a word from the window title.";
+            return;
+        }
+
+        var amount = (int)Math.Round(_newRuleAmount);
+        _config.CaptureRules.Add(new CaptureRule
+        {
+            Id = Services.Tools.CaptureTools.NewId(),
+            Match = match,
+            Trigger = _newRuleTriggerIndex switch
+            {
+                1 => CaptureRuleTrigger.AfterOpen,
+                2 => CaptureRuleTrigger.Interval,
+                _ => CaptureRuleTrigger.OnOpen,
+            },
+            IntervalMinutes = Math.Clamp(amount, 1, 1440),
+            DelaySeconds = Math.Clamp(amount, 1, 86400),
+            IncludeScreenshot = _newRuleIncludeScreenshot,
+            CreatedAt = DateTimeOffset.Now,
+        });
+
+        _captureRulesEdited = true;
+        _saved = false;
+        _newRuleMatch = string.Empty;
+    }
+
+    private string RuleDetail(CaptureRule rule)
+    {
+        var parts = new List<string>();
+        if (!rule.Enabled)
+            parts.Add("paused");
+        if (rule.ExpiresAt is { } exp)
+            parts.Add(exp <= DateTimeOffset.Now ? "expired" : $"until {exp:ddd d MMM HH:mm}");
+        if (_captureRules.LastCaptured(rule.Id) is { } last)
+            parts.Add($"last captured {last:HH:mm}");
+        if (!string.IsNullOrWhiteSpace(rule.Note))
+            parts.Add($"“{rule.Note}”");
+        return string.Join(" · ", parts);
+    }
+
+    private void OnCaptureRuleFired(object? sender, CaptureRuleFired e) =>
+        Avalonia.Threading.Dispatcher.UIThread.Post(RaiseAllChanged);
 
     private void AddServer()
     {
@@ -1102,6 +1206,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void SetSoundEnabled(SoundSlot slot, bool enabled)
     {
         slot.SetEnabled(_config, enabled);
+        _soundsEdited = true;
         _saved = false;
     }
 
@@ -1111,6 +1216,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
 
         slot.SetSelection(_config, value);
+        _soundsEdited = true;
         _saved = false;
     }
 
@@ -1129,6 +1235,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 return;
 
             _config.SoundVolume = clamped;
+            _soundsEdited = true;
             _saved = false;
             OnPropertyChanged();
         }
@@ -1154,6 +1261,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void SelectAccent(string value)
     {
         _config.AccentColor = SettingsService.NormalizeAccentColor(value);
+        _accentEdited = true;
         _saved = false;
         _settings.PreviewAccentColor(_config.AccentColor);
     }
@@ -1178,6 +1286,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public void Dispose()
     {
         _settings.Changed -= OnLiveConfigChanged;
+        _captureRules.Captured -= OnCaptureRuleFired;
         _settings.PreviewRingSize(_settings.Current.RingSize);
         _settings.PreviewAccentColor(_settings.Current.AccentColor);
     }

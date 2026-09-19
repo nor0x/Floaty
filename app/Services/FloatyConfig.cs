@@ -100,6 +100,69 @@ public enum VoiceSendMode
 }
 
 /// <summary>
+/// What makes a <see cref="CaptureRule"/> fire.
+/// </summary>
+public enum CaptureRuleTrigger
+{
+    /// <summary>Once for each matching window that opens while the rule is active.</summary>
+    OnOpen,
+
+    /// <summary>Once for each matching window, <see cref="CaptureRule.DelaySeconds"/> after it opens.</summary>
+    AfterOpen,
+
+    /// <summary>Every <see cref="CaptureRule.IntervalMinutes"/> while a matching window is open.</summary>
+    Interval,
+}
+
+/// <summary>
+/// "Capture Notepad every time it opens", "capture Visual Studio every 5 minutes": a standing request to
+/// capture a named app's windows into memory. Runs independently of <see cref="FloatyConfig.ScreenHistoryMode"/>
+/// (see <c>CaptureRuleService</c>). Created from chat or Settings → Screen history.
+/// </summary>
+public sealed class CaptureRule
+{
+    /// <summary>Short stable id the chat tools and the Settings list address the rule by.</summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Which windows: an exact process name ("devenv", "notepad") or a case-insensitive substring of the
+    /// process name or window title ("Visual Studio").
+    /// </summary>
+    public string Match { get; set; } = string.Empty;
+
+    /// <inheritdoc cref="CaptureRuleTrigger"/>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public CaptureRuleTrigger Trigger { get; set; } = CaptureRuleTrigger.OnOpen;
+
+    /// <summary>Minutes between captures for <see cref="CaptureRuleTrigger.Interval"/>. Clamped to 1–1440 on use.</summary>
+    public int IntervalMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// Seconds to wait after a window opens for <see cref="CaptureRuleTrigger.AfterOpen"/>. Clamped to
+    /// 1–86400 on use. Measured from when the rule's poll first sees the window, so it lands up to one
+    /// poll (10 s) later than the exact open.
+    /// </summary>
+    public int DelaySeconds { get; set; } = 30;
+
+    /// <summary>Also save a screenshot (and caption it, if a vision model is assigned), not just the text.</summary>
+    public bool IncludeScreenshot { get; set; } = true;
+
+    /// <summary>Paused rules are kept but never fire.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>When the rule stops firing ("for the next two hours"). Null runs until removed.</summary>
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    /// <summary>The request in the user's own words, shown in lists. Optional.</summary>
+    public string Note { get; set; } = string.Empty;
+
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
+
+    /// <summary>A copy, for the Settings page's working clone of the config.</summary>
+    public CaptureRule Clone() => (CaptureRule)MemberwiseClone();
+}
+
+/// <summary>
 /// User-editable configuration for Floaty, persisted as JSON in <c>~/.floaty/config.json</c>.
 /// Mirrors the local-first design in readme.md.
 /// </summary>
@@ -212,6 +275,12 @@ public sealed class FloatyConfig
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ScreenHistoryMode ScreenHistoryMode { get; set; } = ScreenHistoryMode.TextOnly;
+
+    /// <summary>
+    /// Standing "capture this app when it opens / every N minutes" requests. Independent of
+    /// <see cref="ScreenHistoryMode"/>: they are explicit, so they run even with history off.
+    /// </summary>
+    public List<CaptureRule> CaptureRules { get; set; } = new();
 
     /// <summary>
     /// When a window is attached to a prompt via @, also save that capture into memory

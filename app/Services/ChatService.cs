@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using Anthropic.Models.Messages;
+using Floaty.IconFont;
+using Floaty.Services.Tools;
 using Microsoft.Extensions.AI;
 using OpenAI.Responses;
 
@@ -17,7 +19,7 @@ public interface IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default);
 
@@ -26,7 +28,7 @@ public interface IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default);
 }
@@ -41,12 +43,6 @@ public interface IChatService
 public readonly record struct ChatChunk(string Text, bool IsReasoning);
 
 /// <summary>
-/// A pending shell command awaiting the user's approval before the <c>exec</c> tool runs it. Surfaced from
-/// the tool back to the overlay via the approval callback threaded through <see cref="IChatService"/>.
-/// </summary>
-public sealed record ExecApprovalRequest(string Command, string ShellName, string? WorkingDirectory);
-
-/// <summary>
 /// Microsoft.Extensions.AI-backed chat service. Gets its <see cref="IChatClient"/> from
 /// <see cref="AiClientFactory"/>, which decides — from the chat role in settings — which provider
 /// answers. Exposes a <c>search_captures</c> tool plus, when scoped via a <c>/server</c> slash
@@ -54,16 +50,7 @@ public sealed record ExecApprovalRequest(string Command, string ShellName, strin
 /// </summary>
 public sealed class ChatService : IChatService
 {
-    private const string DefaultSystemPrompt =
-        "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
-        "what's on their screen, and Floaty may also snapshot windows automatically as the user switches " +
-        "between them (screen history); both are stored in local memory. When the user asks about " +
-        "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
-        "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
-        "it returns. Search results show only the passage that matched; if it looks cut off or doesn't " +
-        "contain the detail you need, call read_capture with that result's 'file:' value before " +
-        "concluding the information isn't there. When the user asks you to remember a durable fact, " +
-        "call the save_memory tool to persist it. Be concise.";
+    private const string DefaultSystemPrompt = SettingsService.DefaultSystemPrompt;
 
     // Characters of a capture shown per search hit. Matches TextChunker.ChunkChars so a chunk lands
     // in the result whole rather than being cut in half a second time.
@@ -83,10 +70,6 @@ public sealed class ChatService : IChatService
     // from GetStreamingResponseAsync into the function-invocation middleware.
     private static readonly AsyncLocal<ICollection<MemoryCitation>?> _citationSink = new();
 
-    // Per-turn callback the exec tool uses to ask the UI to approve a command before running it when
-    // approval mode is enabled. Flows via the async call chain just like the citation sink.
-    private static readonly AsyncLocal<Func<ExecApprovalRequest, Task<bool>>?> _execApprovalSink = new();
-
     // Per-turn sink the image tools record what they produced into, so the UI can show the picture
     // rather than the model having to describe it back. Same mechanism as the citation sink.
     private static readonly AsyncLocal<ICollection<GeneratedImageFile>?> _imageSink = new();
@@ -98,13 +81,13 @@ public sealed class ChatService : IChatService
     private readonly IImageGenerationService _images;
     private readonly IAppAssets _appAssets;
     private readonly INotificationService _notifications;
+    private readonly IReadOnlyList<IChatToolset> _toolsets;
     private readonly AIFunction _searchTool;
     private readonly AIFunction _readCaptureTool;
     private readonly AIFunction _saveTool;
     private readonly AIFunction _execTool;
     private readonly AIFunction _generateImageTool;
     private readonly AIFunction _editImageTool;
-    private readonly AIFunction _setRingImageTool;
     private readonly AIFunction _notifyTool;
     private readonly AIFunction _listNotificationsTool;
     private readonly AIFunction _cancelNotificationTool;
@@ -116,7 +99,8 @@ public sealed class ChatService : IChatService
         IMcpService mcp,
         IImageGenerationService images,
         IAppAssets appAssets,
-        INotificationService notifications)
+        INotificationService notifications,
+        IEnumerable<IChatToolset> toolsets)
     {
         _settings = settings;
         _clients = clients;
@@ -125,6 +109,7 @@ public sealed class ChatService : IChatService
         _images = images;
         _appAssets = appAssets;
         _notifications = notifications;
+        _toolsets = toolsets.ToList();
 
         _searchTool = AIFunctionFactory.Create(SearchCaptures, name: "search_captures");
         _readCaptureTool = AIFunctionFactory.Create(ReadCapture, name: "read_capture");
@@ -132,7 +117,6 @@ public sealed class ChatService : IChatService
         _execTool = AIFunctionFactory.Create(Exec, name: "exec");
         _generateImageTool = AIFunctionFactory.Create(GenerateImage, name: "generate_image");
         _editImageTool = AIFunctionFactory.Create(EditImage, name: "edit_image");
-        _setRingImageTool = AIFunctionFactory.Create(SetRingImage, name: "set_ring_image");
         _notifyTool = AIFunctionFactory.Create(Notify, name: "notify");
         _listNotificationsTool = AIFunctionFactory.Create(ListNotifications, name: "list_notifications");
         _cancelNotificationTool = AIFunctionFactory.Create(CancelNotification, name: "cancel_notification");
@@ -143,7 +127,7 @@ public sealed class ChatService : IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -159,13 +143,19 @@ public sealed class ChatService : IChatService
         // Expose the sink so the search_captures tool can record which sources it returned this turn.
         _citationSink.Value = citations;
 
-        // Expose the approval callback so the exec tool can gate each command on the user's confirmation.
-        _execApprovalSink.Value = execApproval;
+        // Expose the approval callback so exec and the other gated tools can ask the user first.
+        ToolApproval.Current = toolApproval;
 
         // Expose the sink the image tools hand their results to, for the UI to render.
         _imageSink.Value = generatedImages;
 
         var messages = new List<ChatMessage> { new(ChatRole.System, _settings.GetSystemPrompt(DefaultSystemPrompt)) };
+
+        // The model has no other way to know what time it is, and reminders, "what's new since…" and
+        // system_info all need it. Stated in the user's own time zone, the frame they ask in.
+        var now = DateTimeOffset.Now;
+        messages.Add(new ChatMessage(ChatRole.System,
+            $"The current local date and time is {now:dddd, d MMMM yyyy, HH:mm} ({TimeZoneInfo.Local.DisplayName})."));
 
         // When invoked via /skill, inject that skill's instructions as additional system guidance.
         if (!string.IsNullOrWhiteSpace(skillInstructions))
@@ -199,7 +189,6 @@ public sealed class ChatService : IChatService
         {
             tools.Add(_generateImageTool);
             tools.Add(_editImageTool);
-            tools.Add(_setRingImageTool);
             messages.Add(new ChatMessage(ChatRole.System,
                 "You can create pictures with the generate_image tool and restyle existing ones with " +
                 "edit_image. Call them when the user asks for a picture, drawing, illustration, logo, " +
@@ -221,14 +210,8 @@ public sealed class ChatService : IChatService
             tools.Add(_listNotificationsTool);
             tools.Add(_cancelNotificationTool);
 
-            // The model has no other way to know what time it is — nothing else in Floaty puts a clock
-            // in the prompt — and "remind me at 3pm" is unanswerable without one. Stated in the user's
-            // own time zone, because that is the frame every reminder they ask for is in.
-            var now = DateTimeOffset.Now;
             messages.Add(new ChatMessage(ChatRole.System,
-                $"The current local date and time is {now:dddd, d MMMM yyyy, HH:mm} " +
-                $"({TimeZoneInfo.Local.DisplayName}). You can raise notifications on the user's " +
-                "desktop with the notify tool — use it to remind them of something, set an alarm or " +
+                "You can raise notifications on the user's desktop with the notify tool — use it to remind them of something, set an alarm or " +
                 "timer, or flag that a long task finished. Leave both time arguments off to notify " +
                 "immediately; pass in_seconds for anything relative (\"in 20 minutes\" is 1200) and " +
                 "at_local_time only for an explicit clock time, computed from the current time above. " +
@@ -236,6 +219,16 @@ public sealed class ChatService : IChatService
                 "operating system, so they still fire when Floaty is closed. Use list_notifications " +
                 "to see what is pending and cancel_notification with an id from that list to remove " +
                 "one. Tell the user the time you actually scheduled, so a mistake is visible."));
+        }
+
+        foreach (var toolset in _toolsets)
+        {
+            if (!toolset.IsAvailable)
+                continue;
+
+            tools.AddRange(toolset.Tools);
+            if (!string.IsNullOrWhiteSpace(toolset.Guidance))
+                messages.Add(new ChatMessage(ChatRole.System, toolset.Guidance));
         }
 
         if (!string.IsNullOrWhiteSpace(mcpServer))
@@ -449,13 +442,13 @@ public sealed class ChatService : IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ExecApprovalRequest, Task<bool>>? execApproval = null,
+        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
         await foreach (var chunk in GetStreamingResponseAsync(
-            history, mcpServer, citations, skillInstructions, execApproval, generatedImages, cancellationToken)
+            history, mcpServer, citations, skillInstructions, toolApproval, generatedImages, cancellationToken)
             .WithCancellation(cancellationToken))
         {
             // Reasoning is scaffolding, not the answer; a caller that wanted the whole reply as one
@@ -576,13 +569,18 @@ public sealed class ChatService : IChatService
             return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
 
         // Refuse rather than run un-approved when approval mode requires a prompt and no callback is wired.
-        var approve = _execApprovalSink.Value;
-        if (approve is null)
-            return "Cannot run a command: no approval channel is available in this context.";
-
         var shellName = ShellExecutor.ShellDisplayName(config);
-        var approved = await approve(new ExecApprovalRequest(command, shellName, workingDirectory));
-        if (!approved)
+        var approved = await ToolApproval.RequestAsync(new ToolApprovalRequest(
+            Header: $"Run this command in {shellName}?",
+            Detail: command,
+            SubDetail: string.IsNullOrWhiteSpace(workingDirectory) ? null : $"in {workingDirectory}",
+            ConfirmLabel: "Run",
+            ApprovedNote: $"⚡ Ran in {shellName}: {command}",
+            DeclinedNote: $"🚫 Declined: {command}",
+            Icon: TablerLine.Terminal2));
+        if (approved is null)
+            return "Cannot run a command: no approval channel is available in this context.";
+        if (approved == false)
             return "The user declined to run this command.";
 
         return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
@@ -678,52 +676,6 @@ public sealed class ChatService : IChatService
                 try { File.Delete(temporary); } catch { /* a leftover temp file is not worth failing the turn */ }
             }
         }
-    }
-
-    [Description("Set the image of Floaty's floating ring overlay. Pass a file name returned by " +
-                 "generate_image or edit_image, or a built-in ring (ring1.png … ring7.png). The overlay " +
-                 "updates immediately and the choice persists.")]
-    private Task<string> SetRingImage(
-        [Description("The image file name to use as the ring.")] string file)
-    {
-        var name = Path.GetFileName((file ?? string.Empty).Trim());
-        if (string.IsNullOrWhiteSpace(name))
-            return Task.FromResult("No image file was specified.");
-
-        string ringName;
-        if (_settings.IsBuiltInRingImage(name))
-        {
-            ringName = name;
-        }
-        else
-        {
-            // Only generated images may be promoted to rings: this tool acts on model output, so its
-            // reach is deliberately limited to the folder Floaty itself writes.
-            var source = Path.Combine(FloatyPaths.GeneratedImages, name);
-            if (!File.Exists(source))
-                return Task.FromResult(
-                    $"No generated image named '{name}'. Call generate_image first, or name a built-in ring (ring1.png … ring7.png).");
-
-            // A distinct prefix in the destination, so a ring the user put there themselves can never
-            // be clobbered by a generated one that happens to share a name.
-            ringName = $"ring-{Path.GetFileNameWithoutExtension(name)}.png";
-            try
-            {
-                File.Copy(source, Path.Combine(FloatyPaths.RingImages, ringName), overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                return Task.FromResult($"Could not copy the image into the ring folder: {ex.Message}");
-            }
-        }
-
-        // Mutate-then-Save, the same way the ring's own context menu does it. The Changed event reaches
-        // OverlayWindow, which re-applies the ring on the UI thread — no restart, and it persists.
-        var config = _settings.Current;
-        config.RingImageFileName = ringName;
-        _settings.Save(config);
-
-        return Task.FromResult($"Floaty's ring is now '{ringName}'.");
     }
 
     [Description("Show a notification on the user's desktop, now or at a future time. Use it to remind " +

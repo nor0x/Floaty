@@ -81,6 +81,11 @@ public partial class App : Application
         }
 #endif
 
+        // Capture rules run whatever the screen-history mode is, and stop with the overlay like it.
+        var captureRules = Services.GetRequiredService<CaptureRuleService>();
+        captureRules.Start();
+        overlay.Closed += (_, _) => captureRules.Dispose();
+
         base.OnFrameworkInitializationCompleted();
     }
 
@@ -100,6 +105,16 @@ public partial class App : Application
         // Text-to-speech through whichever provider holds the speech role (voice output).
         services.AddSingleton<ISpeechSynthesisService, SpeechSynthesisService>();
         services.AddSingleton<IChatService, ChatService>();
+
+        // Extra chat tools, each with its own guidance: Floaty's own settings, updates and release
+        // notes, and OS integration. ChatService folds in whichever report themselves available.
+        services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.SettingsTools>();
+        services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.UpdateTools>();
+        services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.SystemTools>();
+        services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.CaptureTools>();
+
+        // Capture rules ("capture Notepad whenever it opens"): polls the window list while a rule is live.
+        services.AddSingleton<CaptureRuleService>();
 
         // The day's screen-history log (~/.floaty/captures/YYYY-MM-DD.md) and the ledger of lines
         // already written to it. Singleton because that ledger is the whole point: it spans captures.
@@ -160,6 +175,8 @@ public partial class App : Application
         // Native toasts behind the chat's notify / list_notifications / cancel_notification tools.
         // Scheduled ones are handed to Windows, so a reminder fires even after Floaty is quit.
         services.AddSingleton<INotificationService, Platforms.Windows.WindowsNotificationService>();
+        // Clipboard, open, media, volume, window switching and system info for the chat's SystemTools.
+        services.AddSingleton<ISystemIntegrationService, Platforms.Windows.WindowsSystemIntegrationService>();
         // On-device embedding models (ONNX Runtime), so memory and screen history can run without a cloud key.
         services.AddSingleton<ILocalEmbeddingFactory, Platforms.Windows.WindowsLocalEmbeddingFactory>();
 
@@ -182,6 +199,7 @@ public partial class App : Application
         services.AddSingleton<ISoundService, NullSoundService>();
         services.AddSingleton<IVoiceOutputService, NullVoiceOutputService>();
         services.AddSingleton<INotificationService, NullNotificationService>();
+        services.AddSingleton<ISystemIntegrationService, NullSystemIntegrationService>();
         services.AddSingleton<ILocalEmbeddingFactory, NullLocalEmbeddingFactory>();
 #endif
     }

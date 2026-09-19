@@ -312,6 +312,10 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         {
             ApplyRingImage();
             ApplyRingSize(_settings.Current.RingSize);
+
+            // The app-wide accent brushes otherwise only move on a Settings preview; a chat tool
+            // (set_appearance) saves without previewing first.
+            (Application.Current as App)?.ApplyAccentColor(_settings.Current.AccentColor);
             ApplyAlwaysOnTop(_settings.Current.AlwaysOnTop);
             ApplyAlwaysOnTopMenuState();
 

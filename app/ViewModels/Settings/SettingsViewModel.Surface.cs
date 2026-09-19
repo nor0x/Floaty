@@ -45,6 +45,7 @@ public sealed partial class SettingsViewModel
             if (_systemPrompt == value)
                 return;
             _systemPrompt = value;
+            _systemPromptEdited = true;
             _saved = false;
             OnPropertyChanged();
             RestoreSystemPromptCommand.NotifyCanExecuteChanged();
@@ -143,25 +144,25 @@ public sealed partial class SettingsViewModel
     public bool CaptureSoundEnabled
     {
         get => _config.CaptureSoundEnabled;
-        set { _config.CaptureSoundEnabled = value; _saved = false; OnPropertyChanged(); }
+        set { _config.CaptureSoundEnabled = value; _soundsEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     public bool AssistantDoneSoundEnabled
     {
         get => _config.AssistantDoneSoundEnabled;
-        set { _config.AssistantDoneSoundEnabled = value; _saved = false; OnPropertyChanged(); }
+        set { _config.AssistantDoneSoundEnabled = value; _soundsEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     public string CaptureSoundFileName
     {
         get => _config.CaptureSoundFileName;
-        set { _config.CaptureSoundFileName = value ?? string.Empty; _saved = false; OnPropertyChanged(); }
+        set { _config.CaptureSoundFileName = value ?? string.Empty; _soundsEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     public string AssistantDoneSoundFileName
     {
         get => _config.AssistantDoneSoundFileName;
-        set { _config.AssistantDoneSoundFileName = value ?? string.Empty; _saved = false; OnPropertyChanged(); }
+        set { _config.AssistantDoneSoundFileName = value ?? string.Empty; _soundsEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     [RelayCommand]
@@ -250,13 +251,13 @@ public sealed partial class SettingsViewModel
     public string SpeechVoice
     {
         get => _config.SpeechVoice;
-        set { _config.SpeechVoice = value ?? string.Empty; _saved = false; OnPropertyChanged(); }
+        set { _config.SpeechVoice = value ?? string.Empty; _speechEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     public double SpeechSpeed
     {
         get => _config.SpeechSpeed;
-        set { _config.SpeechSpeed = value; _saved = false; OnPropertyChanged(); }
+        set { _config.SpeechSpeed = value; _speechEdited = true; _saved = false; OnPropertyChanged(); }
     }
 
     public string SpeechInstructions
@@ -280,6 +281,89 @@ public sealed partial class SettingsViewModel
 
     [RelayCommand]
     private Task TestVoice() => TestSpeechVoice();
+
+    // --- Capture rules (Screen history page) ---
+
+    /// <summary>One line in the rule list: the rule plus its display text, computed on repaint.</summary>
+    public sealed record CaptureRuleRow(CaptureRule Rule, string Summary, string Detail);
+
+    public IReadOnlyList<CaptureRuleRow> CaptureRuleRows =>
+        _config.CaptureRules.Select(r => new CaptureRuleRow(r, Services.Tools.CaptureTools.Describe(r), RuleDetail(r))).ToList();
+
+    public bool HasCaptureRules => _config.CaptureRules.Count > 0;
+
+    public IReadOnlyList<string> CaptureRuleTriggerLabels { get; } = ["When it opens", "After it opens", "Every N minutes"];
+
+    public string NewRuleMatch
+    {
+        get => _newRuleMatch;
+        set { _newRuleMatch = value ?? string.Empty; OnPropertyChanged(); }
+    }
+
+    /// <summary>Index into <see cref="CaptureRuleTriggerLabels"/>: 0 on open, 1 after open, 2 interval.</summary>
+    public int NewRuleTriggerIndex
+    {
+        get => _newRuleTriggerIndex;
+        set
+        {
+            _newRuleTriggerIndex = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(NewRuleNeedsMinutes));
+            OnPropertyChanged(nameof(NewRuleAmountLabel));
+            OnPropertyChanged(nameof(NewRuleAmountMaximum));
+            // Switching units: seed a sensible value rather than reading 5 minutes as 5 seconds.
+            _newRuleAmount = value == 1 ? 30 : 5;
+            OnPropertyChanged(nameof(NewRuleAmount));
+        }
+    }
+
+    /// <summary>One number box serves both the after-open delay (seconds) and the interval (minutes).</summary>
+    public bool NewRuleNeedsMinutes => _newRuleTriggerIndex != 0;
+
+    public string NewRuleAmountLabel =>
+        _newRuleTriggerIndex == 1 ? "seconds after it opens" : "minutes between captures";
+
+    /// <summary>A day either way: 86400 seconds of delay, or 1440 minutes between captures.</summary>
+    public double NewRuleAmountMaximum => _newRuleTriggerIndex == 1 ? 86400 : 1440;
+
+    public double NewRuleAmount
+    {
+        get => _newRuleAmount;
+        set { _newRuleAmount = value; OnPropertyChanged(); }
+    }
+
+    public bool NewRuleIncludeScreenshot
+    {
+        get => _newRuleIncludeScreenshot;
+        set { _newRuleIncludeScreenshot = value; OnPropertyChanged(); }
+    }
+
+    public string? CaptureRuleError => _captureRuleError;
+
+    [RelayCommand]
+    private void AddCaptureRule()
+    {
+        AddRule();
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void RemoveCaptureRule(CaptureRule rule)
+    {
+        _config.CaptureRules.Remove(rule);
+        _captureRulesEdited = true;
+        _saved = false;
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private void ToggleCaptureRule(CaptureRule rule)
+    {
+        rule.Enabled = !rule.Enabled;
+        _captureRulesEdited = true;
+        _saved = false;
+        RaiseAllChanged();
+    }
 
     // --- MCP ---
 

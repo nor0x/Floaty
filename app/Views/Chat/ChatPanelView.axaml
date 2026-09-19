@@ -709,8 +709,8 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <!-- Exec approval: shown while the model waits for the user to approve a shell command
-                 proposed by the exec tool. Run/Cancel complete the pending approval. -->
+            <!-- Tool approval: shown while the model waits for the user to approve a gated tool call
+                 (a shell command, a system-prompt change, an update). Confirm/Cancel complete it. -->
             <Border x:Name="ExecApprovalPanel"
                     Grid.Row="4"
                     IsVisible="False"
@@ -722,7 +722,8 @@
                     CornerRadius="8">
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="{x:Static icons:TablerLine.Terminal2}"
+                        <TextBlock x:Name="ExecApprovalIcon"
+                                   Text="{x:Static icons:TablerLine.Terminal2}"
                                    FontFamily="{StaticResource TablerIcons}"
                                    Foreground="{DynamicResource AccentIconOnDarkColor}"
                                    FontSize="13"
