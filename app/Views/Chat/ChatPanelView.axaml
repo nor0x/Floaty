@@ -134,16 +134,16 @@
             </Grid>
         </DataTemplate>
 
-        <!-- One chat bubble. Assistant answers render as markdown; the user's own messages and
-             Floaty's system notes stay literal text, both because they were never markdown and
-             because /recall's "[1]" source markers would otherwise be eaten by the parser. -->
+        <!-- One message. Only the user's own messages get a bubble; assistant answers and system
+             notes are free text (see the Border.msg styles). Assistant answers render as markdown;
+             the user's own messages and Floaty's system notes stay literal text, both because they
+             were never markdown and because /recall's "[1]" source markers would otherwise be eaten
+             by the parser. -->
         <DataTemplate x:Key="MessageTemplate" DataType="local:ChatMessageVm">
-            <Border Margin="0,3"
-                    Padding="10,7"
-                    CornerRadius="10"
-                    MaxWidth="{Binding $parent[ItemsControl].Bounds.Width}"
-                    Background="{Binding IsUser, Converter={x:Static chat:ChatBrushes.BubbleFill}}"
-                    HorizontalAlignment="{Binding IsUser, Converter={x:Static chat:ChatBrushes.BubbleAlign}}">
+            <Border Classes="msg"
+                    Classes.user="{Binding IsUser}"
+                    Classes.note="{Binding IsSystemNote}"
+                    MaxWidth="{Binding $parent[ItemsControl].Bounds.Width, Converter={x:Static chat:ChatBrushes.MessageMaxWidth}}">
                 <StackPanel Spacing="6">
                     <!-- The model's reasoning, when it showed any. Streams open, collapses to its header
                          the moment the answer starts, and stays clickable from then on. Plain text rather
@@ -168,15 +168,31 @@
                                              Margin="2,0,0,2" />
                     </StackPanel>
 
-                    <!-- Literal text for user + system notes; markdown for assistant answers. -->
-                    <SelectableTextBlock Text="{Binding Text}"
-                                         IsVisible="{Binding RendersLiteralText}"
-                                         Foreground="White"
-                                         FontSize="13"
-                                         TextWrapping="Wrap" />
-                    <chat:MarkdownPresenter Markdown="{Binding Text}"
-                                            IsVisible="{Binding RendersMarkdown}"
-                                            Foreground="White" />
+                    <!-- Literal text for user + system notes; markdown for assistant answers. The
+                         read-aloud button sits in its own column at the end of the text, bottom-
+                         aligned so it trails the last line. -->
+                    <Grid ColumnDefinitions="*,Auto">
+                        <SelectableTextBlock Grid.Column="0"
+                                             Classes="literal"
+                                             Text="{Binding Text}"
+                                             IsVisible="{Binding RendersLiteralText}"
+                                             TextWrapping="Wrap" />
+                        <chat:MarkdownPresenter Grid.Column="0"
+                                                Markdown="{Binding Text}"
+                                                IsVisible="{Binding RendersMarkdown}"
+                                                Foreground="White" />
+
+                        <!-- Read this answer aloud through the speech model. Available once the answer
+                             has finished streaming and a speech model is configured (ShowReadAloud);
+                             even then it stays invisible until the message is hovered (see the
+                             Button.readAloud styles). -->
+                        <Button Grid.Column="1"
+                                Classes="readAloud"
+                                IsVisible="{Binding ShowReadAloud}"
+                                Click="OnReadAloudClicked"
+                                Content="{x:Static icons:TablerLine.Volume}"
+                                ToolTip.Tip="Read aloud" />
+                    </Grid>
 
                     <!-- Memory sources cited for this answer. -->
                     <StackPanel IsVisible="{Binding HasCitations}" Spacing="3">
@@ -206,31 +222,64 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
-
-                    <!-- Read this answer aloud through the speech model. Shown once the answer has
-                         finished streaming and a speech model is configured (ShowReadAloud). -->
-                    <Button IsVisible="{Binding ShowReadAloud}"
-                            Click="OnReadAloudClicked"
-                            Content="{x:Static icons:TablerLine.Volume}"
-                            FontFamily="{StaticResource TablerIcons}"
-                            Foreground="{StaticResource Dim}"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            Width="22" Height="22"
-                            Padding="0"
-                            Margin="0,-2,-4,-4"
-                            CornerRadius="6"
-                            FontSize="13"
-                            HorizontalAlignment="Right"
-                            HorizontalContentAlignment="Center"
-                            VerticalContentAlignment="Center"
-                            ToolTip.Tip="Read aloud" />
                 </StackPanel>
             </Border>
         </DataTemplate>
     </UserControl.Resources>
 
     <UserControl.Styles>
+        <!-- Messages. Assistant answers (the default) are free text with no bubble; only the user's
+             own messages sit in a filled, right-aligned bubble. System notes are also unboxed but
+             dimmed, so they don't read as answers. -->
+        <Style Selector="Border.msg">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Padding" Value="0,4" />
+            <Setter Property="Margin" Value="0,6" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+        <Style Selector="Border.msg.user">
+            <Setter Property="Background" Value="#3A3A3F" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="0,3" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+        </Style>
+        <Style Selector="Border.msg SelectableTextBlock.literal">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <!-- Hover-revealed via Opacity rather than IsVisible so the text never reflows as the
+             pointer crosses the message, and the button stays keyboard-reachable. -->
+        <Style Selector="Button.readAloud">
+            <Setter Property="FontFamily" Value="{StaticResource TablerIcons}" />
+            <Setter Property="Foreground" Value="{StaticResource Dim}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="22" />
+            <Setter Property="Height" Value="22" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="6,0,0,-2" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Border.msg:pointerover Button.readAloud, Button.readAloud:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border.msg.note SelectableTextBlock.literal">
+            <Setter Property="Foreground" Value="{StaticResource Dim}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
         <!-- Conversation rows. The row Border carries every visual, so hover and selection are driven
              from the ListBoxItem's pseudo-classes rather than from the Button inside it. Scoped to
              ConversationList by name so the slash-command popover keeps its own look. -->
@@ -495,8 +544,11 @@
                 <!-- Bottom-aligned so a short conversation in a tall (expanded or dragged) panel sits
                      just above the input row rather than stranded at the top. Ignored once the content
                      is taller than the viewport, which is when the scroller takes over. -->
+                <!-- The right margin keeps the user's right-aligned bubbles out of the lane the
+                     overlay scrollbar is drawn in. -->
                 <ItemsControl x:Name="MessagesList"
                               VerticalAlignment="Bottom"
+                              Margin="0,0,12,0"
                               ItemTemplate="{StaticResource MessageTemplate}" />
             </ScrollViewer>
 
@@ -734,8 +786,8 @@
                         VerticalAlignment="Stretch"
                         HorizontalContentAlignment="Center"
                         VerticalContentAlignment="Center"
-                        Background="#55FFFFFF"
-                        Foreground="White">
+                        Background="Transparent"
+                        Foreground="{StaticResource Muted}">
                     <!-- The glyph is a child rather than the Button's Content so it can be centred on
                          its own box; ApplyPanelSide flips its Text, the way it flips ResizeCornerGlyph. -->
                     <TextBlock x:Name="CollapseGlyph"

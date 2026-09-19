@@ -135,22 +135,15 @@ public sealed class PromptAttachmentVm : INotifyPropertyChanged
 }
 
 /// <summary>
-/// Per-bubble appearance, driven from <c>ChatMessageVm.IsUser</c>.
+/// Message layout helpers for the chat list's DataTemplate.
 /// </summary>
 /// <remarks>
-/// In the Blazor version alignment and colour lived in <c>wwwroot/chat.css</c>. With the list rendered
-/// natively they become two tiny converters, which keeps the DataTemplate declarative instead of
-/// needing a per-item code-behind pass.
+/// Per-role fill and alignment live in the <c>Border.msg</c> styles in ChatPanelView.axaml; what XAML
+/// can't express on its own - a width fraction - is a converter here.
 /// </remarks>
 public static class ChatBrushes
 {
-    private static readonly IBrush UserFill = new SolidColorBrush(Color.Parse("#3A3A3F"));
-    private static readonly IBrush AssistantFill = new SolidColorBrush(Color.Parse("#26FFFFFF"));
-
-    public static readonly IValueConverter BubbleFill =
-        new FuncValueConverter<bool, IBrush>(isUser => isUser ? UserFill : AssistantFill);
-
-    public static readonly IValueConverter BubbleAlign =
-        new FuncValueConverter<bool, HorizontalAlignment>(isUser =>
-            isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left);
+    /// <summary>Caps a message at 80% of the list's width.</summary>
+    public static readonly IValueConverter MessageMaxWidth =
+        new FuncValueConverter<double, double>(w => w > 0 ? w * 0.8 : double.PositiveInfinity);
 }
