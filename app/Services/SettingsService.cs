@@ -53,6 +53,21 @@ public sealed class SettingsService
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <summary>
+    /// The prompt Floaty ships with, used whenever <c>~/.floaty/floaty.md</c> is missing or empty. Shared by
+    /// the chat, the Settings page's "Restore default" and the system-prompt chat tools so all three agree.
+    /// </summary>
+    public const string DefaultSystemPrompt =
+        "You are Floaty, a desktop assistant that lives in a floating overlay. The user can capture " +
+        "what's on their screen, and Floaty may also snapshot windows automatically as the user switches " +
+        "between them (screen history); both are stored in local memory. When the user asks about " +
+        "something they previously saw, viewed, read, or captured — or about their earlier activity — " +
+        "call the search_captures tool to retrieve it before answering, and ground your answer in what " +
+        "it returns. Search results show only the passage that matched; if it looks cut off or doesn't " +
+        "contain the detail you need, call read_capture with that result's 'file:' value before " +
+        "concluding the information isn't there. When the user asks you to remember a durable fact, " +
+        "call the save_memory tool to persist it. Be concise.";
+
     /// <summary>Built-in used when <see cref="FloatyConfig.CaptureSoundFileName"/> is unset.</summary>
     public const string DefaultCaptureSound = "shutter.wav";
 

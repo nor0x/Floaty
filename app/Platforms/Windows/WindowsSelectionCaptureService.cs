@@ -42,8 +42,6 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
     private const int ModifierReleaseSettleMs = 15;
 
     // The clipboard is a shared, singly-owned resource: another app may hold it open for a moment.
-    private const int ClipboardOpenAttempts = 5;
-    private const int ClipboardOpenRetryMs = 10;
 
     public async Task<SelectedText?> TryCaptureAsync(
         nint foregroundHwnd,
@@ -156,7 +154,7 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
         if (GetForegroundWindow() != foregroundHwnd)
             return null;
 
-        var previousText = ReadClipboardText();
+        var previousText = Win32Clipboard.ReadText();
         var previousSequence = GetClipboardSequenceNumber();
 
         SendCopy();
@@ -168,7 +166,7 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
             if (GetClipboardSequenceNumber() == previousSequence)
                 continue;
 
-            copied = ReadClipboardText();
+            copied = Win32Clipboard.ReadText();
             break;
         }
 
@@ -177,7 +175,7 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
             return null;
 
         if (previousText is not null)
-            WriteClipboardText(previousText);
+            Win32Clipboard.WriteText(previousText);
 
         return copied;
     }
@@ -241,99 +239,6 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
         },
     };
 
-    // --- Clipboard (raw Win32: thread-agnostic, unlike the WinRT and MAUI wrappers) ---
-
-    private static string? ReadClipboardText()
-    {
-        if (!TryOpenClipboard())
-            return null;
-
-        try
-        {
-            var handle = GetClipboardData(CF_UNICODETEXT);
-            if (handle == nint.Zero)
-                return null;
-
-            var ptr = GlobalLock(handle);
-            if (ptr == nint.Zero)
-                return null;
-
-            try
-            {
-                return Marshal.PtrToStringUni(ptr);
-            }
-            finally
-            {
-                GlobalUnlock(handle);
-            }
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            CloseClipboard();
-        }
-    }
-
-    private static void WriteClipboardText(string text)
-    {
-        if (!TryOpenClipboard())
-            return;
-
-        var block = nint.Zero;
-        try
-        {
-            EmptyClipboard();
-
-            var bytes = (nuint)((text.Length + 1) * sizeof(char));
-            block = GlobalAlloc(GMEM_MOVEABLE, bytes);
-            if (block == nint.Zero)
-                return;
-
-            var ptr = GlobalLock(block);
-            if (ptr == nint.Zero)
-                return;
-
-            try
-            {
-                Marshal.Copy(text.ToCharArray(), 0, ptr, text.Length);
-                Marshal.WriteInt16(ptr, text.Length * sizeof(char), 0);
-            }
-            finally
-            {
-                GlobalUnlock(block);
-            }
-
-            // Ownership of the block transfers to the clipboard only if this succeeds.
-            if (SetClipboardData(CF_UNICODETEXT, block) != nint.Zero)
-                block = nint.Zero;
-        }
-        catch
-        {
-            // A failed restore is not worth surfacing; the copied text stays on the clipboard.
-        }
-        finally
-        {
-            if (block != nint.Zero)
-                GlobalFree(block);
-            CloseClipboard();
-        }
-    }
-
-    private static bool TryOpenClipboard()
-    {
-        for (var attempt = 0; attempt < ClipboardOpenAttempts; attempt++)
-        {
-            if (OpenClipboard(nint.Zero))
-                return true;
-            Thread.Sleep(ClipboardOpenRetryMs);
-        }
-
-        return false;
-    }
-
     private static string GetWindowTitle(nint hwnd)
     {
         try
@@ -356,8 +261,6 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
 
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
-    private const uint CF_UNICODETEXT = 13;
-    private const uint GMEM_MOVEABLE = 0x0002;
 
     private const ushort VK_CONTROL = 0x11;
     private const ushort VK_C = 0x43;
@@ -421,33 +324,6 @@ public sealed class WindowsSelectionCaptureService : ISelectionCaptureService
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(nint hWnd, StringBuilder lpString, int nMaxCount);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool OpenClipboard(nint hWndNewOwner);
-
-    [DllImport("user32.dll")]
-    private static extern bool CloseClipboard();
-
-    [DllImport("user32.dll")]
-    private static extern bool EmptyClipboard();
-
-    [DllImport("user32.dll")]
-    private static extern nint GetClipboardData(uint uFormat);
-
-    [DllImport("user32.dll")]
-    private static extern nint SetClipboardData(uint uFormat, nint hMem);
-
     [DllImport("user32.dll")]
     private static extern uint GetClipboardSequenceNumber();
-
-    [DllImport("kernel32.dll")]
-    private static extern nint GlobalAlloc(uint uFlags, nuint dwBytes);
-
-    [DllImport("kernel32.dll")]
-    private static extern nint GlobalLock(nint hMem);
-
-    [DllImport("kernel32.dll")]
-    private static extern bool GlobalUnlock(nint hMem);
-
-    [DllImport("kernel32.dll")]
-    private static extern nint GlobalFree(nint hMem);
 }

@@ -38,6 +38,12 @@ public interface IMemoryService
     /// <summary>Source tag for captures of windows the user attached to a prompt via @.</summary>
     const string TaggedCaptureSource = "tagged";
 
+    /// <summary>
+    /// Source tag for captures made by a capture rule. Kept apart from <see cref="AutoCaptureSource"/> so
+    /// clearing screen history leaves them: the user asked for these specifically.
+    /// </summary>
+    const string RuleCaptureSource = "rule";
+
     /// <summary>Source tag for files the user dropped on the ring or the chat panel.</summary>
     const string DroppedFileSource = "dropped";
 

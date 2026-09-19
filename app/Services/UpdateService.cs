@@ -1,10 +1,15 @@
+using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text.Json;
 #if WINDOWS
 using Velopack;
 using Velopack.Sources;
 #endif
 
 namespace Floaty.Services;
+
+/// <summary>One published release as GitHub reports it.</summary>
+public sealed record ReleaseNotes(string Version, string Name, DateTimeOffset? PublishedAt, string Markdown, string Url);
 
 /// <summary>Outcome of an update check.</summary>
 /// <param name="UpdateAvailable">True when a newer release than the running build exists.</param>
@@ -27,6 +32,10 @@ public sealed record UpdateCheckResult(
 public sealed class UpdateService
 {
     private const string RepoUrl = "https://github.com/nor0x/Floaty";
+    private const string ReleasesApiUrl = "https://api.github.com/repos/nor0x/Floaty/releases?per_page=20";
+
+    // Unauthenticated GitHub API: 60 requests an hour per IP, far more than a chat will ever ask for.
+    private static readonly HttpClient Http = CreateHttp();
 
 #if WINDOWS
     private readonly UpdateManager _manager;
@@ -171,5 +180,56 @@ public sealed class UpdateService
         await Task.CompletedTask;
         return false;
 #endif
+    }
+
+    /// <summary>
+    /// Published releases, newest first, straight from the GitHub API. Unlike <see cref="CheckAsync"/>
+    /// this works in every build, because it only reads — so "what's new in this version?" can be
+    /// answered from a dev run too. Empty on any failure; <paramref name="error"/> says why.
+    /// </summary>
+    public async Task<(IReadOnlyList<ReleaseNotes> Releases, string? Error)> GetReleasesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await Http.GetAsync(ReleasesApiUrl, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return ([], $"GitHub answered {(int)response.StatusCode} {response.ReasonPhrase}.");
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+
+            var releases = new List<ReleaseNotes>();
+            foreach (var r in doc.RootElement.EnumerateArray())
+            {
+                if (r.TryGetProperty("draft", out var draft) && draft.GetBoolean())
+                    continue;
+
+                var tag = r.GetProperty("tag_name").GetString() ?? string.Empty;
+                releases.Add(new ReleaseNotes(
+                    Version: tag.TrimStart('v', 'V'),
+                    Name: r.TryGetProperty("name", out var name) ? name.GetString() ?? tag : tag,
+                    PublishedAt: r.TryGetProperty("published_at", out var at) && at.ValueKind == JsonValueKind.String
+                        ? at.GetDateTimeOffset()
+                        : null,
+                    Markdown: r.TryGetProperty("body", out var body) ? body.GetString() ?? string.Empty : string.Empty,
+                    Url: r.TryGetProperty("html_url", out var url) ? url.GetString() ?? ReleasesUrl : ReleasesUrl));
+            }
+
+            return (releases, null);
+        }
+        catch (Exception ex)
+        {
+            return ([], ex.Message);
+        }
+    }
+
+    private static HttpClient CreateHttp()
+    {
+        var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        // GitHub rejects API requests without a User-Agent.
+        http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Floaty", "1.0"));
+        http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        return http;
     }
 }
