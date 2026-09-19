@@ -3,11 +3,12 @@ using Anthropic;
 using Azure.AI.OpenAI;
 using Microsoft.Extensions.AI;
 using OpenAI;
+using OpenAI.Audio;
 using OpenAI.Images;
 
 namespace Floaty.Services;
 
-/// <summary>One of the four jobs a configured provider can be assigned to.</summary>
+/// <summary>One of the five jobs a configured provider can be assigned to.</summary>
 public enum ModelRole
 {
     /// <summary>Answers chats. Needs tool-calling support.</summary>
@@ -21,6 +22,9 @@ public enum ModelRole
 
     /// <summary>Generates images from a text prompt. OpenAI-shaped transports only.</summary>
     Image,
+
+    /// <summary>Speaks assistant replies aloud. OpenAI-shaped transports only.</summary>
+    Speech,
 }
 
 /// <summary>
@@ -44,6 +48,7 @@ public sealed class AiClientFactory : IDisposable
     private IChatClient? _chat;
     private IChatClient? _vision;
     private ImageClient? _image;
+    private AudioClient? _speech;
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddings;
 
     // Identity of the config each cached client was built from, so a settings save that didn't
@@ -51,6 +56,7 @@ public sealed class AiClientFactory : IDisposable
     private string? _chatKey;
     private string? _visionKey;
     private string? _imageKey;
+    private string? _speechKey;
     private string? _embeddingsKey;
 
     public AiClientFactory(SettingsService settings, ILocalEmbeddingFactory localEmbeddings)
@@ -154,6 +160,37 @@ public sealed class AiClientFactory : IDisposable
         }
     }
 
+    /// <summary>
+    /// The text-to-speech client and the model id it was built for, or null when the speech role is
+    /// unassigned. Paired for the same reason as <see cref="GetImageClient"/>: the caller needs the id
+    /// to decide which options the model accepts — see <see cref="SpeechSynthesisService"/>.
+    /// </summary>
+    public (AudioClient Client, string Model)? GetSpeechClient()
+    {
+        var resolved = Resolve(ModelRole.Speech);
+        if (resolved is null)
+            return null;
+
+        lock (_gate)
+        {
+            if (_speech is not null && _speechKey == resolved.CacheKey)
+                return (_speech, resolved.Model);
+
+            _speechKey = resolved.CacheKey;
+            _speech = OpenAiClientFor(resolved.Profile).GetAudioClient(resolved.Model);
+            return (_speech, resolved.Model);
+        }
+    }
+
+    /// <summary>
+    /// An uncached speech client for an arbitrary (possibly unsaved) profile, so Settings can audition a
+    /// voice before the user commits to it. Null when that transport has no speech endpoint.
+    /// </summary>
+    public static AudioClient? CreateSpeechClient(ProviderProfile profile, string model) =>
+        CanServe(profile.Kind, ModelRole.Speech) && !string.IsNullOrWhiteSpace(model)
+            ? OpenAiClientFor(profile).GetAudioClient(model)
+            : null;
+
     /// <summary>The embedding generator, or null when the embedding role is unassigned.</summary>
     public IEmbeddingGenerator<string, Embedding<float>>? GetEmbeddingGenerator()
     {
@@ -236,7 +273,8 @@ public sealed class AiClientFactory : IDisposable
             ModelRole.Chat => config.ChatRole,
             ModelRole.Embedding => config.EmbeddingRole,
             ModelRole.Vision => config.VisionRole,
-            _ => config.ImageRole,
+            ModelRole.Image => config.ImageRole,
+            _ => config.SpeechRole,
         };
 
         if (!assignment.IsAssigned)
@@ -257,7 +295,8 @@ public sealed class AiClientFactory : IDisposable
                 ModelRole.Chat => profile.ChatModel,
                 ModelRole.Embedding => profile.EmbeddingModel,
                 ModelRole.Vision => profile.VisionModel,
-                _ => profile.ImageModel,
+                ModelRole.Image => profile.ImageModel,
+                _ => profile.SpeechModel,
             };
         }
 
@@ -288,7 +327,7 @@ public sealed class AiClientFactory : IDisposable
 
     /// <summary>
     /// Which roles a transport can serve at all: local ONNX models only embed, and Anthropic has
-    /// neither an embedding nor an image-generation API. Everything else is assumed capable —
+    /// neither an embedding, an image-generation nor a speech API. Everything else is assumed capable —
     /// whether a specific model can see or draw is between the user and their provider.
     /// </summary>
     private static bool CanServe(ProviderKind kind, ModelRole role) => kind switch
@@ -389,10 +428,12 @@ public sealed class AiClientFactory : IDisposable
             _chat = null;
             _vision = null;
             _image = null;
+            _speech = null;
             _embeddings = null;
             _chatKey = null;
             _visionKey = null;
             _imageKey = null;
+            _speechKey = null;
             _embeddingsKey = null;
         }
 
@@ -413,8 +454,9 @@ public sealed class AiClientFactory : IDisposable
             _vision = null;
             _embeddings = null;
 
-            // No Dispose: ImageClient holds no disposable state of its own.
+            // No Dispose: ImageClient and AudioClient hold no disposable state of their own.
             _image = null;
+            _speech = null;
         }
     }
 

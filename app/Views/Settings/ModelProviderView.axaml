@@ -120,8 +120,8 @@
             <StackPanel Spacing="10">
                 <TextBlock Classes="section" Text="Roles" />
                 <TextBlock Classes="hint"
-                           Text="Chat drives the conversation, Embedding powers memory search, Vision captions screenshots, and Image draws pictures from chat (gpt-image-1, dall-e-3, gemini-2.5-flash-image). Leave a row blank to switch that feature off. Changing the embedding model means re-indexing (see Screen history)." />
-                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
+                           Text="Chat drives the conversation, Embedding powers memory search, Vision captions screenshots, Image draws pictures from chat (gpt-image-1, dall-e-3, gemini-2.5-flash-image), and Speech reads replies aloud (gpt-4o-mini-tts, tts-1). Leave a row blank to switch that feature off. Changing the embedding model means re-indexing (see Screen history)." />
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Chat" VerticalAlignment="Center" />
                     <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding Config.ChatRole.Model}" PlaceholderText="model id" />
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Embedding" VerticalAlignment="Center" />
@@ -130,7 +130,63 @@
                     <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding Config.VisionRole.Model}" PlaceholderText="model id" />
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Image" VerticalAlignment="Center" />
                     <TextBox  Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageRole.Model}" PlaceholderText="model id" />
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Speech" VerticalAlignment="Center" />
+                    <TextBox  Grid.Row="4" Grid.Column="1" Text="{Binding Config.SpeechRole.Model}" PlaceholderText="model id" />
                 </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Voice output" />
+                <TextBlock Classes="hint"
+                           Text="Speaks assistant replies aloud through the Speech model while they stream. Code blocks and links are skipped. Each spoken sentence is a request to your provider." />
+                <CheckBox IsChecked="{Binding VoiceOutputEnabled}"
+                          Content="Speak assistant replies aloud" />
+                <TextBlock Classes="hint"
+                           IsVisible="{Binding !SpeechRoleAssigned}"
+                           Text="Assign a Speech model above first (OpenAI, Azure OpenAI or another OpenAI-compatible provider)." />
+
+                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Voice" VerticalAlignment="Center" />
+                    <ComboBox Grid.Row="0" Grid.Column="1"
+                              ItemsSource="{x:Static vm:SettingsViewModel.SpeechVoices}"
+                              SelectedItem="{Binding SpeechVoice}"
+                              MinWidth="160" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Speed" VerticalAlignment="Center" />
+                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                   Value="{Binding SpeechSpeed}"
+                                   Minimum="0.25" Maximum="4" Increment="0.05"
+                                   FormatString="0.00"
+                                   HorizontalAlignment="Left"
+                                   Width="140" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Volume" VerticalAlignment="Center" />
+                    <Slider Grid.Row="2" Grid.Column="1"
+                            Minimum="0" Maximum="1"
+                            Value="{Binding SpeechVolume}" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Style" VerticalAlignment="Top" Margin="0,6,0,0" />
+                    <TextBox Grid.Row="3" Grid.Column="1"
+                             Text="{Binding SpeechInstructions}"
+                             PlaceholderText="e.g. Speak calmly and warmly, like a friendly assistant."
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MinHeight="56" />
+                </Grid>
+                <TextBlock Classes="hint"
+                           Text="Style instructions only reach the gpt-4o TTS models; tts-1 and other endpoints ignore them. Use the speaker button in the chat header to switch voice output on and off quickly." />
+
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Content="Test voice"
+                            Command="{Binding TestVoiceCommand}"
+                            IsEnabled="{Binding !SpeechTesting}" />
+                    <TextBlock Text="{Binding SpeechTestStatus}"
+                               Classes="hint"
+                               VerticalAlignment="Center"
+                               TextWrapping="Wrap" />
+                </StackPanel>
             </StackPanel>
         </Border>
 

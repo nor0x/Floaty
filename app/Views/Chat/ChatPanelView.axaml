@@ -206,6 +206,25 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </StackPanel>
+
+                    <!-- Read this answer aloud through the speech model. Shown once the answer has
+                         finished streaming and a speech model is configured (ShowReadAloud). -->
+                    <Button IsVisible="{Binding ShowReadAloud}"
+                            Click="OnReadAloudClicked"
+                            Content="{x:Static icons:TablerLine.Volume}"
+                            FontFamily="{StaticResource TablerIcons}"
+                            Foreground="{StaticResource Dim}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Width="22" Height="22"
+                            Padding="0"
+                            Margin="0,-2,-4,-4"
+                            CornerRadius="6"
+                            FontSize="13"
+                            HorizontalAlignment="Right"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            ToolTip.Tip="Read aloud" />
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -412,13 +431,31 @@
                      pair as a unit, keeping the grip on the panel's outermost corner. -->
                 <Grid x:Name="TopCornerTools"
                       Grid.Column="2"
-                      ColumnDefinitions="Auto,Auto"
+                      ColumnDefinitions="Auto,Auto,Auto"
                       HorizontalAlignment="Right"
                       VerticalAlignment="Top">
 
+                    <!-- Voice output on/off. Hidden until a speech model is configured (see
+                         UpdateVoiceOutputControls); flips and saves VoiceOutputEnabled directly. -->
+                    <Button x:Name="SpeakerToggleButton"
+                            Grid.Column="0"
+                            IsVisible="False"
+                            Click="OnSpeakerToggleClicked"
+                            Content="{x:Static icons:TablerLine.DeviceSpeakerOff}"
+                            FontFamily="{StaticResource TablerIcons}"
+                            Foreground="{StaticResource Subtle}"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Width="26" Height="26"
+                            Padding="0"
+                            CornerRadius="6"
+                            FontSize="14"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center" />
+
                     <!-- Expand / restore: fills the work area, or puts the previous size back. -->
                     <Button x:Name="ExpandButton"
-                            Grid.Column="0"
+                            Grid.Column="1"
                             Click="OnExpandToggleClicked"
                             Content="{x:Static icons:TablerLine.ArrowsMaximize}"
                             FontFamily="{StaticResource TablerIcons}"
@@ -434,7 +471,7 @@
                             ToolTip.Tip="Expand" />
 
                     <Border x:Name="ResizeCornerGrip"
-                            Grid.Column="1"
+                            Grid.Column="2"
                             Width="26" Height="26"
                             Background="Transparent">
                         <TextBlock x:Name="ResizeCornerGlyph"
@@ -712,7 +749,7 @@
                         Background="{StaticResource Faint}"
                         CornerRadius="6"
                         ClipToBounds="True">
-                    <Grid ColumnDefinitions="*,Auto,Auto">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                         <TextBox x:Name="ChatEntry"
                                  Grid.Column="0"
                                  Classes="chat"
@@ -721,10 +758,27 @@
                                  Padding="8,0"
                                  TextChanged="OnChatEntryTextChanged"
                                  KeyDown="OnChatEntryKeyDown" />
+                        <!-- Stops a reply being read aloud; only visible while voice output is playing. -->
+                        <Button x:Name="StopSpeakingButton"
+                                Grid.Column="1"
+                                Click="OnStopSpeakingClicked"
+                                Content="{x:Static icons:TablerLine.PlayerStop}"
+                                FontFamily="{StaticResource TablerIcons}"
+                                IsVisible="False"
+                                Width="36" Height="36"
+                                Padding="0"
+                                CornerRadius="0"
+                                BorderThickness="0"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
+                                FontSize="16"
+                                Background="{StaticResource Subtle}"
+                                Foreground="White"
+                                ToolTip.Tip="Stop speaking (Esc)" />
                         <!-- Voice input: hidden until a downloaded speech-to-text model is selected
                              in settings (see UpdateMicVisibility). -->
                         <Button x:Name="MicButton"
-                                Grid.Column="1"
+                                Grid.Column="2"
                                 Click="OnMicClicked"
                                 Content="{x:Static icons:TablerLine.Microphone}"
                                 FontFamily="{StaticResource TablerIcons}"
@@ -739,7 +793,7 @@
                                 Background="{StaticResource Subtle}"
                                 Foreground="White" />
                         <Button x:Name="SendButton"
-                                Grid.Column="2"
+                                Grid.Column="3"
                                 Click="OnSendClicked"
                                 Content="{x:Static icons:TablerLine.Send}"
                                 FontFamily="{StaticResource TablerIcons}"

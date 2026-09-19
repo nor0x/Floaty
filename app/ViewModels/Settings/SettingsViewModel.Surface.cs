@@ -235,6 +235,52 @@ public sealed partial class SettingsViewModel
 
     public string? SttError => _sttError;
 
+    // --- Voice output (Model provider page) ---
+
+    /// <summary>OpenAI's built-in voices. A compatible endpoint with its own can be set by hand in config.json.</summary>
+    public static IReadOnlyList<string> SpeechVoices { get; } =
+        ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse"];
+
+    public bool VoiceOutputEnabled
+    {
+        get => _config.VoiceOutputEnabled;
+        set { _config.VoiceOutputEnabled = value; _voiceOutputEdited = true; _saved = false; OnPropertyChanged(); }
+    }
+
+    public string SpeechVoice
+    {
+        get => _config.SpeechVoice;
+        set { _config.SpeechVoice = value ?? string.Empty; _saved = false; OnPropertyChanged(); }
+    }
+
+    public double SpeechSpeed
+    {
+        get => _config.SpeechSpeed;
+        set { _config.SpeechSpeed = value; _saved = false; OnPropertyChanged(); }
+    }
+
+    public string SpeechInstructions
+    {
+        get => _config.SpeechInstructions;
+        set { _config.SpeechInstructions = value ?? string.Empty; _saved = false; OnPropertyChanged(); }
+    }
+
+    public double SpeechVolume
+    {
+        get => _config.SpeechVolume;
+        set { _config.SpeechVolume = value; _saved = false; OnPropertyChanged(); }
+    }
+
+    /// <summary>Whether the (unsaved) speech role points at a provider and model — gates the voice options.</summary>
+    public bool SpeechRoleAssigned => ResolveSpeechRole() is not null;
+
+    public string? SpeechTestStatus => _speechTestStatus;
+
+    public bool SpeechTesting => _speechTesting;
+
+    [RelayCommand]
+    private Task TestVoice() => TestSpeechVoice();
+
     // --- MCP ---
 
     public IReadOnlyList<McpServerConfig> McpServers => _config.McpServers;

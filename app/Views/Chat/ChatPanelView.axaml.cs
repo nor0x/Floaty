@@ -38,6 +38,10 @@ public partial class ChatPanelView : UserControl
     private readonly IVoiceInputService _voiceInput;
     private readonly IFileIngestService _fileIngest;
     private readonly ISoundService _sounds;
+    private readonly IVoiceOutputService _voiceOutput;
+
+    // The assistant bubble currently streaming; it gets its read-aloud button only once it is done.
+    private ChatMessageVm? _streamingMessage;
     private readonly IServiceProvider _services;
 
     // Set by Attach() before the panel is shown; every window operation goes through it.
@@ -183,6 +187,7 @@ public partial class ChatPanelView : UserControl
         IVoiceInputService voiceInput,
         IFileIngestService fileIngest,
         ISoundService sounds,
+        IVoiceOutputService voiceOutput,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -195,6 +200,7 @@ public partial class ChatPanelView : UserControl
         _skillService = skillService;
         _voiceInput = voiceInput;
         _sounds = sounds;
+        _voiceOutput = voiceOutput;
         _services = services;
 
         // The message list binds straight to the collection. Where the Blazor version needed a bridge
@@ -246,11 +252,14 @@ public partial class ChatPanelView : UserControl
         _voiceInput.SegmentTranscribed += OnVoiceSegment;
         _voiceInput.PauseElapsed += OnVoicePause;
         _voiceInput.Error += OnVoiceError;
+        _voiceOutput.SpeakingChanged += OnSpeakingChanged;
+        _voiceOutput.Error += OnVoiceOutputError;
 
         ApplyAccentColor(_settings.Current.AccentColor);
         ApplyPanelSide(onLeft: false);
         RebuildSlashCommands();
         UpdateMicVisibility();
+        UpdateVoiceOutputControls();
     }
 
     /// <summary>
@@ -284,9 +293,14 @@ public partial class ChatPanelView : UserControl
         _voiceInput.SegmentTranscribed -= OnVoiceSegment;
         _voiceInput.PauseElapsed -= OnVoicePause;
         _voiceInput.Error -= OnVoiceError;
+        _voiceOutput.SpeakingChanged -= OnSpeakingChanged;
+        _voiceOutput.Error -= OnVoiceOutputError;
 
         if (_voiceInput.IsListening)
             _ = _voiceInput.StopAsync();
+
+        // The replacement panel starts silent; a reply from this one shouldn't keep talking over it.
+        _voiceOutput.Stop();
 
         PersistCurrentConversation();
 
@@ -412,6 +426,7 @@ public partial class ChatPanelView : UserControl
             // The grip takes the outermost corner, so on the left it leads and the button follows.
             Grid.SetColumn(ResizeCornerGrip, 0);
             Grid.SetColumn(ExpandButton, 1);
+            Grid.SetColumn(SpeakerToggleButton, 2);
             ResizeCornerGlyph.Text = TablerLine.RadiusTopLeft;
             Grid.SetColumn(ConversationTitleHost, 2);
             ConversationTitleHost.HorizontalAlignment = HorizontalAlignment.Right;
@@ -426,8 +441,9 @@ public partial class ChatPanelView : UserControl
             Grid.SetColumn(TopCornerTools, 2);
             TopCornerTools.HorizontalAlignment = HorizontalAlignment.Right;
             TopCornerTools.Margin = new Thickness(0, -5, 2, 0);
-            Grid.SetColumn(ExpandButton, 0);
-            Grid.SetColumn(ResizeCornerGrip, 1);
+            Grid.SetColumn(SpeakerToggleButton, 0);
+            Grid.SetColumn(ExpandButton, 1);
+            Grid.SetColumn(ResizeCornerGrip, 2);
             ResizeCornerGlyph.Text = TablerLine.RadiusTopRight;
             Grid.SetColumn(ConversationTitleHost, 0);
             ConversationTitleHost.HorizontalAlignment = HorizontalAlignment.Left;
@@ -514,6 +530,7 @@ public partial class ChatPanelView : UserControl
             ApplyAccentColor(_settings.Current.AccentColor);
             RebuildSlashCommands();
             UpdateMicVisibility();
+            UpdateVoiceOutputControls();
         });
 
     // Live preview from the Appearance accent picker: apply without persisting (the settings page
@@ -564,6 +581,56 @@ public partial class ChatPanelView : UserControl
 
     private void OnCollapseChatClicked(object? sender, RoutedEventArgs e) => _host.CollapseRequested();
 
+    // --- Voice output ---
+
+    private bool CanReadAloud(ChatMessageVm message) =>
+        _voiceOutput.IsConfigured && message.RendersMarkdown && !ReferenceEquals(message, _streamingMessage);
+
+    // The speaker toggle only shows once a speech model is configured; the stop button only while
+    // something is playing. Re-evaluated on every settings change and every speaking transition.
+    private void UpdateVoiceOutputControls()
+    {
+        var configured = _voiceOutput.IsConfigured;
+        var enabled = _settings.Current.VoiceOutputEnabled;
+
+        SpeakerToggleButton.IsVisible = configured;
+        SpeakerToggleButton.Content = enabled ? TablerLine.DeviceSpeaker : TablerLine.DeviceSpeakerOff;
+        ToolTip.SetTip(SpeakerToggleButton, enabled ? "Voice output on" : "Voice output off");
+
+        StopSpeakingButton.IsVisible = _voiceOutput.IsSpeaking;
+
+        foreach (var message in Messages)
+            message.ShowReadAloud = CanReadAloud(message);
+    }
+
+    private void OnSpeakingChanged(object? sender, EventArgs e) =>
+        Dispatcher.UIThread.Post(() => StopSpeakingButton.IsVisible = _voiceOutput.IsSpeaking);
+
+    private void OnVoiceOutputError(object? sender, string message) =>
+        Dispatcher.UIThread.Post(async () => await ShowInlineToastAsync($"⚠️ Voice output: {message}"));
+
+    private void OnStopSpeakingClicked(object? sender, RoutedEventArgs e) => _voiceOutput.Stop();
+
+    // Flips the saved setting directly, the way the ring's context menu flips always-on-top; the
+    // settings page follows it through SettingsService.Changed.
+    private void OnSpeakerToggleClicked(object? sender, RoutedEventArgs e)
+    {
+        var config = _settings.Current;
+        config.VoiceOutputEnabled = !config.VoiceOutputEnabled;
+        _settings.Save(config);
+
+        if (!config.VoiceOutputEnabled)
+            _voiceOutput.Stop();
+
+        UpdateVoiceOutputControls();
+    }
+
+    private void OnReadAloudClicked(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is ChatMessageVm { Text.Length: > 0 } message)
+            _voiceOutput.Speak(message.Text);
+    }
+
     // --- Voice input ---
 
     // The mic button only shows while a downloaded speech-to-text model is selected in settings
@@ -582,6 +649,9 @@ public partial class ChatPanelView : UserControl
             await StopListeningAsync();
             return;
         }
+
+        // Dictating over a reply that is still being read out would transcribe the reply itself.
+        _voiceOutput.Stop();
 
         // Disabled while the model loads — first start can take seconds for the larger models.
         MicButton.IsEnabled = false;
@@ -826,7 +896,10 @@ public partial class ChatPanelView : UserControl
         if (e.NewItems is not null)
         {
             foreach (var item in e.NewItems.OfType<ChatMessageVm>())
+            {
                 item.PropertyChanged += OnMessageContentChanged;
+                item.ShowReadAloud = CanReadAloud(item);
+            }
         }
 
         RefreshMessageAreaHeight();
@@ -2562,6 +2635,11 @@ public partial class ChatPanelView : UserControl
                     ExitListMode();
                     e.Handled = true;
                 }
+                else if (_voiceOutput.IsSpeaking)
+                {
+                    _voiceOutput.Stop();
+                    e.Handled = true;
+                }
                 return;
         }
     }
@@ -2629,6 +2707,7 @@ public partial class ChatPanelView : UserControl
             : $"{text}\n[Attached: {string.Join(", ", attachments.Select(a => a.Title))}]";
         Messages.Add(new ChatMessageVm(isUser: true, bubbleText));
         var pending = new ChatMessageVm(isUser: false, "…");
+        _streamingMessage = pending;
         Messages.Add(pending);
         RefreshMessageAreaHeight();
         ScrollToLatest();
@@ -2644,6 +2723,9 @@ public partial class ChatPanelView : UserControl
         // Runs from the first reasoning chunk to the first answer chunk; becomes "Thought for 4s".
         // Declared out here so a turn that throws mid-thought can still stamp the header.
         var thinking = new Stopwatch();
+
+        // Voice output speaks the answer sentence by sentence as it streams. Reasoning is never spoken.
+        var speech = _voiceOutput.IsEnabled ? _voiceOutput.BeginReply() : null;
 
         try
         {
@@ -2693,6 +2775,7 @@ public partial class ChatPanelView : UserControl
                     }
 
                     streamed.Append(chunk.Text);
+                    speech?.Append(chunk.Text);
                 }
 
                 // Repaint at ~30 FPS so streaming feels fluid without overwhelming the UI thread.
@@ -2728,6 +2811,10 @@ public partial class ChatPanelView : UserControl
             _waitingForFirstChunk = false;
             _host.SetBusy(false);
 
+            // Speak out the last sentence. A turn that failed still finishes what it had streamed, but
+            // the error text itself is only ever shown, never read.
+            speech?.Complete();
+
             // A reply that was all reasoning, or a turn that died mid-thought, would otherwise be left
             // saying "Thinking…" forever.
             if (thinking.IsRunning)
@@ -2741,6 +2828,9 @@ public partial class ChatPanelView : UserControl
         _sounds.Play(FloatySound.AssistantDone);
 
         AppendGeneratedImages(pending, generatedImages);
+
+        _streamingMessage = null;
+        pending.ShowReadAloud = CanReadAloud(pending);
 
         if (citations.Count > 0)
         {
