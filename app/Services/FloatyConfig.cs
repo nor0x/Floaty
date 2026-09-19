@@ -389,6 +389,34 @@ public enum ProviderKind
 }
 
 /// <summary>
+/// How hard a reasoning model should think. <see cref="Default"/> sends nothing and leaves it to the
+/// provider; the rest map onto each wire format's own vocabulary, so <see cref="Maximum"/> is OpenAI's
+/// <c>xhigh</c> and Anthropic's <c>max</c>, and Anthropic has nothing below <c>low</c>.
+/// </summary>
+public enum ReasoningEffortLevel
+{
+    Default,
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Maximum,
+}
+
+/// <summary>
+/// How long the answer should be, independent of how long the model thinks. OpenAI's GPT-5 family only.
+/// <see cref="Default"/> sends nothing.
+/// </summary>
+public enum OutputVerbosity
+{
+    Default,
+    Low,
+    Medium,
+    High,
+}
+
+/// <summary>
 /// One configured provider — a tab in Settings → Model Provider. Seeded from a
 /// <c>ProviderPresets</c> entry, but every field is user-overridable afterwards, so a preset is a
 /// starting point rather than a constraint.
@@ -438,7 +466,8 @@ public sealed class ProviderProfile
     /// <summary>
     /// Ask this provider to show its reasoning. Off by default, and only meaningful for the providers
     /// that need it asked for: Anthropic's extended thinking and OpenAI's reasoning summaries. Every
-    /// OpenAI-compatible endpoint that reasons at all streams it unprompted.
+    /// OpenAI-compatible endpoint that reasons at all streams it unprompted. Independent of
+    /// <see cref="ReasoningEffort"/>: this decides whether the reasoning is shown, not how much of it happens.
     /// </summary>
     public bool RequestThinking { get; set; } = false;
 
@@ -447,6 +476,14 @@ public sealed class ProviderProfile
     /// spent out of the same budget as the answer, so Floaty raises max_tokens to match.
     /// </summary>
     public int ThinkingBudgetTokens { get; set; } = 4096;
+
+    /// <inheritdoc cref="ReasoningEffortLevel"/>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ReasoningEffortLevel ReasoningEffort { get; set; } = ReasoningEffortLevel.Default;
+
+    /// <inheritdoc cref="OutputVerbosity"/>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public OutputVerbosity Verbosity { get; set; } = OutputVerbosity.Default;
 }
 
 /// <summary>

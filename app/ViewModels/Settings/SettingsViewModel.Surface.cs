@@ -266,6 +266,14 @@ public sealed partial class SettingsViewModel
         RaiseAllChanged();
     }
 
+    // --- Model provider ---
+
+    // Static because the provider card's DataContext is the ProviderProfile itself, not this view model;
+    // the view reaches these through x:Static.
+    public static IReadOnlyList<ReasoningEffortLevel> ReasoningEfforts { get; } = Enum.GetValues<ReasoningEffortLevel>();
+
+    public static IReadOnlyList<OutputVerbosity> Verbosities { get; } = Enum.GetValues<OutputVerbosity>();
+
     // --- Exec ---
 
     public bool ExecEnabled

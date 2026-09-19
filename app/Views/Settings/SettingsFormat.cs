@@ -49,6 +49,14 @@ public static class SettingsFormat
     public static readonly IValueConverter EnumLabel =
         new FuncValueConverter<object?, string>(value => value is null ? string.Empty : Humanize(value));
 
+    /// <summary>Every transport that chats takes a reasoning effort; local ONNX models only embed.</summary>
+    public static readonly IValueConverter SupportsEffort =
+        new FuncValueConverter<ProviderKind, bool>(kind => kind != ProviderKind.LocalOnnx);
+
+    /// <summary>Output verbosity is an OpenAI (GPT-5 family) parameter; nothing else understands it.</summary>
+    public static readonly IValueConverter SupportsVerbosity =
+        new FuncValueConverter<ProviderKind, bool>(kind => kind == ProviderKind.OpenAI);
+
     /// <summary>"3 custom images" / "1 custom image" / "" — pluralisation the markup used to inline.</summary>
     public static readonly IValueConverter CustomCount =
         new FuncValueConverter<int, string>(n => n switch

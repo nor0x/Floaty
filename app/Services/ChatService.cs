@@ -249,7 +249,7 @@ public sealed class ChatService : IChatService
         messages.AddRange(history);
 
         var options = new ChatOptions { Tools = tools };
-        ApplyThinking(options, _clients.GetProfile(ModelRole.Chat));
+        ApplyReasoning(options, _clients.GetProfile(ModelRole.Chat));
 
         // Reasoning reaches us one of two ways: as TextReasoningContent (Anthropic's thinking blocks,
         // and the reasoning_content field the OpenAI binding already parses out of DeepSeek/Ollama/
@@ -304,58 +304,145 @@ public sealed class ChatService : IChatService
     }
 
     /// <summary>
-    /// Asks the provider for reasoning when the user opted in. Only the providers that need an explicit
-    /// request are handled: every OpenAI-compatible endpoint that reasons at all streams
-    /// <c>reasoning_content</c> unasked, so there is nothing to set for them.
+    /// Applies the provider's reasoning settings: showing the reasoning (only the providers that need
+    /// it asked for - every OpenAI-compatible endpoint that reasons at all streams
+    /// <c>reasoning_content</c> unasked), how hard to think, and, on OpenAI, how long to answer.
     /// </summary>
     /// <remarks>
     /// Lives here rather than in <see cref="AiClientFactory"/> because the factory also builds the vision
     /// client used for screenshot captioning, which has no business thinking.
     /// </remarks>
-    private static void ApplyThinking(ChatOptions options, ProviderProfile? profile)
+    private static void ApplyReasoning(ChatOptions options, ProviderProfile? profile)
     {
-        if (profile is null || !profile.RequestThinking)
+        if (profile is null)
+            return;
+
+        var showThinking = profile.RequestThinking;
+        var effort = profile.ReasoningEffort;
+        var verbosity = profile.Kind == ProviderKind.OpenAI ? VerbosityValue(profile.Verbosity) : null;
+
+        if (!showThinking && effort == ReasoningEffortLevel.Default && verbosity is null)
             return;
 
         switch (profile.Kind)
         {
             case ProviderKind.Anthropic:
             {
+                var anthropicEffort = AnthropicEffort(effort);
+                if (!showThinking && anthropicEffort is null)
+                    return;
+
                 var budget = Math.Max(MinThinkingBudgetTokens, profile.ThinkingBudgetTokens);
 
                 // The thinking budget is spent out of max_tokens, so the ceiling has to cover the
                 // budget plus room for the answer itself - otherwise the reply is cut off mid-thought.
-                var ceiling = budget + AnswerTokenHeadroom;
-                options.MaxOutputTokens = ceiling;
+                var ceiling = showThinking ? budget + AnswerTokenHeadroom : AnswerTokenHeadroom;
+                if (showThinking)
+                    options.MaxOutputTokens = ceiling;
 
                 // Model/Messages/MaxTokens are required members the adapter overwrites from the request
-                // it is actually building; only Thinking survives, which is the whole point of the hook.
-                // They are still filled in with the real ceiling rather than junk, so this stays correct
-                // even if a future SDK stops overwriting one of them.
-                options.RawRepresentationFactory = _ => new MessageCreateParams
+                // it is actually building; only Thinking and OutputConfig survive, which is the whole point
+                // of the hook. They are still filled in with a real ceiling rather than junk, so this stays
+                // correct even if a future SDK stops overwriting one of them.
+                options.RawRepresentationFactory = _ =>
                 {
-                    Model = string.Empty,
-                    Messages = [],
-                    MaxTokens = ceiling,
-                    Thinking = new ThinkingConfigEnabled { BudgetTokens = budget },
+                    var raw = new MessageCreateParams
+                    {
+                        Model = string.Empty,
+                        Messages = [],
+                        MaxTokens = ceiling,
+                    };
+                    if (showThinking)
+                        raw = raw with { Thinking = new ThinkingConfigEnabled { BudgetTokens = budget } };
+                    if (anthropicEffort is { } level)
+                        raw = raw with { OutputConfig = new OutputConfig { Effort = level } };
+                    return raw;
                 };
                 break;
             }
 
             case ProviderKind.OpenAI when profile.UseResponsesApi:
+            {
+                var openAiEffort = OpenAiEffort(effort);
 #pragma warning disable OPENAI001 // Same experimental Responses API surface AiClientFactory opts into.
-                options.RawRepresentationFactory = _ => new CreateResponseOptions
+#pragma warning disable SCME0001 // JsonPatch: the SDK has no typed property for text.verbosity yet.
+                options.RawRepresentationFactory = _ =>
                 {
-                    ReasoningOptions = new ResponseReasoningOptions
+                    var raw = new CreateResponseOptions();
+                    if (showThinking || openAiEffort is not null)
                     {
+                        raw.ReasoningOptions = new ResponseReasoningOptions();
+                        if (openAiEffort is not null)
+                            raw.ReasoningOptions.ReasoningEffortLevel = new ResponseReasoningEffortLevel(openAiEffort);
+
                         // o-series and gpt-5 return no visible reasoning at all without a summary asked for.
-                        ReasoningSummaryVerbosity = ResponseReasoningSummaryVerbosity.Auto,
-                    },
+                        if (showThinking)
+                            raw.ReasoningOptions.ReasoningSummaryVerbosity = ResponseReasoningSummaryVerbosity.Auto;
+                    }
+
+                    if (verbosity is not null)
+                        raw.Patch.Set("$.text.verbosity"u8, verbosity);
+                    return raw;
                 };
+#pragma warning restore SCME0001
 #pragma warning restore OPENAI001
                 break;
+            }
+
+            case ProviderKind.OpenAI or ProviderKind.AzureOpenAI or ProviderKind.OpenAiCompatible:
+            {
+                // Chat completions: reasoning shows up unasked, so only effort and verbosity go on the wire.
+                var openAiEffort = OpenAiEffort(effort);
+                if (openAiEffort is null && verbosity is null)
+                    return;
+
+#pragma warning disable OPENAI001 // ReasoningEffortLevel is still marked experimental on chat completions.
+#pragma warning disable SCME0001 // JsonPatch: the SDK has no typed property for verbosity yet.
+                options.RawRepresentationFactory = _ =>
+                {
+                    var raw = new OpenAI.Chat.ChatCompletionOptions();
+                    if (openAiEffort is not null)
+                        raw.ReasoningEffortLevel = new OpenAI.Chat.ChatReasoningEffortLevel(openAiEffort);
+                    if (verbosity is not null)
+                        raw.Patch.Set("$.verbosity"u8, verbosity);
+                    return raw;
+                };
+#pragma warning restore SCME0001
+#pragma warning restore OPENAI001
+                break;
+            }
         }
     }
+
+    /// <summary>OpenAI's wire value for an effort level, or null to leave it to the provider.</summary>
+    private static string? OpenAiEffort(ReasoningEffortLevel level) => level switch
+    {
+        ReasoningEffortLevel.None => "none",
+        ReasoningEffortLevel.Minimal => "minimal",
+        ReasoningEffortLevel.Low => "low",
+        ReasoningEffortLevel.Medium => "medium",
+        ReasoningEffortLevel.High => "high",
+        ReasoningEffortLevel.Maximum => "xhigh",
+        _ => null,
+    };
+
+    /// <summary>Anthropic's effort for a level; it has nothing below low, so the lower rungs collapse onto it.</summary>
+    private static Effort? AnthropicEffort(ReasoningEffortLevel level) => level switch
+    {
+        ReasoningEffortLevel.None or ReasoningEffortLevel.Minimal or ReasoningEffortLevel.Low => Effort.Low,
+        ReasoningEffortLevel.Medium => Effort.Medium,
+        ReasoningEffortLevel.High => Effort.High,
+        ReasoningEffortLevel.Maximum => Effort.Max,
+        _ => null,
+    };
+
+    private static string? VerbosityValue(OutputVerbosity verbosity) => verbosity switch
+    {
+        OutputVerbosity.Low => "low",
+        OutputVerbosity.Medium => "medium",
+        OutputVerbosity.High => "high",
+        _ => null,
+    };
 
     public async Task<string> GetResponseAsync(
         IReadOnlyList<ChatMessage> history,

@@ -79,6 +79,40 @@
                 </Grid>
                 <TextBlock Classes="hint"
                            Text="Only Anthropic (extended thinking, budget in tokens) and OpenAI's Responses API need this asked for. Everything else that reasons — DeepSeek, Ollama, LM Studio, llama.cpp — streams it either way." />
+
+                <!-- Gated on Kind rather than a checkbox: Kind only changes along with the DataContext,
+                     so these re-evaluate even though ProviderProfile raises no change notifications. -->
+                <Grid ColumnDefinitions="90,*"
+                      IsVisible="{Binding Kind, Converter={x:Static views:SettingsFormat.SupportsEffort}}">
+                    <TextBlock Grid.Column="0" Text="Effort" VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{x:Static vm:SettingsViewModel.ReasoningEfforts}"
+                              SelectedItem="{Binding ReasoningEffort}"
+                              MinWidth="160">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+                <Grid ColumnDefinitions="90,*"
+                      IsVisible="{Binding Kind, Converter={x:Static views:SettingsFormat.SupportsVerbosity}}">
+                    <TextBlock Grid.Column="0" Text="Verbosity" VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{x:Static vm:SettingsViewModel.Verbosities}"
+                              SelectedItem="{Binding Verbosity}"
+                              MinWidth="160">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+                <TextBlock Classes="hint"
+                           IsVisible="{Binding Kind, Converter={x:Static views:SettingsFormat.SupportsEffort}}"
+                           Text="Effort is how hard a reasoning model thinks; verbosity is how long its answer runs (OpenAI's GPT-5 family only). Default sends nothing. Maximum is xhigh on OpenAI and max on Anthropic, and Anthropic has nothing below low. A model that doesn't support a level may reject the request." />
             </StackPanel>
         </Border>
 

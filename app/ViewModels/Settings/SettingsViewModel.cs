@@ -829,6 +829,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         UseResponsesApi = p.UseResponsesApi,
         RequestThinking = p.RequestThinking,
         ThinkingBudgetTokens = p.ThinkingBudgetTokens,
+        ReasoningEffort = p.ReasoningEffort,
+        Verbosity = p.Verbosity,
     };
 
     private static ModelAssignment CloneRole(ModelAssignment a) => new()
