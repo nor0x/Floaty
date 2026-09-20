@@ -159,7 +159,9 @@ public sealed class SettingsTools : IChatToolset
     private string SetRingImage(
         [Description("The image file name to use as the ring, or 'default'.")] string file)
     {
-        var name = Path.GetFileName((file ?? string.Empty).Trim());
+        // NormalizeRingName so a model still holding the pre-rename names ("ring3.png", from an older
+        // transcript or the user asking for "ring 3") lands on the built-in rather than an error.
+        var name = SettingsService.NormalizeRingName(Path.GetFileName((file ?? string.Empty).Trim()));
         if (string.IsNullOrWhiteSpace(name))
             return "No image file was specified.";
 

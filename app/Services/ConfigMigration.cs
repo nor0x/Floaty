@@ -17,7 +17,26 @@ public static class ConfigMigration
         changed |= DropDanglingRoles(config);
         changed |= AdoptImageRole(config);
         changed |= AdoptSpeechRole(config);
+        changed |= RenameBuiltInRing(config);
         return changed;
+    }
+
+    /// <summary>
+    /// Points a config at the renamed built-in ring images. The built-ins were ring1.png … ring7.png
+    /// until they were given names describing the artwork; without this every existing user's
+    /// selection would fail validation on the first launch after the upgrade and be blanked back to
+    /// the default, silently changing their ring.
+    ///
+    /// Naturally idempotent: the new names are not keys in the legacy map, so a second run is a no-op.
+    /// </summary>
+    private static bool RenameBuiltInRing(FloatyConfig config)
+    {
+        var current = SettingsService.NormalizeRingName(config.RingImageFileName);
+        if (string.Equals(current, config.RingImageFileName, StringComparison.Ordinal))
+            return false;
+
+        config.RingImageFileName = current;
+        return true;
     }
 
     /// <summary>

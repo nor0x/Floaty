@@ -54,7 +54,7 @@ Reach for `edit_image` when the user is reacting to something that already exist
 - a file name returned by `generate_image` or a previous `edit_image`
 - a screen capture from Floaty's memory (the `file:` value in a `search_captures` result)
 - a file the user dropped on Floaty
-- a built-in ring, `ring1.png` through `ring7.png`
+- a built-in ring: `daisy.png`, `tropical.png`, `duck.png`, `donut.png`, `gold.png`, `wheel.png`, `moon.png`
 
 Describe the **finished** image, not the delta: "the same fox, now under a full moon with cool blue
 shadows" works; "make it night" is weaker.

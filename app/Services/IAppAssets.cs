@@ -17,6 +17,6 @@ public interface IAppAssets
     /// Opens a packaged asset, or returns null when it does not exist. Callers own the stream.
     /// </summary>
     /// <param name="folder">Project-relative folder the asset was declared in, e.g. <c>Resources/Images</c>.</param>
-    /// <param name="fileName">Bare file name, e.g. <c>ring1.png</c>.</param>
+    /// <param name="fileName">Bare file name, e.g. <c>daisy.png</c>.</param>
     Stream? Open(string folder, string fileName);
 }

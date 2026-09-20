@@ -21,6 +21,9 @@
              another. Styles here are the outermost frame, so per-window and per-view styles still
              override them. -->
         <StyleInclude Source="avares://Floaty/Styles/ButtonStates.axaml" />
+
+        <!-- Tooltip padding, so Fluent's popup stops clipping the last character of a tip. -->
+        <StyleInclude Source="avares://Floaty/Styles/ToolTips.axaml" />
     </Application.Styles>
 
     <Application.Resources>

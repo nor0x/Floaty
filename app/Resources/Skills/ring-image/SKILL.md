@@ -50,8 +50,10 @@ These aren't style preferences; each one is a property of how the overlay actual
 
 ## Edge cases
 
-- **"Go back to ring 3" / "use the default one."** Skip generation entirely and call `set_ring_image`
-  with `ring3.png`. The built-ins are `ring1.png` through `ring7.png`.
+- **"Go back to the duck one" / "use the default one."** Skip generation entirely and call
+  `set_ring_image` with the built-in's name. They are `daisy.png` (blue ring with daisies),
+  `tropical.png` (floral print ring), `duck.png` (rubber-duck float), `donut.png` (pink sprinkled
+  donut), `gold.png` (engraved gold band), `wheel.png` (chrome car wheel) and `moon.png` (full moon).
 - **No image model configured.** Say so and point at Settings → Model provider → Roles → Image. The
   built-in rings still work through `set_ring_image` in the meantime.
 - **"Surprise me."** Pick a concrete direction and commit to it — a material (brushed copper, sea

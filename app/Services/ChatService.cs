@@ -614,8 +614,8 @@ public sealed class ChatService : IChatService
     }
 
     [Description("Restyle an existing image according to a description, and show the result to the user. " +
-                 "Pass a file name from generate_image, a screen capture, a ring image (ring1.png … " +
-                 "ring7.png), or a file the user dropped on Floaty.")]
+                 "Pass a file name from generate_image, a screen capture, a built-in ring (get_settings " +
+                 "lists them), or a file the user dropped on Floaty.")]
     private async Task<string> EditImage(
         [Description("The image file name to start from.")] string file,
         [Description("What to change, described as the finished image should look.")] string prompt,
@@ -657,7 +657,7 @@ public sealed class ChatService : IChatService
         }
 
         if (source is null)
-            return $"No image named '{name}'. Use a file name returned by generate_image, or a built-in ring (ring1.png … ring7.png).";
+            return $"No image named '{name}'. Use a file name returned by generate_image, or one of the built-in rings get_settings lists.";
 
         try
         {

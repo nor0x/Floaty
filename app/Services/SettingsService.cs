@@ -10,14 +10,31 @@ public sealed class SettingsService
 {
     private static readonly string[] BuiltInRingImages =
     [
-        "ring1.png",
-        "ring2.png",
-        "ring3.png",
-        "ring4.png",
-        "ring5.png",
-        "ring6.png",
-        "ring7.png",
+        "daisy.png",
+        "donut.png",
+        "duck.png",
+        "gold.png",
+        "moon.png",
+        "tropical.png",
+        "wheel.png",
     ];
+
+    /// <summary>
+    /// The built-ins used to be ring1.png … ring7.png. A config naming one of those would fail
+    /// <see cref="IsValidRingSelection"/> and get silently blanked, so every name coming from outside
+    /// this build - a saved config, a model that learned the old names - goes through
+    /// <see cref="NormalizeRingName"/> first.
+    /// </summary>
+    private static readonly Dictionary<string, string> LegacyRingImages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ring1.png"] = "daisy.png",
+        ["ring2.png"] = "tropical.png",
+        ["ring3.png"] = "duck.png",
+        ["ring4.png"] = "donut.png",
+        ["ring5.png"] = "gold.png",
+        ["ring6.png"] = "wheel.png",
+        ["ring7.png"] = "moon.png",
+    };
 
     private static readonly HashSet<string> RingImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -226,6 +243,18 @@ public sealed class SettingsService
 
     /// <summary>Returns built-in ring image resource names packaged with the app.</summary>
     public IReadOnlyList<string> GetBuiltInRingImages() => BuiltInRingImages;
+
+    /// <summary>
+    /// Maps a pre-rename built-in ring name (ring1.png … ring7.png) onto its current one. Any other
+    /// name - a current built-in, a custom file, nonsense - passes through untouched.
+    /// </summary>
+    public static string NormalizeRingName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return string.Empty;
+
+        return LegacyRingImages.TryGetValue(fileName, out var current) ? current : fileName;
+    }
 
     /// <summary>True when the configured ring image points at a built-in packaged resource.</summary>
     public bool IsBuiltInRingImage(string? fileName) =>

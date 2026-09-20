@@ -338,7 +338,10 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     private void OnAccentColorPreviewRequested(object? sender, string hex) =>
         Dispatcher.UIThread.Post(() => (Application.Current as App)?.ApplyAccentColor(hex));
 
-    /// <summary>Loads the configured ring image, falling back to the first built-in.</summary>
+    /// <summary>The ring shown when nothing is selected, or when the selection no longer resolves.</summary>
+    private const string DefaultRing = "daisy.png";
+
+    /// <summary>Loads the configured ring image, falling back to <see cref="DefaultRing"/>.</summary>
     public void ApplyRingImage()
     {
         var selected = _settings.Current.RingImageFileName;
@@ -352,7 +355,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         var selectedPath = _settings.GetRingImageFullPath(selected);
         if (selectedPath is null)
         {
-            Ring.Source = LoadBuiltInRing("ring1.png");
+            Ring.Source = LoadBuiltInRing(DefaultRing);
             return;
         }
 
@@ -363,7 +366,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         catch
         {
             // A custom ring that no longer decodes must not take the overlay down with it.
-            Ring.Source = LoadBuiltInRing("ring1.png");
+            Ring.Source = LoadBuiltInRing(DefaultRing);
         }
     }
 

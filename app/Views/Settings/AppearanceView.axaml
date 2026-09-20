@@ -32,8 +32,13 @@
                                         CommandParameter="{Binding Value}"
                                         Margin="4"
                                         Padding="6"
-                                        CornerRadius="8"
-                                        ToolTip.Tip="{Binding Label}">
+                                        CornerRadius="8">
+                                    <!-- An explicit TextBlock rather than a bare string: the string
+                                         form is measured by the tooltip's own content presenter,
+                                         which was clipping the trailing glyph of the file name. -->
+                                    <ToolTip.Tip>
+                                        <TextBlock Text="{Binding Label}" />
+                                    </ToolTip.Tip>
                                     <Image Source="{Binding Preview}" Width="56" Height="56" Stretch="Uniform" />
                                 </Button>
                                 <Border BorderBrush="{DynamicResource AccentBrush}"
@@ -85,8 +90,11 @@
                                         Width="32" Height="32"
                                         CornerRadius="16"
                                         BorderThickness="0"
-                                        ToolTip.Tip="{Binding Label}"
-                                        Background="{Binding Value}" />
+                                        Background="{Binding Value}">
+                                    <ToolTip.Tip>
+                                        <TextBlock Text="{Binding Label}" />
+                                    </ToolTip.Tip>
+                                </Button>
                                 <Border BorderBrush="{DynamicResource AccentBrush}"
                                         BorderThickness="2"
                                         CornerRadius="20"
