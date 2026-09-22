@@ -14,6 +14,18 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
+        <!-- Identity for the built assembly and, through `vpk pack`, for the package-manager
+             manifests (winget / scoop / Chocolatey). Deliberately no <Version>: the version lives
+             only in the git tag (see .github/workflows/release-windows.yml) and is read back from
+             AssemblyInformationalVersion by UpdateService when running uninstalled. -->
+        <Authors>nor0x</Authors>
+        <Company>nor0x</Company>
+        <Product>Floaty</Product>
+        <Description>A local-first AI assistant that floats on top of your desktop.</Description>
+        <Copyright>Copyright (c) 2026 nor0x</Copyright>
+        <RepositoryUrl>https://github.com/nor0x/Floaty</RepositoryUrl>
+        <PackageProjectUrl>https://nor0x.github.io/Floaty/</PackageProjectUrl>
+
         <!-- Interop.UIAutomationClient is a COM interop assembly. -->
         <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
 

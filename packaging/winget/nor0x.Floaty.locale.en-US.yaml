@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+
+PackageIdentifier: nor0x.Floaty
+PackageVersion: 0.2.2
+PackageLocale: en-US
+Publisher: nor0x
+PublisherUrl: https://github.com/nor0x
+PublisherSupportUrl: https://github.com/nor0x/Floaty/issues
+Author: nor0x
+PackageName: Floaty
+PackageUrl: https://nor0x.github.io/Floaty/
+License: MIT
+LicenseUrl: https://github.com/nor0x/Floaty/blob/main/LICENSE
+Copyright: Copyright (c) 2026 nor0x
+ShortDescription: A local-first AI assistant that floats on top of your desktop.
+Description: |-
+  Floaty lives in your tray and as a draggable swimming-ring overlay that stays on top of your
+  other windows. Through the ring you can capture what's on your screen - a screenshot plus the
+  actual text content read via accessibility APIs - and everything you capture is embedded into a
+  local memory that the assistant can search when you chat with it.
+
+  Everything stays on your machine: memory, conversations, skills, settings and speech-to-text all
+  live in ~/.floaty. The only thing that leaves your computer is what you send to the LLM provider
+  you configure - and with on-device embeddings plus a local model in Ollama, nothing has to.
+
+  Floaty installs per-user into %LocalAppData%\Floaty and keeps itself up to date via Velopack, so
+  the version winget reports may lag behind the version actually installed.
+Moniker: floaty
+Tags:
+  - ai
+  - assistant
+  - avalonia
+  - llm
+  - local-first
+  - mcp
+  - ollama
+  - overlay
+  - privacy
+  - productivity
+  - screenshot
+ReleaseNotesUrl: https://github.com/nor0x/Floaty/releases/tag/v0.2.2
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0

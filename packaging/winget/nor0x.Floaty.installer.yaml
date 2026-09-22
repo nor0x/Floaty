@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: nor0x.Floaty
+PackageVersion: 0.2.2
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.17763.0
+InstallerType: exe
+# Velopack installs per-user into %LocalAppData%\Floaty and never elevates.
+Scope: user
+ElevationRequirement: elevationProhibited
+InstallModes:
+  - silent
+  - silentWithProgress
+InstallerSwitches:
+  Silent: --silent
+  SilentWithProgress: --silent
+  InstallLocation: --installto "<INSTALLPATH>"
+# Velopack's installer overwrites in place. uninstallPrevious would wipe %LocalAppData%\Floaty.
+UpgradeBehavior: install
+# The uninstall entry Velopack writes is HKCU\...\Uninstall\Floaty, so the key name is the
+# "product code". Only the product code is pinned here on purpose: DisplayName and Publisher track
+# vpk's --packTitle/--packAuthors, and DisplayVersion drops any prerelease suffix, so pinning those
+# would silently break `winget list` / `winget upgrade` correlation the moment one of them drifts.
+ProductCode: Floaty
+AppsAndFeaturesEntries:
+  - ProductCode: Floaty
+InstallationMetadata:
+  DefaultInstallLocation: '%LocalAppData%\Floaty'
+ReleaseDate: 2026-09-20
+Installers:
+  # The Velopack Setup.exe stub is a 32-bit PE (machine 0x14c) even though the app it installs is
+  # x86-64. Architecture describes the app, not the stub - do not let tooling "correct" this to x86.
+  - Architecture: x64
+    InstallerUrl: https://github.com/nor0x/Floaty/releases/download/v0.2.2/Floaty-win-Setup.exe
+    InstallerSha256: D1936C24C94234D2A91BB0EE64094C7EAB4BC3AA0DF0503F45D669291FE3EB0E
+ManifestType: installer
+ManifestVersion: 1.12.0

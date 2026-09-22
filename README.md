@@ -12,6 +12,7 @@
   <a href="https://github.com/nor0x/Floaty/releases"><img src="https://img.shields.io/github/v/release/nor0x/Floaty?include_prereleases&label=release" alt="Latest release" /></a>
   <a href="https://github.com/nor0x/Floaty/actions/workflows/release-windows.yml"><img src="https://github.com/nor0x/Floaty/actions/workflows/release-windows.yml/badge.svg" alt="Release build" /></a>
   <img src="https://img.shields.io/badge/.NET-10-512BD4" alt=".NET 10" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" /></a>
 </p>
 
 ---
@@ -39,7 +40,22 @@ Everything stays on your machine: memory, conversations, skills, settings, and s
 
 ## 📥 Installation
 
-Grab the latest Windows installer from the [Releases page](https://github.com/nor0x/Floaty/releases). The app checks for updates itself after that.
+```sh
+winget install nor0x.Floaty
+```
+
+```sh
+choco install floaty
+```
+
+```sh
+scoop bucket add nor0x https://github.com/nor0x/scoop-bucket
+scoop install nor0x/floaty
+```
+
+Or grab the installer straight from the [Releases page](https://github.com/nor0x/Floaty/releases).
+
+winget, Chocolatey and the direct download all install the same thing: a per-user install in `%LocalAppData%\Floaty` that keeps itself up to date, so those package managers may report a version older than the one you are actually running. That is on purpose - run `choco pin add -n=floaty` if you would rather Chocolatey left it alone. The scoop package is the portable build instead, which does not self-update, so scoop owns the version.
 
 On first run, open Settings > Model Provider and add a provider. OpenAI, Anthropic, Google Gemini, Azure OpenAI, OpenRouter, Groq, Mistral, DeepSeek and xAI have one-click presets; Ollama, LM Studio, llama.cpp's server or any other OpenAI-compatible endpoint work through the Ollama and Custom entries.
 
@@ -96,6 +112,7 @@ The solution file is `app/Floaty.slnx` if you prefer Visual Studio.
 
 ```
 app/       Avalonia application (Floaty.slnx, Floaty.csproj)
+packaging/ winget / scoop / Chocolatey manifests (see packaging/README.md)
 website/   Landing page deployed to GitHub Pages
 .github/   CI: Windows release packaging + Pages deployment
 ```

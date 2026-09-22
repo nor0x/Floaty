@@ -17,6 +17,8 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -92,6 +94,12 @@ jobs:
         shell: bash
         # --releaseNotes embeds release-notes.md into the package + feed (releases.win.json), so the
         # GitHub Release body (via vpk upload) and the in-app "What's new" section both use it.
+        #
+        # --packTitle and --packAuthors land in the HKCU uninstall entry as DisplayName/Publisher,
+        # which is what `winget list` / `winget upgrade` correlate against. Treat both as frozen:
+        # changing either silently breaks that correlation for everyone already installed.
+        # --channel is frozen for the same kind of reason - it names releases.{channel}.json, so
+        # changing it breaks Velopack self-update for every existing install.
         run: |
           set -euo pipefail
           vpk pack \
@@ -100,8 +108,21 @@ jobs:
             --packDir publish \
             --mainExe Floaty.exe \
             --packTitle Floaty \
+            --packAuthors nor0x \
+            --icon app/Resources/AppIcon/floaty.ico \
             --releaseNotes release-notes.md \
             --outputDir Releases
+
+      - name: Generate checksums
+        shell: bash
+        # Hashed here rather than downloaded back, so the checksum provably belongs to the artifact
+        # that is about to be uploaded. Chocolatey requires a checksum for the installer it fetches;
+        # winget's is computed by the action, and scoop's by Excavator.
+        run: |
+          set -euo pipefail
+          cd Releases
+          sha256sum Floaty-win-Setup.exe Floaty-win-Portable.zip > checksums.txt
+          cat checksums.txt
 
       - name: Upload to GitHub Releases
         shell: bash
@@ -115,3 +136,62 @@ jobs:
             --releaseName "Floaty ${{ steps.version.outputs.version }}" \
             --tag v${{ steps.version.outputs.version }} \
             --token "$GITHUB_TOKEN"
+
+      - name: Attach checksums to the release
+        shell: bash
+        # vpk upload creates *and* publishes in one call, so the release exists by now and this just
+        # appends an asset. --clobber keeps workflow re-runs idempotent.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release upload "v${{ steps.version.outputs.version }}" Releases/checksums.txt --clobber
+
+  # Package managers. These are separate jobs so that an expired PAT or a Chocolatey hiccup does not
+  # mark the release itself red - the release is already published by the time they run.
+  #
+  # They cannot be a separate `on: release` workflow: vpk upload authenticates with GITHUB_TOKEN, and
+  # GitHub does not trigger workflow runs from events raised by GITHUB_TOKEN. The release event would
+  # simply never fire.
+  #
+  # scoop is absent on purpose - the nor0x/scoop-bucket repo runs Excavator on its own schedule and
+  # picks new tags up by itself. See packaging/scoop/README.md.
+
+  winget:
+    name: Publish to winget
+    needs: release
+    runs-on: windows-latest
+    steps:
+      # Updates the existing nor0x.Floaty manifests in microsoft/winget-pkgs via Komac. The first
+      # version had to be submitted by hand; see packaging/winget/README.md.
+      - uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: nor0x.Floaty
+          version: ${{ needs.release.outputs.version }}
+          release-tag: v${{ needs.release.outputs.version }}
+          installers-regex: 'Floaty-win-Setup\.exe$'
+          # Classic PAT with public_repo + workflow. Fine-grained tokens do not work here.
+          token: ${{ secrets.WINGET_TOKEN }}
+
+  chocolatey:
+    name: Publish to Chocolatey
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp version + checksum into the package
+        shell: pwsh
+        run: ./packaging/chocolatey/update.ps1 -Version '${{ needs.release.outputs.version }}'
+
+      - name: Pack
+        shell: pwsh
+        run: choco pack packaging/chocolatey/floaty.nuspec --out .
+
+      - name: Push
+        shell: pwsh
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          choco apikey --key $env:CHOCO_API_KEY --source https://push.chocolatey.org/
+          choco push floaty.${{ needs.release.outputs.version }}.nupkg --source https://push.chocolatey.org/

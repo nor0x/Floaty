@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>floaty</id>
+    <version>0.2.2</version>
+    <packageSourceUrl>https://github.com/nor0x/Floaty/tree/main/packaging/chocolatey</packageSourceUrl>
+    <owners>nor0x</owners>
+
+    <title>Floaty</title>
+    <authors>nor0x</authors>
+    <projectUrl>https://nor0x.github.io/Floaty/</projectUrl>
+    <iconUrl>https://cdn.jsdelivr.net/gh/nor0x/Floaty@v0.2.2/packaging/chocolatey/icon.png</iconUrl>
+    <copyright>Copyright (c) 2026 nor0x</copyright>
+    <licenseUrl>https://github.com/nor0x/Floaty/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <projectSourceUrl>https://github.com/nor0x/Floaty</projectSourceUrl>
+    <docsUrl>https://github.com/nor0x/Floaty/blob/main/README.md</docsUrl>
+    <bugTrackerUrl>https://github.com/nor0x/Floaty/issues</bugTrackerUrl>
+    <tags>floaty ai assistant llm overlay local-first privacy productivity screenshot ollama mcp foss</tags>
+    <summary>A local-first AI assistant that floats on top of your desktop.</summary>
+    <description><![CDATA[
+Floaty lives in your tray and as a draggable swimming-ring overlay that stays on top of your other
+windows. Through the ring you can capture what's on your screen - a screenshot plus the actual text
+content read via accessibility APIs - and everything you capture is embedded into a local memory
+that the assistant can search when you chat with it.
+
+Everything stays on your machine: memory, conversations, skills, settings and speech-to-text all
+live in `%USERPROFILE%\.floaty`. The only thing that leaves your computer is what you send to the
+LLM provider you configure - and with on-device embeddings plus a local model in Ollama, nothing
+has to.
+
+### Features
+
+* Floating ring overlay - draggable, borderless, always on top, click-through where it is transparent
+* Screen capture that grabs a screenshot *and* the text of the active window via UI Automation
+* Optional automatic screen history, redacted before it is written (password managers, private
+  browsing windows and password fields are never captured)
+* Local memory with on-device vector search over everything you captured
+* Any model provider - OpenAI, Anthropic, Gemini, Azure OpenAI, OpenRouter, Groq, Mistral, DeepSeek,
+  xAI, Ollama, or any OpenAI-compatible endpoint
+* On-device embeddings and fully local speech-to-text, so it can work with no API key at all
+* Agent skills (`SKILL.md`) and Model Context Protocol servers
+
+### Packaging notes
+
+* Installs **per user** into `%LocalAppData%\Floaty`. No elevation, and the app is only available to
+  the account that ran `choco install`.
+* Floaty updates itself via Velopack when it starts, so the version Chocolatey reports can lag
+  behind the version actually installed. Run `choco pin add -n=floaty` if you would rather
+  Chocolatey left it alone.
+* Your data in `%USERPROFILE%\.floaty` is **not** removed when the package is uninstalled.
+* Windows x64 only.
+]]></description>
+    <releaseNotes>https://github.com/nor0x/Floaty/releases/tag/v0.2.2</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

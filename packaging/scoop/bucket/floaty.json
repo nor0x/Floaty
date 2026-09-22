@@ -1,0 +1,38 @@
+{
+    "version": "0.2.2",
+    "description": "A local-first AI assistant that floats on top of your desktop.",
+    "homepage": "https://nor0x.github.io/Floaty/",
+    "license": {
+        "identifier": "MIT",
+        "url": "https://github.com/nor0x/Floaty/blob/main/LICENSE"
+    },
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/nor0x/Floaty/releases/download/v0.2.2/Floaty-win-Portable.zip",
+            "hash": "45b7faccfba47172294d9be3481ac3ef9c23122e335617350f34c9bc7c22596a"
+        }
+    },
+    "shortcuts": [
+        [
+            "Floaty.exe",
+            "Floaty"
+        ]
+    ],
+    "notes": [
+        "Floaty keeps everything in ~/.floaty - config, memory database, captures, conversations and",
+        "skills. That directory lives outside the Scoop install path and is NOT removed when you",
+        "uninstall. Delete it by hand if you want a clean slate.",
+        "",
+        "This is the portable build, so it does not update itself. Use 'scoop update floaty'."
+    ],
+    "checkver": {
+        "github": "https://github.com/nor0x/Floaty"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/nor0x/Floaty/releases/download/v$version/Floaty-win-Portable.zip"
+            }
+        }
+    }
+}
