@@ -169,8 +169,8 @@
                     </StackPanel>
 
                     <!-- Literal text for user + system notes; markdown for assistant answers. The
-                         read-aloud button sits in its own column at the end of the text, bottom-
-                         aligned so it trails the last line. -->
+                         copy and read-aloud buttons sit in their own column at the end of the text,
+                         bottom-aligned so they trail the last line. -->
                     <Grid ColumnDefinitions="*,Auto">
                         <SelectableTextBlock Grid.Column="0"
                                              Classes="literal"
@@ -182,16 +182,26 @@
                                                 IsVisible="{Binding RendersMarkdown}"
                                                 Foreground="White" />
 
-                        <!-- Read this answer aloud through the speech model. Available once the answer
-                             has finished streaming and a speech model is configured (ShowReadAloud);
-                             even then it stays invisible until the message is hovered (see the
-                             Button.readAloud styles). -->
-                        <Button Grid.Column="1"
-                                Classes="readAloud"
-                                IsVisible="{Binding ShowReadAloud}"
-                                Click="OnReadAloudClicked"
-                                Content="{x:Static icons:TablerLine.Volume}"
-                                ToolTip.Tip="Read aloud" />
+                        <!-- Copy the whole answer (once it has finished streaming, ShowCopy), and read it
+                             aloud through the speech model (when one is configured too, ShowReadAloud).
+                             Both stay invisible until the message is hovered (see the Button.msgAction
+                             styles). -->
+                        <StackPanel Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="2"
+                                    Margin="6,0,0,-2"
+                                    VerticalAlignment="Bottom">
+                            <Button Classes="msgAction"
+                                    IsVisible="{Binding ShowCopy}"
+                                    Click="OnCopyMessageClicked"
+                                    Content="{x:Static icons:TablerLine.Copy}"
+                                    ToolTip.Tip="Copy" />
+                            <Button Classes="msgAction"
+                                    IsVisible="{Binding ShowReadAloud}"
+                                    Click="OnReadAloudClicked"
+                                    Content="{x:Static icons:TablerLine.Volume}"
+                                    ToolTip.Tip="Read aloud" />
+                        </StackPanel>
                     </Grid>
 
                     <!-- Memory sources cited for this answer. -->
@@ -250,7 +260,7 @@
         </Style>
         <!-- Hover-revealed via Opacity rather than IsVisible so the text never reflows as the
              pointer crosses the message, and the button stays keyboard-reachable. -->
-        <Style Selector="Button.readAloud">
+        <Style Selector="Button.msgAction">
             <Setter Property="FontFamily" Value="{StaticResource TablerIcons}" />
             <Setter Property="Foreground" Value="{StaticResource Dim}" />
             <Setter Property="Background" Value="Transparent" />
@@ -258,10 +268,8 @@
             <Setter Property="Width" Value="22" />
             <Setter Property="Height" Value="22" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Margin" Value="6,0,0,-2" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="FontSize" Value="13" />
-            <Setter Property="VerticalAlignment" Value="Bottom" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Cursor" Value="Hand" />
@@ -272,7 +280,7 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Border.msg:pointerover Button.readAloud, Button.readAloud:focus-visible">
+        <Style Selector="Border.msg:pointerover Button.msgAction, Button.msgAction:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.msg.note SelectableTextBlock.literal">
@@ -386,6 +394,9 @@
             <Setter Property="Foreground" Value="White" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CaretBrush" Value="White" />
+            <!-- Fluent's default placeholder is a mid grey meant for light surfaces; on this dark
+                 input it all but disappears. -->
+            <Setter Property="PlaceholderForeground" Value="{StaticResource Dim}" />
             <Setter Property="SelectionBrush" Value="{DynamicResource AccentColor}" />
             <Setter Property="MinHeight" Value="0" />
         </Style>
@@ -774,30 +785,57 @@
             <!-- The input row. This must never be pushed out of view, so RefreshMessageAreaHeight
                  measures it as chrome and caps the message list at whatever is left. -->
             <Grid x:Name="InputRow" Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,-6,0">
-                <!-- Chevron: collapse the chat panel entirely. Column + glyph are set at runtime so it
-                     points toward the ring on whichever side the panel opened. -->
-                <Button x:Name="CollapseButton"
-                        Grid.Column="0"
-                        Click="OnCollapseChatClicked"
-                        Width="18"
-                        Padding="0"
-                        CornerRadius="0"
-                        BorderThickness="0"
-                        HorizontalAlignment="Left"
-                        VerticalAlignment="Stretch"
-                        HorizontalContentAlignment="Center"
-                        VerticalContentAlignment="Center"
-                        Background="Transparent"
-                        Foreground="{StaticResource Muted}">
-                    <!-- The glyph is a child rather than the Button's Content so it can be centred on
-                         its own box; ApplyPanelSide flips its Text, the way it flips ResizeCornerGlyph. -->
-                    <TextBlock x:Name="CollapseGlyph"
-                               Text="{x:Static icons:TablerLine.CaretLeft}"
-                               FontFamily="{StaticResource TablerIcons}"
-                               FontSize="14"
-                               HorizontalAlignment="Center"
-                               VerticalAlignment="Center" />
-                </Button>
+                <!-- Edge tools: the collapse chevron and the compact toggle. ApplyPanelSide moves the
+                     pair as a unit and mirrors it, keeping the chevron outermost, toward the ring. -->
+                <Grid x:Name="InputEdgeTools"
+                      Grid.Column="0"
+                      ColumnDefinitions="Auto,Auto">
+                    <!-- Chevron: collapse the chat panel entirely. Glyph is set at runtime so it
+                         points toward the ring on whichever side the panel opened. -->
+                    <Button x:Name="CollapseButton"
+                            Grid.Column="0"
+                            Click="OnCollapseChatClicked"
+                            Width="18"
+                            Padding="0"
+                            CornerRadius="0"
+                            BorderThickness="0"
+                            VerticalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Background="Transparent"
+                            Foreground="{StaticResource Muted}">
+                        <!-- The glyph is a child rather than the Button's Content so it can be centred on
+                             its own box; ApplyPanelSide flips its Text, the way it flips ResizeCornerGlyph. -->
+                        <TextBlock x:Name="CollapseGlyph"
+                                   Text="{x:Static icons:TablerLine.CaretLeft}"
+                                   FontFamily="{StaticResource TablerIcons}"
+                                   FontSize="14"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Button>
+                    <!-- Compact toggle: hides the message list and the header row, leaving only this
+                         input row. Glyph and tooltip are set by SetCompact. -->
+                    <Button x:Name="CompactToggleButton"
+                            Grid.Column="1"
+                            Click="OnCompactToggleClicked"
+                            ToolTip.Tip="Hide messages"
+                            Width="18"
+                            Padding="0"
+                            CornerRadius="0"
+                            BorderThickness="0"
+                            VerticalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Background="Transparent"
+                            Foreground="{StaticResource Muted}">
+                        <TextBlock x:Name="CompactGlyph"
+                                   Text="{x:Static icons:TablerLine.ChevronsDown}"
+                                   FontFamily="{StaticResource TablerIcons}"
+                                   FontSize="13"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Button>
+                </Grid>
                 <Border Grid.Column="1"
                         Background="{StaticResource Faint}"
                         CornerRadius="6"

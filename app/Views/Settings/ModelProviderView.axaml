@@ -9,7 +9,7 @@
     <StackPanel Spacing="0">
         <TextBlock Classes="h" Text="Model provider" />
         <TextBlock Classes="sub"
-                   Text="Providers hold the credentials; the roles below decide which provider and model each feature uses." />
+                   Text="Providers hold the credentials. The active provider serves every role unless a role below picks another." />
 
         <Border Classes="card">
             <StackPanel Spacing="10">
@@ -17,7 +17,7 @@
                 <TextBlock Classes="hint" Text="No providers configured yet."
                            IsVisible="{Binding !Providers.Count}" />
                 <ListBox ItemsSource="{Binding Providers}"
-                         SelectedValue="{Binding ActiveProviderId}"
+                         SelectedValue="{Binding SelectedProviderId}"
                          SelectedValueBinding="{Binding Id}"
                          ItemContainerTheme="{StaticResource RowItemTheme}"
                          Background="Transparent"
@@ -26,10 +26,25 @@
                          MaxHeight="180">
                     <ListBox.ItemTemplate>
                         <DataTemplate x:DataType="svc:ProviderProfile">
-                            <StackPanel Spacing="1">
-                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
-                                <TextBlock Text="{Binding Kind}" Classes="hint" />
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Grid.Column="0" Spacing="1">
+                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding Kind}" Classes="hint" />
+                                </StackPanel>
+                                <Border Grid.Column="1"
+                                        Background="{DynamicResource AccentBrush}"
+                                        CornerRadius="8"
+                                        Padding="8,2"
+                                        VerticalAlignment="Center">
+                                    <Border.IsVisible>
+                                        <MultiBinding Converter="{x:Static views:SettingsFormat.SameValue}">
+                                            <Binding Path="Id" />
+                                            <Binding Path="$parent[UserControl].((vm:SettingsViewModel)DataContext).ActiveProviderKey" />
+                                        </MultiBinding>
+                                    </Border.IsVisible>
+                                    <TextBlock Text="Active" FontSize="11" Foreground="White" />
+                                </Border>
+                            </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
@@ -42,14 +57,17 @@
                     <Button Content="Add"
                             Command="{Binding AddPresetCommand}"
                             CommandParameter="{Binding #PresetPicker.SelectedItem}" />
+                    <Button Content="Set as active"
+                            Command="{Binding MakeSelectedActiveCommand}"
+                            IsVisible="{Binding CanMakeSelectedActive}" />
                     <Button Content="Remove selected"
                             IsVisible="{Binding !ConfirmingRemoveProvider}"
                             Command="{Binding AskRemoveProviderCommand}"
-                            IsEnabled="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            IsEnabled="{Binding SelectedProvider, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     <Button Classes="danger" Content="Really remove"
                             IsVisible="{Binding ConfirmingRemoveProvider}"
                             Command="{Binding DeleteProviderCommand}"
-                            CommandParameter="{Binding ActiveProvider}" />
+                            CommandParameter="{Binding SelectedProvider}" />
                     <Button Content="Cancel"
                             IsVisible="{Binding ConfirmingRemoveProvider}"
                             Command="{Binding CancelDestructiveCommand}" />
@@ -57,14 +75,33 @@
             </StackPanel>
         </Border>
 
-        <Border Classes="card" IsVisible="{Binding ActiveProvider, Converter={x:Static ObjectConverters.IsNotNull}}">
-            <StackPanel Spacing="10" DataContext="{Binding ActiveProvider}">
+        <Border Classes="card" IsVisible="{Binding SelectedProvider, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <StackPanel Spacing="10" DataContext="{Binding SelectedProvider}">
                 <TextBlock Classes="section" Text="Selected provider" />
                 <TextBox PlaceholderText="Display name" Text="{Binding DisplayName}" />
                 <TextBox PlaceholderText="Base URL" Text="{Binding BaseUrl}" />
                 <TextBox PlaceholderText="API key" Text="{Binding ApiKey}" PasswordChar="•" />
                 <TextBlock Classes="hint"
                            Text="Keys are stored in plain text in ~/.floaty/config.json." />
+
+                <!-- Gated on Kind for the same reason as Effort below. -->
+                <Grid ColumnDefinitions="90,*"
+                      IsVisible="{Binding Kind, Converter={x:Static views:SettingsFormat.SupportsChatApi}}">
+                    <TextBlock Grid.Column="0" Text="API" VerticalAlignment="Center" />
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{x:Static vm:SettingsViewModel.ChatApiModes}"
+                              SelectedItem="{Binding ChatApi}"
+                              MinWidth="160">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Converter={x:Static views:SettingsFormat.EnumLabel}}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </Grid>
+                <TextBlock Classes="hint"
+                           IsVisible="{Binding Kind, Converter={x:Static views:SettingsFormat.SupportsChatApi}}"
+                           Text="Chat completions is what every OpenAI-compatible endpoint speaks. Some reasoning models (gpt-5 and later, o-series) only accept tools together with a reasoning effort on the Responses API. On Azure, Responses goes through the resource's /openai/v1 endpoint." />
 
                 <CheckBox IsChecked="{Binding RequestThinking}"
                           Content="Ask this provider to show its reasoning" />
@@ -116,23 +153,56 @@
             </StackPanel>
         </Border>
 
+        <Border Classes="card" IsVisible="{Binding SelectedProvider, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="Test connection"
+                        Command="{Binding TestSelectedProviderCommand}"
+                        IsEnabled="{Binding !Testing}" />
+                <TextBlock Text="{Binding SelectedTestResult}"
+                           Classes="hint"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
         <Border Classes="card">
             <StackPanel Spacing="10">
                 <TextBlock Classes="section" Text="Roles" />
                 <TextBlock Classes="hint"
-                           Text="Chat drives the conversation, Embedding powers memory search, Vision captions screenshots, Image draws pictures from chat (gpt-image-1, dall-e-3, gemini-2.5-flash-image), and Speech reads replies aloud (gpt-4o-mini-tts, tts-1). Leave a row blank to switch that feature off. Changing the embedding model means re-indexing (see Screen history)." />
-                <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Chat" VerticalAlignment="Center" />
-                    <TextBox  Grid.Row="0" Grid.Column="1" Text="{Binding Config.ChatRole.Model}" PlaceholderText="model id" />
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Embedding" VerticalAlignment="Center" />
-                    <TextBox  Grid.Row="1" Grid.Column="1" Text="{Binding Config.EmbeddingRole.Model}" PlaceholderText="model id" />
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Vision" VerticalAlignment="Center" />
-                    <TextBox  Grid.Row="2" Grid.Column="1" Text="{Binding Config.VisionRole.Model}" PlaceholderText="model id" />
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Image" VerticalAlignment="Center" />
-                    <TextBox  Grid.Row="3" Grid.Column="1" Text="{Binding Config.ImageRole.Model}" PlaceholderText="model id" />
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Speech" VerticalAlignment="Center" />
-                    <TextBox  Grid.Row="4" Grid.Column="1" Text="{Binding Config.SpeechRole.Model}" PlaceholderText="model id" />
-                </Grid>
+                           Text="Chat drives the conversation, Embedding powers memory search, Vision captions screenshots, Image draws pictures from chat (gpt-image-1, dall-e-3, gemini-2.5-flash-image), and Speech reads replies aloud (gpt-4o-mini-tts, tts-1). Set a row to Off to switch that feature off. Changing the embedding model means re-indexing (see Screen history)." />
+                <ItemsControl ItemsSource="{Binding Roles}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="6" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+RoleRow">
+                            <!-- MinWidth reset: SettingsTheme gives every ComboBox 240, which would
+                                 overflow this column and run into the model box. -->
+                            <Grid ColumnDefinitions="100,240,*">
+                                <TextBlock Grid.Column="0" Text="{Binding Label}" VerticalAlignment="Center" />
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding Sources}"
+                                          SelectedValue="{Binding Source}"
+                                          SelectedValueBinding="{Binding Key}"
+                                          DisplayMemberBinding="{Binding Label}"
+                                          MinWidth="0"
+                                          HorizontalAlignment="Stretch" />
+                                <TextBox Grid.Column="2"
+                                         Margin="8,0,0,0"
+                                         Text="{Binding Model}"
+                                         PlaceholderText="{Binding Placeholder}"
+                                         IsEnabled="{Binding IsOn}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="hint"
+                           Text="A role on the active provider uses that provider's model for the job, so switching the active provider switches models too. A role pinned to a provider keeps its own model; leave it blank for that provider's default." />
+                <TextBlock Classes="hint"
+                           IsVisible="{Binding EmbeddingNeedsReindex}"
+                           Text="The embedding model changes on Save. Re-index captures afterwards (see Screen history) or memory search won't find older ones." />
             </StackPanel>
         </Border>
 

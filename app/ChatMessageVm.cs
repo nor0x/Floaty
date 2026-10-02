@@ -218,6 +218,24 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
 
     private bool _showReadAloud;
 
+    /// <summary>
+    /// Whether the bubble offers its copy button: an assistant answer that has finished streaming.
+    /// Unlike <see cref="ShowReadAloud"/> it needs no model, so it is set wherever that one is.
+    /// </summary>
+    public bool ShowCopy
+    {
+        get => _showCopy;
+        set
+        {
+            if (_showCopy == value)
+                return;
+            _showCopy = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _showCopy;
+
     /// <summary>Raw citation data backing <see cref="Citations"/>, kept so threads round-trip through persistence.</summary>
     public IReadOnlyList<MemoryCitation> CitationSources { get; set; } = System.Array.Empty<MemoryCitation>();
 

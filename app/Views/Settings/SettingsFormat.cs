@@ -53,6 +53,11 @@ public static class SettingsFormat
     public static readonly IValueConverter SupportsEffort =
         new FuncValueConverter<ProviderKind, bool>(kind => kind != ProviderKind.LocalOnnx);
 
+    /// <summary>The chat-completions / Responses choice only exists on OpenAI-shaped transports.</summary>
+    public static readonly IValueConverter SupportsChatApi =
+        new FuncValueConverter<ProviderKind, bool>(kind =>
+            kind is ProviderKind.OpenAI or ProviderKind.AzureOpenAI or ProviderKind.OpenAiCompatible);
+
     /// <summary>Output verbosity is an OpenAI (GPT-5 family) parameter; nothing else understands it.</summary>
     public static readonly IValueConverter SupportsVerbosity =
         new FuncValueConverter<ProviderKind, bool>(kind => kind == ProviderKind.OpenAI);

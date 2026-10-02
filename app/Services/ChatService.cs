@@ -354,7 +354,8 @@ public sealed class ChatService : IChatService
                 break;
             }
 
-            case ProviderKind.OpenAI when profile.UseResponsesApi:
+            case ProviderKind.OpenAI or ProviderKind.AzureOpenAI or ProviderKind.OpenAiCompatible
+                when profile.ChatApi == ChatApiMode.Responses:
             {
                 var openAiEffort = OpenAiEffort(effort);
 #pragma warning disable OPENAI001 // Same experimental Responses API surface AiClientFactory opts into.

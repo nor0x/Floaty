@@ -208,6 +208,10 @@ public static class ProviderPresets
             VisionModel = preset.VisionModel,
             ImageModel = preset.ImageModel,
             SpeechModel = preset.SpeechModel,
+
+            // OpenAI proper has always defaulted to the Responses API; every other endpoint is assumed to
+            // speak chat completions until the user says otherwise.
+            ChatApi = preset.Kind == ProviderKind.OpenAI ? ChatApiMode.Responses : ChatApiMode.ChatCompletions,
         };
     }
 }

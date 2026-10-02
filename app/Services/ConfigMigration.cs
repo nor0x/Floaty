@@ -18,6 +18,8 @@ public static class ConfigMigration
         changed |= AdoptImageRole(config);
         changed |= AdoptSpeechRole(config);
         changed |= RenameBuiltInRing(config);
+        changed |= MigrateChatApi(config);
+        changed |= AdoptActiveProvider(config);
         return changed;
     }
 
@@ -97,9 +99,11 @@ public static class ConfigMigration
         var known = config.Providers.Select(p => p.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var changed = false;
 
-        foreach (var role in new[] { config.ChatRole, config.EmbeddingRole, config.VisionRole, config.ImageRole, config.SpeechRole })
+        // Follow-active roles carry no provider id of their own; AdoptActiveProvider repairs a dangling
+        // ActiveProviderId instead.
+        foreach (var role in config.AllRoles)
         {
-            if (role.IsAssigned && !known.Contains(role.ProviderId))
+            if (!role.FollowActive && role.IsAssigned && !known.Contains(role.ProviderId))
             {
                 role.ProviderId = string.Empty;
                 role.Model = string.Empty;
@@ -177,6 +181,78 @@ public static class ConfigMigration
         if (first is not null)
         {
             config.SpeechRole = new ModelAssignment { ProviderId = first.Id, Model = first.SpeechModel };
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Folds the legacy <see cref="ProviderProfile.UseResponsesApi"/> switch into
+    /// <see cref="ProviderProfile.ChatApi"/>. The old switch only ever took effect on OpenAI proper, so
+    /// every other kind lands on chat completions — exactly what it was already using.
+    /// Naturally idempotent: the legacy field is nulled, so a second run finds nothing to do.
+    /// </summary>
+    private static bool MigrateChatApi(FloatyConfig config)
+    {
+        var changed = false;
+
+        foreach (var profile in config.Providers)
+        {
+            if (profile.UseResponsesApi is not { } useResponses)
+                continue;
+
+            profile.ChatApi = profile.Kind == ProviderKind.OpenAI && useResponses
+                ? ChatApiMode.Responses
+                : ChatApiMode.ChatCompletions;
+            profile.UseResponsesApi = null;
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    /// <summary>
+    /// Gives the config an active provider when it has none, or when the one it names was removed.
+    /// The chat role's provider wins (it is what the user thinks of as "their" provider), else the first.
+    ///
+    /// On the first run (no active provider recorded at all) every role pinned to that provider is turned
+    /// into a follow-active role, its model moved onto the provider's per-role default so nothing the
+    /// user picked is lost. Roles on another provider — typically an on-device embedding model — stay
+    /// pinned. Idempotent by guard: once an existing provider is active this does nothing.
+    /// </summary>
+    private static bool AdoptActiveProvider(FloatyConfig config)
+    {
+        if (config.Providers.Any(p => string.Equals(p.Id, config.ActiveProviderId, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        var firstRun = string.IsNullOrWhiteSpace(config.ActiveProviderId);
+
+        var active =
+            config.Providers.FirstOrDefault(p => !config.ChatRole.FollowActive &&
+                string.Equals(p.Id, config.ChatRole.ProviderId, StringComparison.OrdinalIgnoreCase))
+            ?? config.Providers.FirstOrDefault();
+
+        var newId = active?.Id ?? string.Empty;
+        var changed = !string.Equals(config.ActiveProviderId, newId, StringComparison.Ordinal);
+        config.ActiveProviderId = newId;
+
+        if (!firstRun || active is null)
+            return changed;
+
+        foreach (var role in Enum.GetValues<ModelRole>())
+        {
+            var assignment = config.RoleFor(role);
+            if (assignment.FollowActive ||
+                !string.Equals(assignment.ProviderId, active.Id, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!string.IsNullOrWhiteSpace(assignment.Model))
+                active.SetModelFor(role, assignment.Model.Trim());
+
+            assignment.FollowActive = true;
+            assignment.ProviderId = string.Empty;
+            assignment.Model = string.Empty;
             changed = true;
         }
 

@@ -46,7 +46,11 @@
 
         <Border Classes="card">
             <StackPanel Spacing="10">
-                <TextBlock Classes="section" Text="Chat placement" />
+                <TextBlock Classes="section" Text="Chat" />
+                <CheckBox IsChecked="{Binding StartWithNewConversation}"
+                          Content="Start with a new conversation" />
+                <TextBlock Classes="hint"
+                           Text="Off resumes the most recent conversation when Floaty launches." />
                 <ComboBox ItemsSource="{Binding ChatPlacements}"
                           SelectedItem="{Binding ChatPanelPlacement}">
                     <ComboBox.ItemTemplate>

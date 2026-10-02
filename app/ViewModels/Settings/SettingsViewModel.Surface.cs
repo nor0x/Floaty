@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Floaty.Services;
 
@@ -78,6 +79,12 @@ public sealed partial class SettingsViewModel
     {
         get => _config.RememberDroppedFiles;
         set { _config.RememberDroppedFiles = value; _saved = false; OnPropertyChanged(); }
+    }
+
+    public bool StartWithNewConversation
+    {
+        get => _config.StartWithNewConversation;
+        set { _config.StartWithNewConversation = value; _saved = false; OnPropertyChanged(); }
     }
 
     public bool AttachSelectionOnSummon
@@ -404,6 +411,8 @@ public sealed partial class SettingsViewModel
 
     public static IReadOnlyList<OutputVerbosity> Verbosities { get; } = Enum.GetValues<OutputVerbosity>();
 
+    public static IReadOnlyList<ChatApiMode> ChatApiModes { get; } = Enum.GetValues<ChatApiMode>();
+
     // --- Exec ---
 
     public bool ExecEnabled
@@ -482,20 +491,121 @@ public sealed partial class SettingsViewModel
 
     public IReadOnlyList<ProviderProfile> Providers => _config.Providers;
 
-    public string ActiveProviderId
+    public string SelectedProviderId
     {
-        get => _activeProviderId;
+        get => _selectedProviderId;
         set
         {
-            if (_activeProviderId == value)
+            if (_selectedProviderId == value)
                 return;
-            _activeProviderId = value ?? string.Empty;
+            _selectedProviderId = value ?? string.Empty;
             OnPropertyChanged();
             RaiseAllChanged();
         }
     }
 
     public bool Testing => _testing;
+
+    /// <summary>The active provider's id, for the "Active" badge in the provider list.</summary>
+    public string ActiveProviderKey => _config.ActiveProviderId;
+
+    /// <summary>Whether the provider being edited is the one follow-active roles use.</summary>
+    public bool SelectedIsActive => SelectedProvider is { } p && ReferenceEquals(p, ActiveProfile);
+
+    /// <summary>
+    /// "Set as active" is offered for any other provider that can chat. A local ONNX provider only embeds,
+    /// so making it active would switch chat off; it is pinned to the embedding role instead.
+    /// </summary>
+    public bool CanMakeSelectedActive =>
+        SelectedProvider is { Kind: not ProviderKind.LocalOnnx } && !SelectedIsActive;
+
+    /// <summary>The last connection test's outcome for the provider being edited.</summary>
+    public string? SelectedTestResult => SelectedProvider is { } p ? TestResultFor(p.Id) : null;
+
+    /// <summary>Shown under the roles once this visit has moved memory search to a different vector space.</summary>
+    public bool EmbeddingNeedsReindex => EmbeddingRoleChanged;
+
+    [RelayCommand]
+    private void MakeSelectedActive()
+    {
+        if (CanMakeSelectedActive && SelectedProvider is { } provider)
+            SetActiveProvider(provider);
+        RaiseAllChanged();
+    }
+
+    [RelayCommand]
+    private async Task TestSelectedProvider()
+    {
+        if (SelectedProvider is { } provider)
+            await TestProvider(provider);
+        RaiseAllChanged();
+    }
+
+    private IReadOnlyList<RoleRow>? _roleRows;
+
+    /// <summary>The five role rows, built once so their dropdowns keep their selection across refreshes.</summary>
+    public IReadOnlyList<RoleRow> Roles => _roleRows ??=
+    [
+        new(this, ModelRole.Chat, "Chat"),
+        new(this, ModelRole.Embedding, "Embedding"),
+        new(this, ModelRole.Vision, "Vision"),
+        new(this, ModelRole.Image, "Image"),
+        new(this, ModelRole.Speech, "Speech"),
+    ];
+
+    /// <summary>One entry in a role's source dropdown.</summary>
+    public sealed record RoleSourceOption(string Key, string Label);
+
+    /// <summary>
+    /// One row of the Roles card: where the role's provider comes from, and which model it uses there.
+    /// </summary>
+    public sealed class RoleRow(SettingsViewModel owner, ModelRole role, string label) : ObservableObject
+    {
+        private List<RoleSourceOption> _sources = [];
+
+        public string Label => label;
+
+        /// <summary>
+        /// Handed back as the same instance while its contents are unchanged: a fresh list makes the
+        /// ComboBox drop and re-find its selection, and the null it passes through would read as a choice.
+        /// </summary>
+        public IReadOnlyList<RoleSourceOption> Sources
+        {
+            get
+            {
+                var fresh = owner.RoleSources(role);
+                if (!fresh.SequenceEqual(_sources))
+                    _sources = fresh;
+                return _sources;
+            }
+        }
+
+        public string? Source
+        {
+            get => owner.GetRoleSource(role);
+            set
+            {
+                // Null is the ComboBox between item lists, never the user: "Off" has its own key.
+                if (value is null || value == owner.GetRoleSource(role))
+                    return;
+                owner.SetRoleSource(role, value);
+                owner.RaiseAllChanged();
+            }
+        }
+
+        public string Model
+        {
+            get => owner.GetRoleModel(role);
+            set => owner.SetRoleModel(role, value);
+        }
+
+        public string Placeholder => owner.RoleModelPlaceholder(role);
+
+        /// <summary>Off roles have no model to type.</summary>
+        public bool IsOn => owner._config.RoleFor(role).IsAssigned;
+
+        internal void Refresh() => OnPropertyChanged(string.Empty);
+    }
     public string? EmbeddingError => _embeddingError;
     public bool OllamaLoading => _ollamaLoading;
     public IReadOnlyList<string> OllamaModels => _ollamaModels;
@@ -595,12 +705,12 @@ public sealed partial class SettingsViewModel
 
     /// <summary>True once removing the selected provider has been armed.</summary>
     public bool ConfirmingRemoveProvider =>
-        _confirmRemoveProviderId is not null && _confirmRemoveProviderId == _activeProviderId;
+        _confirmRemoveProviderId is not null && _confirmRemoveProviderId == _selectedProviderId;
 
     [RelayCommand]
     private void AskRemoveProvider()
     {
-        _confirmRemoveProviderId = _activeProviderId;
+        _confirmRemoveProviderId = _selectedProviderId;
         RaiseAllChanged();
     }
 
@@ -617,7 +727,7 @@ public sealed partial class SettingsViewModel
     private void DeleteProvider(ProviderProfile provider)
     {
         RemoveProvider(provider);
-        _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
+        _selectedProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
         RaiseAllChanged();
     }
 
@@ -683,7 +793,7 @@ public sealed partial class SettingsViewModel
     [RelayCommand]
     private void DeleteEmbedding(string modelId)
     {
-        if (ActiveProvider is { } provider && LocalModelCatalog.Find(modelId) is { } model)
+        if (SelectedProvider is { } provider && LocalModelCatalog.Find(modelId) is { } model)
             DeleteEmbeddingModel(provider, model);
         RaiseAllChanged();
     }

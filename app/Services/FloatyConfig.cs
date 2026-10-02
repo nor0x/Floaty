@@ -175,6 +175,13 @@ public sealed class FloatyConfig
     /// </summary>
     public List<ProviderProfile> Providers { get; set; } = new();
 
+    /// <summary>
+    /// <see cref="ProviderProfile.Id"/> of the active provider: every role with
+    /// <see cref="ModelAssignment.FollowActive"/> set is served by it, so switching providers is one
+    /// click rather than five. Roles pinned to a specific provider (a local embedding model, say) ignore it.
+    /// </summary>
+    public string ActiveProviderId { get; set; } = string.Empty;
+
     /// <summary>Which provider + model answers chats. Unset means "not configured yet".</summary>
     public ModelAssignment ChatRole { get; set; } = new();
 
@@ -201,6 +208,20 @@ public sealed class FloatyConfig
     /// assigned, it still stays silent until <see cref="VoiceOutputEnabled"/> is switched on.
     /// </summary>
     public ModelAssignment SpeechRole { get; set; } = new();
+
+    /// <summary>The assignment behind <paramref name="role"/>.</summary>
+    public ModelAssignment RoleFor(ModelRole role) => role switch
+    {
+        ModelRole.Chat => ChatRole,
+        ModelRole.Embedding => EmbeddingRole,
+        ModelRole.Vision => VisionRole,
+        ModelRole.Image => ImageRole,
+        _ => SpeechRole,
+    };
+
+    /// <summary>All five role assignments, for code that treats them alike.</summary>
+    [JsonIgnore]
+    public IEnumerable<ModelAssignment> AllRoles => [ChatRole, EmbeddingRole, VisionRole, ImageRole, SpeechRole];
 
     // --- Legacy single-provider fields (pre-multi-provider). Kept so an old config.json still
     // deserializes; ConfigMigration folds them into Providers on load and then nulls them out.
@@ -295,6 +316,13 @@ public sealed class FloatyConfig
     /// and every attachment chip carries its own toggle that overrides this for that one file.
     /// </summary>
     public bool RememberDroppedFiles { get; set; }
+
+    /// <summary>
+    /// When true, the first chat open after launch begins an empty conversation (shown in the chat
+    /// panel's compact mode) instead of resuming the most recent one. Earlier threads stay under
+    /// <c>/chats</c>. On by default: a fresh launch is usually a fresh question.
+    /// </summary>
+    public bool StartWithNewConversation { get; set; } = true;
 
     /// <summary>
     /// When true, the summon hotkey (Alt+F) also picks up whatever text was selected in the app the
@@ -501,6 +529,20 @@ public enum ReasoningEffortLevel
 }
 
 /// <summary>
+/// Which OpenAI-shaped endpoint a provider's chat goes through. Some reasoning models refuse function
+/// tools alongside <c>reasoning_effort</c> on chat completions and only accept them on the Responses API.
+/// Stored as a string so config.json stays hand-editable.
+/// </summary>
+public enum ChatApiMode
+{
+    /// <summary><c>/chat/completions</c> — what every OpenAI-compatible endpoint speaks.</summary>
+    ChatCompletions,
+
+    /// <summary><c>/responses</c> — OpenAI's newer API; on Azure it goes through the <c>/openai/v1</c> surface.</summary>
+    Responses,
+}
+
+/// <summary>
 /// How long the answer should be, independent of how long the model thinks. OpenAI's GPT-5 family only.
 /// <see cref="Default"/> sends nothing.
 /// </summary>
@@ -556,11 +598,17 @@ public sealed class ProviderProfile
     /// <summary>Default text-to-speech model id. Empty means this provider can't speak.</summary>
     public string SpeechModel { get; set; } = string.Empty;
 
+    /// <inheritdoc cref="ChatApiMode"/>
+    /// <remarks>OpenAI, Azure OpenAI and OpenAI-compatible providers only; Anthropic ignores it.</remarks>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ChatApiMode ChatApi { get; set; } = ChatApiMode.ChatCompletions;
+
     /// <summary>
-    /// <see cref="ProviderKind.OpenAI"/> only: use the Responses API rather than chat completions.
-    /// On by default because that is what Floaty shipped with.
+    /// Legacy (pre-<see cref="ChatApi"/>) switch, honoured only for <see cref="ProviderKind.OpenAI"/>.
+    /// <c>ConfigMigration</c> folds it into <see cref="ChatApi"/> and nulls it out. Do not read this.
     /// </summary>
-    public bool UseResponsesApi { get; set; } = true;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UseResponsesApi { get; set; }
 
     /// <summary>
     /// Ask this provider to show its reasoning. Off by default, and only meaningful for the providers
@@ -583,21 +631,52 @@ public sealed class ProviderProfile
     /// <inheritdoc cref="OutputVerbosity"/>
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public OutputVerbosity Verbosity { get; set; } = OutputVerbosity.Default;
+
+    /// <summary>This provider's default model id for <paramref name="role"/>.</summary>
+    public string ModelFor(ModelRole role) => role switch
+    {
+        ModelRole.Chat => ChatModel,
+        ModelRole.Embedding => EmbeddingModel,
+        ModelRole.Vision => VisionModel,
+        ModelRole.Image => ImageModel,
+        _ => SpeechModel,
+    };
+
+    /// <summary>Sets this provider's default model id for <paramref name="role"/>.</summary>
+    public void SetModelFor(ModelRole role, string model)
+    {
+        switch (role)
+        {
+            case ModelRole.Chat: ChatModel = model; break;
+            case ModelRole.Embedding: EmbeddingModel = model; break;
+            case ModelRole.Vision: VisionModel = model; break;
+            case ModelRole.Image: ImageModel = model; break;
+            default: SpeechModel = model; break;
+        }
+    }
 }
 
 /// <summary>
-/// Binds one job (chat, embedding, captioning, image generation) to a provider and a model on it.
-/// An empty <see cref="ProviderId"/> means the role is unassigned, which disables the feature behind it.
+/// Binds one job (chat, embedding, captioning, image generation, speech) to a provider and a model on
+/// it: either whichever provider is active (<see cref="FollowActive"/>) or one pinned by
+/// <see cref="ProviderId"/>. Neither means the role is unassigned, which disables the feature behind it.
 /// </summary>
 public sealed class ModelAssignment
 {
-    /// <summary><see cref="ProviderProfile.Id"/> of the provider that serves this role.</summary>
+    /// <summary>
+    /// Served by <see cref="FloatyConfig.ActiveProviderId"/>, using that provider's default model for the
+    /// role, so switching the active provider switches the model too. <see cref="ProviderId"/> and
+    /// <see cref="Model"/> are ignored while this is set.
+    /// </summary>
+    public bool FollowActive { get; set; }
+
+    /// <summary><see cref="ProviderProfile.Id"/> of the provider pinned to this role.</summary>
     public string ProviderId { get; set; } = string.Empty;
 
-    /// <summary>Model id on that provider. Empty falls back to the profile's default for the role.</summary>
+    /// <summary>Model id on the pinned provider. Empty falls back to the profile's default for the role.</summary>
     public string Model { get; set; } = string.Empty;
 
     /// <summary>True when this role points somewhere.</summary>
     [JsonIgnore]
-    public bool IsAssigned => !string.IsNullOrWhiteSpace(ProviderId);
+    public bool IsAssigned => FollowActive || !string.IsNullOrWhiteSpace(ProviderId);
 }

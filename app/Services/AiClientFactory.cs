@@ -267,41 +267,27 @@ public sealed class AiClientFactory : IDisposable
     private ResolvedRole? Resolve(ModelRole role)
     {
         var config = _settings.Current;
-
-        var assignment = role switch
-        {
-            ModelRole.Chat => config.ChatRole,
-            ModelRole.Embedding => config.EmbeddingRole,
-            ModelRole.Vision => config.VisionRole,
-            ModelRole.Image => config.ImageRole,
-            _ => config.SpeechRole,
-        };
+        var assignment = config.RoleFor(role);
 
         if (!assignment.IsAssigned)
             return null;
 
+        var providerId = assignment.FollowActive ? config.ActiveProviderId : assignment.ProviderId;
         var profile = config.Providers.FirstOrDefault(p =>
-            string.Equals(p.Id, assignment.ProviderId, StringComparison.OrdinalIgnoreCase));
+            string.Equals(p.Id, providerId, StringComparison.OrdinalIgnoreCase));
         if (profile is null)
             return null;
 
-        // An empty model on the assignment falls back to the profile's default for that role, so
-        // switching a role to a provider is one click rather than a click plus retyping a model id.
-        var model = assignment.Model;
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            model = role switch
-            {
-                ModelRole.Chat => profile.ChatModel,
-                ModelRole.Embedding => profile.EmbeddingModel,
-                ModelRole.Vision => profile.VisionModel,
-                ModelRole.Image => profile.ImageModel,
-                _ => profile.SpeechModel,
-            };
-        }
+        // A follow-active role always takes the active provider's default for the role, so switching the
+        // active provider switches models with it. A pinned role may override the model; empty falls back
+        // to the profile's default, so pinning a role to a provider is one click rather than two.
+        var model = assignment.FollowActive || string.IsNullOrWhiteSpace(assignment.Model)
+            ? profile.ModelFor(role)
+            : assignment.Model;
 
         if (string.IsNullOrWhiteSpace(model))
             return null;
+        model = model.Trim();
 
         var preset = ProviderPresets.Find(profile.PresetId);
         if (preset is { NeedsKey: true } && string.IsNullOrWhiteSpace(profile.ApiKey))
@@ -320,7 +306,7 @@ public sealed class AiClientFactory : IDisposable
             return null;
 
         var cacheKey = string.Join('|',
-            profile.Id, profile.Kind, profile.ApiKey, ResolveBaseUrl(profile), model, profile.UseResponsesApi);
+            profile.Id, profile.Kind, profile.ApiKey, ResolveBaseUrl(profile), model, profile.ChatApi);
 
         return new ResolvedRole(profile, model, cacheKey);
     }
@@ -330,7 +316,7 @@ public sealed class AiClientFactory : IDisposable
     /// neither an embedding, an image-generation nor a speech API. Everything else is assumed capable —
     /// whether a specific model can see or draw is between the user and their provider.
     /// </summary>
-    private static bool CanServe(ProviderKind kind, ModelRole role) => kind switch
+    internal static bool CanServe(ProviderKind kind, ModelRole role) => kind switch
     {
         ProviderKind.LocalOnnx => role == ModelRole.Embedding,
         ProviderKind.Anthropic => role is ModelRole.Chat or ModelRole.Vision,
@@ -366,9 +352,10 @@ public sealed class AiClientFactory : IDisposable
             case ProviderKind.LocalOnnx:
                 throw new NotSupportedException("Local providers only serve embeddings.");
 
-            case ProviderKind.OpenAI when profile.UseResponsesApi:
+            case ProviderKind.OpenAI or ProviderKind.AzureOpenAI or ProviderKind.OpenAiCompatible
+                when profile.ChatApi == ChatApiMode.Responses:
 #pragma warning disable OPENAI001 // The Responses API binding is still marked experimental in the SDK.
-                return OpenAiClientFor(profile).GetResponsesClient().AsIChatClient(model);
+                return ResponsesClientFor(profile).GetResponsesClient().AsIChatClient(model);
 #pragma warning restore OPENAI001
 
             default:
@@ -413,6 +400,39 @@ public sealed class AiClientFactory : IDisposable
         return string.IsNullOrWhiteSpace(baseUrl)
             ? new OpenAIClient(credential)
             : new OpenAIClient(credential, new OpenAIClientOptions { Endpoint = new Uri(baseUrl) });
+    }
+
+    /// <summary>
+    /// The client a Responses-API chat goes through. Everything but Azure is just
+    /// <see cref="OpenAiClientFor"/>. Azure.AI.OpenAI 2.1 predates the Responses API — its client would
+    /// hand the request to a base <see cref="OpenAIClient"/> that has no endpoint — so Azure is reached the
+    /// way Microsoft documents its v1 API instead: a plain OpenAI client pointed at
+    /// <c>https://{resource}/openai/v1/</c>, where the "model" is still the deployment name.
+    /// </summary>
+    private static OpenAIClient ResponsesClientFor(ProviderProfile profile)
+    {
+        if (profile.Kind != ProviderKind.AzureOpenAI)
+            return OpenAiClientFor(profile);
+
+        var credential = new ApiKeyCredential(
+            string.IsNullOrWhiteSpace(profile.ApiKey) ? "not-required" : profile.ApiKey);
+        return new OpenAIClient(credential, new OpenAIClientOptions { Endpoint = AzureV1Endpoint(ResolveBaseUrl(profile)) });
+    }
+
+    /// <summary>
+    /// Azure's v1 surface for a resource endpoint. Users paste anything from the bare resource URL to a
+    /// full deployment URL, so only the scheme and host are kept — unless the URL already names the v1
+    /// surface, which is kept as is (a gateway may put it under a path prefix).
+    /// </summary>
+    private static Uri AzureV1Endpoint(string baseUrl)
+    {
+        var uri = new Uri(baseUrl);
+        var path = uri.AbsolutePath.TrimEnd('/');
+        var v1 = path.IndexOf("/openai/v1", StringComparison.OrdinalIgnoreCase);
+
+        return v1 >= 0
+            ? new Uri(uri, path[..(v1 + "/openai/v1".Length)] + "/")
+            : new Uri(uri, "/openai/v1/");
     }
 
     private void OnSettingsChanged(object? sender, EventArgs e)

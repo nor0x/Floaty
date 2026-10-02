@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml.MarkupExtensions;
@@ -54,6 +55,15 @@ public partial class ChatPanelView : UserControl
     // The conversation currently shown in Messages; created lazily on first chat open (resume most recent).
     private Conversation? _currentConversation;
     private bool _conversationLoaded;
+
+    // Whether this process has already decided which conversation to open with. Static because the
+    // panel is rebuilt on a placement change, and only the first panel should honour
+    // StartWithNewConversation - later ones resume whatever the previous panel just saved.
+    private static bool s_launchConversationResolved;
+
+    // Compact mode: only the input row shows (no header row, no message list). Entered automatically
+    // whenever the conversation is empty, left as soon as messages arrive, and toggleable by hand.
+    private bool _compact;
 
     // Conversation switcher (shown in the message list's slot under /chats).
     private bool _listMode;
@@ -320,6 +330,8 @@ public partial class ChatPanelView : UserControl
     {
         EnsureConversationLoaded();
         IsOpen = true;
+        if (Messages.Count == 0)
+            SetCompact(true);
         RefreshMessageAreaHeight();
         _lastPanelHeight = 0;
         IsVisible = true;
@@ -419,8 +431,11 @@ public partial class ChatPanelView : UserControl
         if (onLeft)
         {
             CollapseGlyph.Text = TablerLine.CaretRight;
-            CollapseButton.Margin = new Thickness(0, 0, 6, 0);
-            Grid.SetColumn(CollapseButton, 2);
+            InputEdgeTools.Margin = new Thickness(0, 0, 6, 0);
+            Grid.SetColumn(InputEdgeTools, 2);
+            // The chevron stays outermost: on the left side it trails the compact toggle.
+            Grid.SetColumn(CompactToggleButton, 0);
+            Grid.SetColumn(CollapseButton, 1);
             Grid.SetColumn(TopCornerTools, 0);
             TopCornerTools.HorizontalAlignment = HorizontalAlignment.Left;
             TopCornerTools.Margin = new Thickness(-5, -5, 0, 0);
@@ -437,8 +452,10 @@ public partial class ChatPanelView : UserControl
         else
         {
             CollapseGlyph.Text = TablerLine.CaretLeft;
-            CollapseButton.Margin = new Thickness(6, 0, 0, 0);
+            InputEdgeTools.Margin = new Thickness(6, 0, 0, 0);
+            Grid.SetColumn(InputEdgeTools, 0);
             Grid.SetColumn(CollapseButton, 0);
+            Grid.SetColumn(CompactToggleButton, 1);
             Grid.SetColumn(TopCornerTools, 2);
             TopCornerTools.HorizontalAlignment = HorizontalAlignment.Right;
             TopCornerTools.Margin = new Thickness(0, -5, 2, 0);
@@ -582,6 +599,22 @@ public partial class ChatPanelView : UserControl
 
     private void OnCollapseChatClicked(object? sender, RoutedEventArgs e) => _host.CollapseRequested();
 
+    private void OnCompactToggleClicked(object? sender, RoutedEventArgs e) => SetCompact(!_compact);
+
+    /// <summary>
+    /// Enters or leaves compact mode. Only the header row and the message list are hidden; the transient
+    /// strips (suggestions, attachment chips, tool approval, toast) keep working. The list's own sizing
+    /// (<see cref="_userListHeight"/>, expanded mode) is left untouched, so leaving compact restores it.
+    /// </summary>
+    private void SetCompact(bool compact)
+    {
+        _compact = compact;
+        TopGripRow.IsVisible = !compact;
+        CompactGlyph.Text = compact ? TablerLine.ChevronsUp : TablerLine.ChevronsDown;
+        ToolTip.SetTip(CompactToggleButton, compact ? "Show messages" : "Hide messages");
+        RefreshMessageAreaHeight();
+    }
+
     // --- Voice output ---
 
     private bool CanReadAloud(ChatMessageVm message) =>
@@ -630,6 +663,27 @@ public partial class ChatPanelView : UserControl
     {
         if ((sender as Control)?.DataContext is ChatMessageVm { Text.Length: > 0 } message)
             _voiceOutput.Speak(message.Text);
+    }
+
+    // --- Message copy ---
+
+    private bool CanCopy(ChatMessageVm message) =>
+        message.RendersMarkdown && !ReferenceEquals(message, _streamingMessage);
+
+    private static readonly TimeSpan CopyConfirmDuration = TimeSpan.FromSeconds(1.2);
+
+    // Copies the answer's raw markdown, then flips the icon to a check for a moment as confirmation.
+    private async void OnCopyMessageClicked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: ChatMessageVm { Text.Length: > 0 } message } button
+            || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+            return;
+
+        await clipboard.SetTextAsync(message.Text);
+
+        button.Content = TablerLine.Check;
+        await Task.Delay(CopyConfirmDuration);
+        button.Content = TablerLine.Copy;
     }
 
     // --- Voice input ---
@@ -799,7 +853,7 @@ public partial class ChatPanelView : UserControl
     /// </summary>
     private double ChromeHeightDip =>
         PanelBorder.Padding.Top + PanelBorder.Padding.Bottom
-        + TopGripRow.Bounds.Height
+        + (TopGripRow.IsVisible ? TopGripRow.Bounds.Height : 0)
         + InputRow.Bounds.Height
         + (AttachmentChipsPanel.IsVisible ? AttachmentChipsPanel.Bounds.Height : 0)
         + (ExecApprovalPanel.IsVisible ? ExecApprovalPanel.Bounds.Height : 0)
@@ -824,6 +878,8 @@ public partial class ChatPanelView : UserControl
         // otherwise ask for a short window and an expanded panel could never fill the screen.
         var listHeight = _listMode
             ? ConversationList.Bounds.Height
+            : _compact
+                ? 0
             : _userListHeight is not null
                 ? MessagesScroller.Height
                 : Math.Min(MessagesList.Bounds.Height, MessagesScroller.MaxHeight);
@@ -852,7 +908,8 @@ public partial class ChatPanelView : UserControl
         // the panel actually fills it, and an area that only hugs its content leaves the panel the
         // height of its chrome. Without one, the area hugs its content and collapses when empty.
         var hasMessages = !_listMode && Messages.Count > 0;
-        MessagesScroller.IsVisible = hasMessages || (_userListHeight is not null && !_listMode);
+        MessagesScroller.IsVisible = !_compact
+            && (hasMessages || (_userListHeight is not null && !_listMode));
 
         // Cap the list at whatever the host says still fits on screen, not just at the nominal
         // maximum. Without this the panel keeps asking for a taller window than the work area can
@@ -900,7 +957,20 @@ public partial class ChatPanelView : UserControl
             {
                 item.PropertyChanged += OnMessageContentChanged;
                 item.ShowReadAloud = CanReadAloud(item);
+                item.ShowCopy = CanCopy(item);
             }
+        }
+
+        // An empty conversation has nothing to show but the input row; anything arriving in it - a
+        // sent prompt, a loaded thread, a system note - should be seen.
+        if (Messages.Count == 0)
+        {
+            if (!_compact)
+                SetCompact(true);
+        }
+        else if (e.NewItems is { Count: > 0 } && _compact)
+        {
+            SetCompact(false);
         }
 
         RefreshMessageAreaHeight();
@@ -2028,7 +2098,12 @@ public partial class ChatPanelView : UserControl
             return;
         _conversationLoaded = true;
 
-        var recent = _conversationStore.LoadAll().FirstOrDefault();
+        // The first open after launch starts fresh when the user asked for that; the earlier threads
+        // stay under /chats, and an untouched empty thread is never written to disk.
+        var startFresh = !s_launchConversationResolved && _settings.Current.StartWithNewConversation;
+        s_launchConversationResolved = true;
+
+        var recent = startFresh ? null : _conversationStore.LoadAll().FirstOrDefault();
         if (recent is not null)
         {
             _currentConversation = recent;
@@ -2124,6 +2199,8 @@ public partial class ChatPanelView : UserControl
         EnsureConversationLoaded();
         PersistCurrentConversation();
         BuildConversationItems();
+        if (_compact)
+            SetCompact(false);
         _listMode = true;
         ConversationList.ItemsSource = _conversationItems;
         RefreshMessageAreaHeight();
@@ -2206,6 +2283,9 @@ public partial class ChatPanelView : UserControl
         {
             _updatingConversationSelection = false;
         }
+        // Leaving the switcher onto an empty thread goes back to the input row alone.
+        if (Messages.Count == 0 && !_compact)
+            SetCompact(true);
         RefreshMessageAreaHeight();
     }
 
@@ -2832,6 +2912,7 @@ public partial class ChatPanelView : UserControl
 
         _streamingMessage = null;
         pending.ShowReadAloud = CanReadAloud(pending);
+        pending.ShowCopy = CanCopy(pending);
 
         if (citations.Count > 0)
         {

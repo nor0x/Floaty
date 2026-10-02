@@ -131,7 +131,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// only in response to a click, so an empty property name (which tells Avalonia "everything may
     /// have changed") costs nothing and cannot go stale.
     /// </summary>
-    private void RaiseAllChanged() => OnPropertyChanged(string.Empty);
+    private void RaiseAllChanged()
+    {
+        OnPropertyChanged(string.Empty);
+
+        // The role rows are their own binding sources, so "everything changed" has to reach them too.
+        foreach (var row in _roleRows ?? [])
+            row.Refresh();
+    }
 
     /// <summary>
     /// Opens a URI in the user's browser or file manager. Avalonia's launcher hangs off a TopLevel,
@@ -197,7 +204,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // Model Provider section state. Provider edits live on the _config clone and commit on Save;
     // local-model downloads (like the voice ones) hit disk immediately.
-    private string _activeProviderId = string.Empty;
+    private string _selectedProviderId = string.Empty;
     private string _presetToAdd = ProviderPresets.OpenAiId;
     private string? _confirmRemoveProviderId;
     private readonly Dictionary<string, string> _testResults = new();
@@ -241,6 +248,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _config = new FloatyConfig
         {
             Providers = current.Providers.Select(CloneProvider).ToList(),
+            ActiveProviderId = current.ActiveProviderId,
             ChatRole = CloneRole(current.ChatRole),
             EmbeddingRole = CloneRole(current.EmbeddingRole),
             VisionRole = CloneRole(current.VisionRole),
@@ -268,6 +276,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ChatWindowHeight = current.ChatWindowHeight,
             RememberTaggedCaptures = current.RememberTaggedCaptures,
             RememberDroppedFiles = current.RememberDroppedFiles,
+            StartWithNewConversation = current.StartWithNewConversation,
             AttachSelectionOnSummon = current.AttachSelectionOnSummon,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             CaptureRules = current.CaptureRules.Select(r => r.Clone()).ToList(),
@@ -307,8 +316,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _captureRules.Captured -= OnCaptureRuleFired;
         _captureRules.Captured += OnCaptureRuleFired;
 
-        _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
-        _originalEmbeddingRole = RoleKey(_config.EmbeddingRole);
+        _selectedProviderId = ActiveProfile?.Id ?? _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
+        _originalEmbeddingRole = RoleKey(ModelRole.Embedding);
         _presetToAdd = AvailablePresets().FirstOrDefault()?.Id ?? string.Empty;
 
         _systemPrompt = _settings.GetSystemPrompt(DefaultSystemPrompt);
@@ -681,11 +690,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     // button like the rest of the page. The one exception is downloading a local embedding model,
     // which writes to ~/.floaty/models/embed immediately — mirroring how the voice models behave.
 
-    /// <summary>One entry in a role dropdown: a provider plus the model it would use for that role.</summary>
-    private sealed record RoleOption(string Key, string Label);
-
-    public ProviderProfile? ActiveProvider =>
-        _config.Providers.FirstOrDefault(p => p.Id == _activeProviderId) ?? _config.Providers.FirstOrDefault();
+    public ProviderProfile? SelectedProvider =>
+        _config.Providers.FirstOrDefault(p => p.Id == _selectedProviderId) ?? _config.Providers.FirstOrDefault();
 
     private static string ProviderLabel(ProviderProfile provider) =>
         string.IsNullOrWhiteSpace(provider.DisplayName)
@@ -696,10 +702,16 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private bool ShowOllamaPicker(ProviderProfile provider) => IsOllama(provider) && _ollamaModels.Count > 0;
 
-    /// <summary>How many of the five roles this provider currently serves; shown as a tab badge.</summary>
-    private int RoleCountFor(string providerId) =>
-        new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole, _config.SpeechRole }
-            .Count(r => r.ProviderId == providerId);
+    /// <summary>The provider follow-active roles resolve to in the unsaved config, if it still exists.</summary>
+    private ProviderProfile? ActiveProfile =>
+        _config.Providers.FirstOrDefault(p =>
+            string.Equals(p.Id, _config.ActiveProviderId, StringComparison.OrdinalIgnoreCase));
+
+    private void SetActiveProvider(ProviderProfile provider)
+    {
+        _config.ActiveProviderId = provider.Id;
+        _saved = false;
+    }
 
     /// <summary>
     /// Presets still worth offering: everything the user hasn't added yet, plus the ones that can
@@ -716,7 +728,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void SelectProvider(string id)
     {
-        _activeProviderId = id;
+        _selectedProviderId = id;
         _confirmRemoveProviderId = null;
         _confirmDeleteEmbeddingId = null;
 
@@ -734,8 +746,13 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         var profile = ProviderPresets.CreateProfile(preset, _config.Providers);
         _config.Providers.Add(profile);
-        _activeProviderId = profile.Id;
+        _selectedProviderId = profile.Id;
         _saved = false;
+
+        // The first provider becomes the active one, so adding it is all it takes to be configured.
+        // An on-device embedding provider can't chat, so it only takes the slot when nothing else is there.
+        if (ActiveProfile is null && profile.Kind != ProviderKind.LocalOnnx)
+            _config.ActiveProviderId = profile.Id;
 
         // Adopt unfilled roles straight away: adding your first provider should leave you configured,
         // not configured-but-unassigned.
@@ -747,23 +764,27 @@ public sealed partial class SettingsViewModel : ObservableObject
             _ = RefreshOllamaModels(profile);
     }
 
-    /// <summary>Points any still-unassigned role at this provider, when it has a model for that job.</summary>
+    /// <summary>
+    /// Points any still-unassigned role somewhere, when this provider has a model for that job: at the
+    /// active provider when this is it, otherwise pinned to this one. A local embedding provider is never
+    /// active, so it is always pinned — which is what keeps memory on-device whichever provider is active.
+    /// </summary>
     private void AdoptEmptyRoles(ProviderProfile profile)
     {
-        if (!_config.ChatRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.ChatModel))
-            _config.ChatRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.ChatModel };
+        var isActive = ReferenceEquals(ActiveProfile, profile);
 
-        if (!_config.EmbeddingRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.EmbeddingModel))
-            _config.EmbeddingRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.EmbeddingModel };
+        foreach (var role in Enum.GetValues<ModelRole>())
+        {
+            var assignment = _config.RoleFor(role);
+            if (assignment.IsAssigned || string.IsNullOrWhiteSpace(profile.ModelFor(role)) ||
+                !AiClientFactory.CanServe(profile.Kind, role))
+                continue;
 
-        if (!_config.VisionRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.VisionModel))
-            _config.VisionRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.VisionModel };
-
-        if (!_config.ImageRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.ImageModel))
-            _config.ImageRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.ImageModel };
-
-        if (!_config.SpeechRole.IsAssigned && !string.IsNullOrWhiteSpace(profile.SpeechModel))
-            _config.SpeechRole = new ModelAssignment { ProviderId = profile.Id, Model = profile.SpeechModel };
+            if (isActive)
+                assignment.FollowActive = true;
+            else
+                assignment.ProviderId = profile.Id;
+        }
     }
 
     private void RemoveProvider(ProviderProfile provider)
@@ -774,16 +795,21 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Unassign rather than silently leaving a role pointing at nothing, which would read as
         // "configured" in the dropdown while failing on every call.
-        foreach (var role in new[] { _config.ChatRole, _config.EmbeddingRole, _config.VisionRole, _config.ImageRole, _config.SpeechRole })
+        foreach (var role in _config.AllRoles)
         {
-            if (role.ProviderId == provider.Id)
+            if (!role.FollowActive && role.ProviderId == provider.Id)
             {
                 role.ProviderId = string.Empty;
                 role.Model = string.Empty;
             }
         }
 
-        _activeProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
+        // Follow-active roles move to whichever provider is left rather than switching off.
+        if (ActiveProfile is null)
+            _config.ActiveProviderId = _config.Providers.FirstOrDefault(p => p.Kind != ProviderKind.LocalOnnx)?.Id
+                ?? string.Empty;
+
+        _selectedProviderId = _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
         _presetToAdd = AvailablePresets().FirstOrDefault()?.Id ?? _presetToAdd;
         _saved = false;
     }
@@ -808,70 +834,125 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // --- Role assignment ---
 
+    /// <summary>The value a role's source dropdown stores for "follow the active provider".</summary>
+    private const string ActiveRoleSource = "@active";
+
+    /// <summary>The value a role's source dropdown stores for "off".</summary>
+    private const string OffRoleSource = "";
+
     /// <summary>
-    /// Serializes an assignment as "providerId|model" so one &lt;select&gt; can offer several models
-    /// from the same provider without needing a second control.
+    /// The provider and model a role resolves to in the unsaved config, mirroring
+    /// <see cref="AiClientFactory"/>'s Resolve minus the key/download checks. Null when it points nowhere.
     /// </summary>
-    private static string RoleKey(ModelAssignment assignment) =>
-        assignment.IsAssigned ? $"{assignment.ProviderId}|{assignment.Model}" : string.Empty;
-
-    private List<RoleOption> RoleOptions(ModelRole role)
+    private (ProviderProfile Profile, string Model)? ResolveRole(ModelRole role)
     {
-        var options = new List<RoleOption>();
+        var assignment = _config.RoleFor(role);
+        if (!assignment.IsAssigned)
+            return null;
 
-        foreach (var provider in _config.Providers)
+        var profile = assignment.FollowActive
+            ? ActiveProfile
+            : _config.Providers.FirstOrDefault(p =>
+                string.Equals(p.Id, assignment.ProviderId, StringComparison.OrdinalIgnoreCase));
+        if (profile is null)
+            return null;
+
+        var model = assignment.FollowActive || string.IsNullOrWhiteSpace(assignment.Model)
+            ? profile.ModelFor(role)
+            : assignment.Model;
+        return string.IsNullOrWhiteSpace(model) ? null : (profile, model.Trim());
+    }
+
+    /// <summary>"providerId|model" for what a role resolves to, so a change of either is noticed.</summary>
+    private string RoleKey(ModelRole role) =>
+        ResolveRole(role) is { } r ? $"{r.Profile.Id}|{r.Model}" : string.Empty;
+
+    /// <summary>What a role's source dropdown offers: the active provider, every capable provider, off.</summary>
+    private List<RoleSourceOption> RoleSources(ModelRole role)
+    {
+        var active = ActiveProfile;
+        var options = new List<RoleSourceOption>
         {
-            var model = role switch
-            {
-                ModelRole.Chat => provider.ChatModel,
-                ModelRole.Embedding => provider.EmbeddingModel,
-                ModelRole.Vision => provider.VisionModel,
-                ModelRole.Image => provider.ImageModel,
-                _ => provider.SpeechModel,
-            };
-
-            if (string.IsNullOrWhiteSpace(model))
-                continue;
-
-            options.Add(new RoleOption($"{provider.Id}|{model}", $"{ProviderLabel(provider)} · {model}"));
-        }
-
-        // A role can point at a model the provider no longer defaults to (hand-edited config, or a
-        // model field cleared afterwards). Keep it listed so opening Settings doesn't silently
-        // reset a working setup to "not configured".
-        var current = role switch
-        {
-            ModelRole.Chat => _config.ChatRole,
-            ModelRole.Embedding => _config.EmbeddingRole,
-            ModelRole.Vision => _config.VisionRole,
-            ModelRole.Image => _config.ImageRole,
-            _ => _config.SpeechRole,
+            new(ActiveRoleSource, active is null ? "Active provider (none)" : $"Active ({ProviderLabel(active)})"),
         };
 
-        var key = RoleKey(current);
-        if (key.Length > 0 && options.All(o => o.Key != key))
+        foreach (var provider in _config.Providers.Where(p => AiClientFactory.CanServe(p.Kind, role)))
+            options.Add(new RoleSourceOption(provider.Id, ProviderLabel(provider)));
+
+        // A hand-edited config can pin a role to a provider that can't serve it; keep it listed so the
+        // dropdown shows the truth rather than blanking.
+        var current = _config.RoleFor(role);
+        if (!current.FollowActive && current.IsAssigned && options.All(o => o.Key != current.ProviderId))
         {
             var provider = _config.Providers.FirstOrDefault(p => p.Id == current.ProviderId);
-            if (provider is not null)
-                options.Add(new RoleOption(key, $"{ProviderLabel(provider)} · {current.Model}"));
+            options.Add(new RoleSourceOption(current.ProviderId, provider is null ? current.ProviderId : ProviderLabel(provider)));
         }
 
+        options.Add(new RoleSourceOption(OffRoleSource, "Off"));
         return options;
     }
 
-    private void AssignRole(ModelAssignment assignment, string? key)
+    private string GetRoleSource(ModelRole role)
     {
-        var parts = (key ?? string.Empty).Split('|', 2);
-        assignment.ProviderId = parts[0];
-        assignment.Model = parts.Length > 1 ? parts[1] : string.Empty;
+        var assignment = _config.RoleFor(role);
+        return assignment.FollowActive ? ActiveRoleSource
+            : assignment.IsAssigned ? assignment.ProviderId
+            : OffRoleSource;
+    }
+
+    /// <summary>
+    /// Points a role at the active provider, a specific one, or nothing. The model override is cleared:
+    /// a model id belongs to the provider it was typed for, and the new source has its own default.
+    /// </summary>
+    private void SetRoleSource(ModelRole role, string? source)
+    {
+        var assignment = _config.RoleFor(role);
+        source ??= OffRoleSource;
+
+        assignment.FollowActive = source == ActiveRoleSource;
+        assignment.ProviderId = assignment.FollowActive ? string.Empty : source;
+        assignment.Model = string.Empty;
         _saved = false;
+    }
+
+    /// <summary>
+    /// The model a role uses, as its textbox shows it. A follow-active role has no model of its own, so
+    /// it reads and writes the active provider's default for the role; a pinned role edits its override.
+    /// </summary>
+    private string GetRoleModel(ModelRole role)
+    {
+        var assignment = _config.RoleFor(role);
+        return assignment.FollowActive ? ActiveProfile?.ModelFor(role) ?? string.Empty : assignment.Model;
+    }
+
+    private void SetRoleModel(ModelRole role, string? model)
+    {
+        var assignment = _config.RoleFor(role);
+        model ??= string.Empty;
+
+        if (assignment.FollowActive)
+            ActiveProfile?.SetModelFor(role, model);
+        else
+            assignment.Model = model;
+        _saved = false;
+    }
+
+    /// <summary>Placeholder for a role's model textbox: the provider default a blank override falls back to.</summary>
+    private string RoleModelPlaceholder(ModelRole role)
+    {
+        var assignment = _config.RoleFor(role);
+        if (assignment.FollowActive || !assignment.IsAssigned)
+            return "model id";
+
+        var fallback = _config.Providers.FirstOrDefault(p => p.Id == assignment.ProviderId)?.ModelFor(role);
+        return string.IsNullOrWhiteSpace(fallback) ? "model id" : $"default: {fallback}";
     }
 
     /// <summary>
     /// Whether this visit changed the embedding role. Switching vector spaces leaves every stored
     /// capture unsearchable until it is re-indexed, so the section says so before the user saves.
     /// </summary>
-    private bool EmbeddingRoleChanged => RoleKey(_config.EmbeddingRole) != _originalEmbeddingRole;
+    private bool EmbeddingRoleChanged => RoleKey(ModelRole.Embedding) != _originalEmbeddingRole;
 
     // --- Voice output ---
 
@@ -882,20 +963,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// The provider and model the unsaved speech role points at, falling back to the provider's default
     /// model the way <see cref="AiClientFactory"/> does. Null when the role is effectively unassigned.
     /// </summary>
-    private (ProviderProfile Profile, string Model)? ResolveSpeechRole()
-    {
-        var role = _config.SpeechRole;
-        if (!role.IsAssigned)
-            return null;
-
-        var profile = _config.Providers.FirstOrDefault(p =>
-            string.Equals(p.Id, role.ProviderId, StringComparison.OrdinalIgnoreCase));
-        if (profile is null)
-            return null;
-
-        var model = string.IsNullOrWhiteSpace(role.Model) ? profile.SpeechModel : role.Model;
-        return string.IsNullOrWhiteSpace(model) ? null : (profile, model.Trim());
-    }
+    private (ProviderProfile Profile, string Model)? ResolveSpeechRole() => ResolveRole(ModelRole.Speech);
 
     /// <summary>
     /// Speaks a short sample with the settings as they stand on this page, saved or not, so the user
@@ -1024,7 +1092,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         VisionModel = p.VisionModel,
         ImageModel = p.ImageModel,
         SpeechModel = p.SpeechModel,
-        UseResponsesApi = p.UseResponsesApi,
+        ChatApi = p.ChatApi,
         RequestThinking = p.RequestThinking,
         ThinkingBudgetTokens = p.ThinkingBudgetTokens,
         ReasoningEffort = p.ReasoningEffort,
@@ -1033,6 +1101,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private static ModelAssignment CloneRole(ModelAssignment a) => new()
     {
+        FollowActive = a.FollowActive,
         ProviderId = a.ProviderId,
         Model = a.Model,
     };
