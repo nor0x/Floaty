@@ -271,6 +271,24 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
 
     private bool _showCopy;
 
+    /// <summary>
+    /// Briefly true when a ring toast's "open in chat" lands on this message, which flashes the bubble.
+    /// Transient: never persisted.
+    /// </summary>
+    public bool IsHighlighted
+    {
+        get => _isHighlighted;
+        set
+        {
+            if (_isHighlighted == value)
+                return;
+            _isHighlighted = value;
+            OnPropertyChanged();
+        }
+    }
+
+    private bool _isHighlighted;
+
     /// <summary>Raw citation data backing <see cref="Citations"/>, kept so threads round-trip through persistence.</summary>
     public IReadOnlyList<MemoryCitation> CitationSources { get; set; } = System.Array.Empty<MemoryCitation>();
 

@@ -325,6 +325,23 @@ public sealed class FloatyConfig
     public bool StartWithNewConversation { get; set; } = true;
 
     /// <summary>
+    /// When true, a reply that finishes while the chat is closed slides a preview out of the ring (see
+    /// <c>ToastService</c>). Only gates that automatic preview: the model's own <c>show_toast</c> calls
+    /// still show.
+    /// </summary>
+    public bool ReplyToastEnabled { get; set; } = true;
+
+    /// <summary>
+    /// How long a ring toast stays out before sliding back in, in seconds. Hovering pauses it. Applies
+    /// to reply previews and the model's toasts alike; clamped to <see cref="MinToastSeconds"/> ..
+    /// <see cref="MaxToastSeconds"/> on use.
+    /// </summary>
+    public double ToastDurationSeconds { get; set; } = 8;
+
+    public const double MinToastSeconds = 3;
+    public const double MaxToastSeconds = 30;
+
+    /// <summary>
     /// When true, the summon hotkey (Alt+F) also picks up whatever text was selected in the app the
     /// user was in and attaches it to the pending prompt as a removable chip. Read through UI
     /// Automation where the app exposes its selection, otherwise by briefly borrowing the clipboard

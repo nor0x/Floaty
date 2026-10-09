@@ -280,6 +280,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             RememberTaggedCaptures = current.RememberTaggedCaptures,
             RememberDroppedFiles = current.RememberDroppedFiles,
             StartWithNewConversation = current.StartWithNewConversation,
+            ReplyToastEnabled = current.ReplyToastEnabled,
+            ToastDurationSeconds = current.ToastDurationSeconds,
             AttachSelectionOnSummon = current.AttachSelectionOnSummon,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             CaptureRules = current.CaptureRules.Select(r => r.Clone()).ToList(),

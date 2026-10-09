@@ -112,6 +112,11 @@ public partial class App : Application
         services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.UpdateTools>();
         services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.SystemTools>();
         services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.CaptureTools>();
+        services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.ToastTools>();
+
+        // Ring toasts: the overlay registers itself as the presenter; the chat panel (reply previews) and
+        // the show_toast tool only ever talk to this.
+        services.AddSingleton<ToastService>();
 
         // Capture rules ("capture Notepad whenever it opens"): polls the window list while a rule is live.
         services.AddSingleton<CaptureRuleService>();

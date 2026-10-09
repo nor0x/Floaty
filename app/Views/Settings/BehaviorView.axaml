@@ -61,6 +61,20 @@
                 </ComboBox>
                 <TextBlock Classes="hint"
                            Text="Floating glues the chat to the ring; Fixed gives it its own window you can place anywhere." />
+                <CheckBox IsChecked="{Binding ReplyToastEnabled}"
+                          Content="Preview replies on the ring while the chat is closed" />
+                <TextBlock Classes="hint"
+                           Text="A reply that finishes after you closed the chat slides out of the ring as a toast. The reply is in the chat either way." />
+                <TextBlock Text="Show toasts for" />
+                <Grid ColumnDefinitions="*,Auto">
+                    <Slider Grid.Column="0" Minimum="3" Maximum="30"
+                            TickFrequency="1" IsSnapToTickEnabled="True"
+                            Value="{Binding ToastDurationSeconds}" />
+                    <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center"
+                               Text="{Binding ToastDurationSeconds, StringFormat={}{0:F0} s}" />
+                </Grid>
+                <TextBlock Classes="hint"
+                           Text="Also how long the assistant's own toasts (status updates, finished jobs) stay out. Hovering a toast pauses it." />
             </StackPanel>
         </Border>
 

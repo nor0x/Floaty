@@ -87,7 +87,24 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // right on its edge while the cursor is still approaching.
     private const double InteractiveEdgeSlopDip = 4;
 
+    // Ring toasts. The toast sits this far out from the ring's side column edge - the ring overhangs that
+    // edge by RingHorizontalInset, so the card's ring-side end tucks just under the ring it slid out of -
+    // with a little air on the outer edge.
+    private const double ToastRingGapDip = 10;
+    private const double ToastOuterMarginDip = 4;
+    private const int ToastInMs = 340;
+    private const int ToastOutMs = 220;
+    private const int ToastSwapOutMs = 90;
+    private const int ToastSwapInMs = 150;
+    // Where the slide starts, as a fraction of the card's width back toward the ring.
+    private const double ToastSlideFraction = 0.6;
+    private const double ToastStartScaleX = 0.85;
+    // The ring's "push it out" flourish: a roll toward the toast and a small swell.
+    private const double ToastNudgeDegrees = 32;
+    private const double ToastPulseScale = 1.05;
+
     private readonly SettingsService _settings;
+    private readonly ToastService _toasts;
     private readonly ISelectionCaptureService _selectionCapture;
     private readonly ISoundService _sounds;
     private readonly IServiceProvider _services;
@@ -153,14 +170,29 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // The selection captured on this summon, handed to the chat panel once it is on screen.
     private SelectedText? _pendingSelection;
 
+    // Ring toast. One card, built once and re-filled per toast; it lives in the same side column the
+    // floating chat panel uses (the two never show at once - a toast only appears with the chat closed).
+    private readonly ToastView _toast = new();
+    private readonly TranslateTransform _toastSlide = new();
+    private readonly ScaleTransform _toastScale = new(1, 1);
+    // True while the toast is out (or sliding), i.e. while the window is sized for it.
+    private bool _toastShown;
+    private double _toastHeight;
+    private FloatyToast? _currentToast;
+    // Owns whatever the toast is doing right now - sliding, swapping, counting down, sliding back.
+    // Anything new cancels it first, which is what lets a dismiss interrupt a slide-out and vice versa.
+    private CancellationTokenSource? _toastCts;
+
     public OverlayWindow(
         SettingsService settings,
+        ToastService toasts,
         ISelectionCaptureService selectionCapture,
         ISoundService sounds,
         IServiceProvider services)
     {
         InitializeComponent();
         _settings = settings;
+        _toasts = toasts;
         _selectionCapture = selectionCapture;
         _sounds = sounds;
         _services = services;
@@ -193,6 +225,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
         _placement = _settings.Current.ChatPanelPlacement;
         BuildChatHost();
+        BuildToast();
 
         Ring.PointerReleased += OnRingTapped;
 
@@ -390,9 +423,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         // shutter - both of which scale about the ring's centre - have room instead of clipping on
         // that edge. The panel carries the identical inset so the two bottom edges stay level, and
         // both scale with the diameter that just changed.
-        RingHost.Margin = _chatOnLeft ? new Thickness(RingHorizontalInset, 0, 0, RingSwellInset) : new Thickness(0, 0, RingHorizontalInset, RingSwellInset);
-        if (_panel is not null)
-            ApplyChatSide(_chatOnLeft);
+        ApplyChatSide(_chatOnLeft);
 
         // Through ResizeWindowToRing, never by setting Width/Height directly: this runs from
         // OnSettingsChanged too, and any settings save (the debounced overlay-position write, for
@@ -579,6 +610,10 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
         if (_windowController is null)
             return;
 
+        // Before measuring: the glide centres the window on the cursor, and a toast-wide window would
+        // land the ring off to one side of it.
+        HideToastImmediately();
+
         _windowController.Activate();
 
         var (startX, startY) = _windowController.GetPosition();
@@ -668,6 +703,9 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
     private void TearDownChatHost()
     {
+        // The new host re-picks the side column, which would flip a toast that is out under the ring.
+        HideToastImmediately();
+
         if (_chatWindow is not null)
         {
             _chatWindow.Close();
@@ -705,6 +743,13 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
             return;
         }
 
+        // A toast that is out keeps its footprint, so an unrelated settings save can't snap it shut.
+        if (_toastShown && _windowController is not null)
+        {
+            _windowController.Resize(ToastWindowWidth, ToastWindowHeight, ChatAnchor);
+            return;
+        }
+
         // Before BindWindowController runs (i.e. from the constructor) there is no controller yet, so
         // the initial compact size is applied to the window directly.
         if (_windowController is null)
@@ -729,6 +774,9 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
     private void ToggleChat()
     {
+        // The chat is where the toast's message lives, so opening it makes the toast redundant.
+        HideToastImmediately();
+
         if (_placement == ChatPanelPlacement.Fixed)
         {
             _chatWindow?.Toggle();
@@ -750,6 +798,8 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // (ChatAnchor keeps the ring's edge fixed) so the ring stays put.
     private async Task ShowChatAsync()
     {
+        HideToastImmediately();
+
         if (_panel is null || _panel.IsOpen)
             return;
 
@@ -890,7 +940,9 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
         var (winX, _) = _windowController.GetPosition();
         var (winW, _) = _windowController.GetSize();
-        if (!IsChatOpen || _placement == ChatPanelPlacement.Fixed)
+        // A toast widens the window the same way an open floating panel does, ring flush on one edge.
+        var widened = _toastShown || (IsChatOpen && _placement != ChatPanelPlacement.Fixed);
+        if (!widened)
             return (winX, winX + winW);
 
         var ringWidthPx = RingWidthDip * DisplayScale;
@@ -901,15 +953,16 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
     // True when the chat panel should sit on the ring's left: it doesn't fit on the right and the left
     // has more room. Falls back to the right when the work area is unknown.
-    private bool ShouldOpenOnLeft() => PreferLeft(RingScreenEdgesPx());
+    private bool ShouldOpenOnLeft() =>
+        PreferLeft(RingScreenEdgesPx(), _panel?.PanelWidth ?? ChatPanelView.DefaultChatWidth);
 
-    private bool PreferLeft((double Left, double Right) ring)
+    private bool PreferLeft((double Left, double Right) ring, double contentDip)
     {
         var wa = _windowController?.GetWorkArea() ?? default;
         if (wa.Width <= 0)
             return false;
 
-        var chatPx = (_panel?.PanelWidth ?? ChatPanelView.DefaultChatWidth) * DisplayScale;
+        var chatPx = contentDip * DisplayScale;
         var rightSpace = (wa.X + wa.Width) - ring.Right;
         var leftSpace = ring.Left - wa.X;
 
@@ -948,14 +1001,25 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
     // Place the chat panel on the given side of the ring: swap the star/zero side columns and the
     // panel's column; the panel mirrors its own chevron and corner grip.
+    // The toast uses the same side column, so it follows the same flip.
     private void ApplyChatSide(bool onLeft)
     {
         _chatOnLeft = onLeft;
-        if (_panel is null)
-            return;
 
         ContentRoot.ColumnDefinitions[0].Width = onLeft ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         ContentRoot.ColumnDefinitions[2].Width = onLeft ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+
+        // The ring overhangs into whichever column holds the panel or toast, so the content seems to
+        // come from under it. Scales with the diameter, hence also re-applied from ApplyRingSize.
+        RingHost.Margin = onLeft
+            ? new Thickness(RingHorizontalInset, 0, 0, RingSwellInset)
+            : new Thickness(0, 0, RingHorizontalInset, RingSwellInset);
+
+        PlaceToast();
+
+        if (_panel is null)
+            return;
+
         Grid.SetColumn(_panel, onLeft ? 0 : 2);
 
         // Same margin either way: the panel shares the ring's bottom inset (see ApplyRingSize) so
@@ -973,7 +1037,16 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // so the ring stays visually put through the flip.
     private void ReevaluateChatSide()
     {
-        if (_panel is null || !_panel.IsOpen || _chatAnimating || _windowController is null)
+        if (_chatAnimating || _windowController is null)
+            return;
+
+        // Whichever is beside the ring right now: the open floating panel, or a toast.
+        double contentDip;
+        if (_placement != ChatPanelPlacement.Fixed && _panel is { IsOpen: true })
+            contentDip = _panel.PanelWidth;
+        else if (_toastShown)
+            contentDip = ToastFootprintDip;
+        else
             return;
 
         var wa = _windowController.GetWorkArea();
@@ -981,7 +1054,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
             return;
 
         var ring = RingScreenEdgesPx();
-        var chatPx = _panel.PanelWidth * DisplayScale;
+        var chatPx = contentDip * DisplayScale;
         var rightSpace = (wa.X + wa.Width) - ring.Right;
         var leftSpace = ring.Left - wa.X;
 
@@ -1003,6 +1076,264 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
             : ring.Left;        // ring becomes flush-left:  window left edge  = old ring left
         _windowController.MoveTo((int)Math.Round(newWinX), winY);
         SchedulePersistOverlayPosition();
+    }
+
+    // --- Ring toasts ---
+
+    // Window width while a toast is out: the ring's column (diameter less the overhang), then the gap,
+    // the card and its outer margin in the side column.
+    private double ToastWindowWidth => Math.Max(CompactWidth,
+        RingWidthDip + RingHorizontalInset + ToastRingGapDip + ToastView.ToastWidth + ToastOuterMarginDip);
+
+    // How far past the ring's edge the toast reaches - what the side choice has to find room for.
+    private double ToastFootprintDip => ToastWindowWidth - RingWidthDip;
+
+    // Never shorter than the compact window; a card taller than the ring grows the window upward, the
+    // way the panel does, from the shared bottom edge.
+    private double ToastWindowHeight =>
+        ClampToWorkArea(Math.Max(CompactHeight, _toastHeight + PanelTopMargin + RingSwellInset));
+
+    // Where the slide starts: back toward (and under) the ring.
+    private double ToastSlideOffset => (_chatOnLeft ? 1 : -1) * ToastView.ToastWidth * ToastSlideFraction;
+
+    private void BuildToast()
+    {
+        _toast.IsVisible = false;
+        _toast.Opacity = 0;
+        _toast.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom;
+        _toast.RenderTransform = new TransformGroup { Children = { _toastScale, _toastSlide } };
+        _toast.CloseRequested += (_, _) => _ = DismissToastAsync();
+        _toast.OpenRequested += (_, _) => OpenToastTarget();
+        ContentRoot.Children.Add(_toast);
+        PlaceToast();
+
+        _toasts.SetPresenter(toast => Dispatcher.UIThread.InvokeAsync(() => PresentToastAsync(toast)));
+    }
+
+    // Column, alignment and margins for the current side. The card is bottom-aligned with the ring and,
+    // when it is the shorter of the two, lifted to sit centred on it.
+    private void PlaceToast()
+    {
+        Grid.SetColumn(_toast, _chatOnLeft ? 0 : 2);
+        _toast.HorizontalAlignment = _chatOnLeft
+            ? Avalonia.Layout.HorizontalAlignment.Right
+            : Avalonia.Layout.HorizontalAlignment.Left;
+        _toast.ApplySide(_chatOnLeft);
+
+        var lift = Math.Max(0, (_ringSize - _toastHeight) / 2);
+        _toast.Margin = _chatOnLeft
+            ? new Thickness(ToastOuterMarginDip, 0, ToastRingGapDip, RingSwellInset + lift)
+            : new Thickness(ToastRingGapDip, 0, ToastOuterMarginDip, RingSwellInset + lift);
+
+        // The squash at the start of the slide is anchored on the ring side, so the card unfolds outward.
+        _toast.RenderTransformOrigin = new RelativePoint(_chatOnLeft ? 1 : 0, 0.5, RelativeUnit.Relative);
+    }
+
+    /// <summary>
+    /// <see cref="ToastService"/>'s presenter. Slides the toast out of the ring, or - with the chat open,
+    /// where the message is already in view - hands it to the panel's inline status strip instead. A
+    /// toast that is already out has its content swapped in place: newest wins, which is right for status
+    /// updates and harmless for replies.
+    /// </summary>
+    private async Task<ToastOutcome> PresentToastAsync(FloatyToast toast)
+    {
+        if (!IsVisible || _windowController is null)
+            return ToastOutcome.OverlayHidden;
+
+        if (IsChatOpen)
+        {
+            var status = string.IsNullOrWhiteSpace(toast.Title) ? toast.Body : $"{toast.Title}: {toast.Body}";
+            if (_placement == ChatPanelPlacement.Fixed)
+                _chatWindow?.ShowStatus(status);
+            else
+                _panel?.ShowStatus(status);
+            return ToastOutcome.ShownInChat;
+        }
+
+        // A reply landing mid-collapse would resize the window underneath the collapse animation.
+        while (_chatAnimating)
+            await Task.Delay(Anim.FrameMs * 3);
+
+        var token = RenewToastToken();
+        _currentToast = toast;
+
+        try
+        {
+            if (_toastShown)
+                await SwapToastAsync(toast, token);
+            else
+                await SlideToastOutAsync(toast, token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Dismissed or replaced mid-animation; whoever cancelled owns the toast now.
+            return ToastOutcome.Shown;
+        }
+
+        _ = RunToastCountdownAsync(token);
+        return ToastOutcome.Shown;
+    }
+
+    private async Task SlideToastOutAsync(FloatyToast toast, CancellationToken token)
+    {
+        _toast.Present(toast);
+        _toastHeight = _toast.MeasureCardHeight();
+
+        // Pick the side while the window is still compact, when its rect is the ring's own.
+        ApplyChatSide(PreferLeft(RingScreenEdgesPx(), ToastFootprintDip));
+        _toastShown = true;
+        ResizeWindowToRing();
+
+        var from = ToastSlideOffset;
+        _toastSlide.X = from;
+        _toastScale.ScaleX = ToastStartScaleX;
+        _toast.Opacity = 0;
+        _toast.IsVisible = true;
+
+        _ = NudgeRingTowardToastAsync();
+
+        await Task.WhenAll(
+            Anim.RunAsync(from, 0, ToastInMs, Anim.BackOut, v => _toastSlide.X = v, token),
+            Anim.RunAsync(ToastStartScaleX, 1, ToastInMs, Anim.CubicOut, v => _toastScale.ScaleX = v, token),
+            Anim.RunAsync(0, 1, ToastInMs / 2, Anim.Linear, v => _toast.Opacity = v, token));
+    }
+
+    private async Task SwapToastAsync(FloatyToast toast, CancellationToken token)
+    {
+        // Settle any half-finished slide first, so the swap starts from the resting position.
+        _toastSlide.X = 0;
+        _toastScale.ScaleX = 1;
+
+        await Anim.RunAsync(_toast.Opacity, 0, ToastSwapOutMs, Anim.CubicIn, v => _toast.Opacity = v, token);
+
+        _toast.Present(toast);
+        _toastHeight = _toast.MeasureCardHeight();
+        PlaceToast();
+        ResizeWindowToRing();
+
+        await Anim.RunAsync(0, 1, ToastSwapInMs, Anim.CubicOut, v => _toast.Opacity = v, token);
+    }
+
+    private async Task RunToastCountdownAsync(CancellationToken token)
+    {
+        var seconds = Math.Clamp(_settings.Current.ToastDurationSeconds,
+            FloatyConfig.MinToastSeconds, FloatyConfig.MaxToastSeconds);
+        try
+        {
+            await _toast.RunCountdownAsync(TimeSpan.FromSeconds(seconds), token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        await DismissToastAsync();
+    }
+
+    /// <summary>Slides the toast back into the ring, then gives the window back its compact size.</summary>
+    private async Task DismissToastAsync()
+    {
+        if (!_toastShown)
+            return;
+
+        var token = RenewToastToken();
+        var to = ToastSlideOffset;
+        try
+        {
+            await Task.WhenAll(
+                Anim.RunAsync(_toastSlide.X, to, ToastOutMs, Anim.CubicIn, v => _toastSlide.X = v, token),
+                Anim.RunAsync(_toastScale.ScaleX, ToastStartScaleX, ToastOutMs, Anim.CubicIn,
+                    v => _toastScale.ScaleX = v, token),
+                Anim.RunAsync(_toast.Opacity, 0, ToastOutMs, Anim.CubicIn, v => _toast.Opacity = v, token));
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer toast took over mid-slide; it carries on from here.
+            return;
+        }
+
+        HideToastImmediately();
+    }
+
+    /// <summary>
+    /// Takes the toast down without animating - for when something else is about to use the window
+    /// (the chat opening, a summon glide, a float to the taskbar). Safe to call with no toast out.
+    /// </summary>
+    private void HideToastImmediately()
+    {
+        _toastCts?.Cancel();
+        _toastCts = null;
+
+        if (!_toastShown)
+            return;
+
+        _toastShown = false;
+        _currentToast = null;
+        _toast.IsVisible = false;
+        _toast.Opacity = 0;
+        _toastSlide.X = 0;
+        _toastScale.ScaleX = 1;
+        _toast.Clear();
+        ResizeWindowToRing();
+    }
+
+    // Cancelling without disposing on purpose: the old token may still be inside a Task.Delay, and a
+    // source with no timer holds nothing that needs releasing.
+    private CancellationToken RenewToastToken()
+    {
+        _toastCts?.Cancel();
+        _toastCts = new CancellationTokenSource();
+        return _toastCts.Token;
+    }
+
+    // ↗ or a click on the card: open the chat where the toast's message is and land on it.
+    private void OpenToastTarget()
+    {
+        var target = _currentToast?.Target;
+        HideToastImmediately();
+        _ = OpenChatAtAsync(target);
+    }
+
+    private async Task OpenChatAtAsync(object? target)
+    {
+        if (_placement == ChatPanelPlacement.Fixed)
+        {
+            if (_chatWindow is not null)
+                await _chatWindow.RevealMessageAsync(target);
+            return;
+        }
+
+        await ShowChatAsync();
+        _panel?.RevealMessage(target);
+    }
+
+    // The ring rolls toward the toast and swells a touch, as if it pushed the card out. Skipped when
+    // something else (a drag, the shutter, a drop) is already driving the ring.
+    private async Task NudgeRingTowardToastAsync()
+    {
+        if (_ringBusy)
+            return;
+
+        _ringBusy = true;
+        try
+        {
+            var from = RingRotation;
+            var to = from + (_chatOnLeft ? -ToastNudgeDegrees : ToastNudgeDegrees);
+            await Task.WhenAll(
+                Anim.RunAsync(from, to, 420, Anim.CubicOut, v => RingRotation = v),
+                PulseRingAsync());
+        }
+        finally
+        {
+            SetRingScale(1);
+            _ringBusy = false;
+        }
+    }
+
+    private async Task PulseRingAsync()
+    {
+        await Anim.RunAsync(1, ToastPulseScale, 110, Anim.CubicOut, SetRingScale);
+        await Anim.RunAsync(ToastPulseScale, 1, 230, Anim.SinOut, SetRingScale);
     }
 
     // --- Ring loader (waiting for the first model token) ---
@@ -1216,6 +1547,8 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     // The panel still opens, because its inline toast is the only place that outcome can be reported.
     private async Task AttachDroppedFilesAsync(IReadOnlyList<string> paths, bool hadFolders, bool memorize)
     {
+        HideToastImmediately();
+
         if (paths.Count == 0)
         {
             if (hadFolders)
@@ -1296,8 +1629,11 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     private void OnSettingsClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
         Views.Settings.SettingsWindow.OpenWindow(_services);
 
-    private void OnFloatToTaskbarClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
+    private void OnFloatToTaskbarClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        HideToastImmediately();
         _windowController?.FloatToTaskbarAndHide();
+    }
 
     private void OnCloseClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) =>
         (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();

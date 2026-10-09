@@ -80,4 +80,7 @@ public static class Anim
     public static readonly Easing CubicInOut = new CubicEaseInOut();
     public static readonly Easing SinOut = new SineEaseOut();
     public static readonly Easing Linear = new LinearEasing();
+
+    /// <summary>Overshoots slightly and settles - the ring toast's slide-out.</summary>
+    public static readonly Easing BackOut = new BackEaseOut();
 }
