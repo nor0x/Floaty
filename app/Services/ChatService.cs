@@ -19,7 +19,7 @@ public interface IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
+        Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default);
 
@@ -28,7 +28,7 @@ public interface IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
+        Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default);
 }
@@ -127,7 +127,7 @@ public sealed class ChatService : IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
+        Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -443,7 +443,7 @@ public sealed class ChatService : IChatService
         string? mcpServer = null,
         ICollection<MemoryCitation>? citations = null,
         string? skillInstructions = null,
-        Func<ToolApprovalRequest, Task<bool>>? toolApproval = null,
+        Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
         CancellationToken cancellationToken = default)
     {
@@ -552,7 +552,10 @@ public sealed class ChatService : IChatService
         return saved ? "Saved to memory." : "Could not save to memory (no API key configured).";
     }
 
-    [Description("Run a shell command on the user's computer and return its output. Use to create, read, or " +
+    /// <summary>The <see cref="ToolApprovalRequest.GrantKey"/> a "This chat" grant for exec is stored under.</summary>
+    private const string ExecGrantKey = "exec";
+
+    [Description("Run a shell command on the user's computer and return its output.Use to create, read, or " +
                  "edit files, run programs, inspect the system, or automate tasks. Depending on settings, " +
                  "commands may require user approval before execution.")]
     private async Task<string> Exec(
@@ -566,23 +569,41 @@ public sealed class ChatService : IChatService
         if (string.IsNullOrWhiteSpace(command))
             return "No command was provided.";
 
-        if (config.ExecApprovalMode == ExecApprovalMode.NeverRequire)
-            return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
-
-        // Refuse rather than run un-approved when approval mode requires a prompt and no callback is wired.
+        // The command itself is folded under the note rather than spelled out in it, so a long script
+        // doesn't swamp the conversation but is one click away.
         var shellName = ShellExecutor.ShellDisplayName(config);
-        var approved = await ToolApproval.RequestAsync(new ToolApprovalRequest(
+        var request = new ToolApprovalRequest(
             Header: $"Run this command in {shellName}?",
             Detail: command,
             SubDetail: string.IsNullOrWhiteSpace(workingDirectory) ? null : $"in {workingDirectory}",
             ConfirmLabel: "Run",
-            ApprovedNote: $"⚡ Ran in {shellName}: {command}",
-            DeclinedNote: $"🚫 Declined: {command}",
-            Icon: TablerLine.Terminal2));
-        if (approved is null)
+            ApprovedNote: $"⚡ Ran in {shellName}",
+            DeclinedNote: $"🚫 Declined in {shellName}",
+            Icon: TablerLine.Terminal2,
+            GrantKey: ExecGrantKey);
+
+        if (config.ExecApprovalMode == ExecApprovalMode.NeverRequire)
+        {
+            // Nothing to ask, but the run is still recorded in the chat. A turn with no UI keeps running
+            // the command, as automatic mode always has.
+            await ToolApproval.RequestAsync(request with { PreApproved = true });
+            return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
+        }
+
+        // Refuse rather than run un-approved when approval mode requires a prompt and no callback is wired.
+        var decision = await ToolApproval.RequestAsync(request);
+        if (decision is null)
             return "Cannot run a command: no approval channel is available in this context.";
-        if (approved == false)
+        if (decision == ToolApprovalDecision.Declined)
             return "The user declined to run this command.";
+
+        // "Always allow" is exactly automatic mode; Settings → Shell is where it gets revoked.
+        if (decision == ToolApprovalDecision.Always)
+        {
+            var live = _settings.Current;
+            live.ExecApprovalMode = ExecApprovalMode.NeverRequire;
+            _settings.Save(live);
+        }
 
         return await ShellExecutor.RunAsync(config, command, workingDirectory, TimeSpan.FromSeconds(60));
     }

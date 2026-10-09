@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
              xmlns:svc="clr-namespace:Floaty.Services"
              xmlns:views="clr-namespace:Floaty.Views.Settings"
+             xmlns:icons="clr-namespace:Floaty.IconFont"
              x:Class="Floaty.Views.Settings.ExecView"
              x:DataType="vm:SettingsViewModel">
 
@@ -25,7 +26,26 @@
                     </ComboBox.ItemTemplate>
                 </ComboBox>
                 <TextBlock Classes="hint"
-                           Text="Prompting shows the command in the chat and waits for you. Automatic runs it immediately." />
+                           Text="Prompting shows the command in the chat and waits for you. Automatic runs it immediately. &quot;Always allow&quot; on a command in the chat switches this to automatic." />
+                <!-- The undo for "Always allow": back to asking before every command, saved at once. -->
+                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsExecAutoApproved}">
+                    <TextBlock Grid.Column="0"
+                               Classes="hint"
+                               VerticalAlignment="Center"
+                               Text="Commands currently run without asking. Every command still shows up in the chat." />
+                    <Button Grid.Column="1"
+                            Margin="10,0,0,0"
+                            Command="{Binding RevokeExecAutoApprovalCommand}"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{x:Static icons:TablerLine.ShieldOff}"
+                                       FontFamily="{StaticResource TablerIcons}"
+                                       VerticalAlignment="Center" />
+                            <TextBlock Text="Revoke" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </StackPanel>
         </Border>
 

@@ -379,7 +379,7 @@ public sealed class SettingsTools : IChatToolset
 
         if (approved is null)
             return "Cannot change the system prompt: no approval channel is available in this context.";
-        if (approved == false)
+        if (approved == ToolApprovalDecision.Declined)
             return "The user declined the system prompt change. Nothing was saved.";
 
         try

@@ -177,6 +177,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     // Capture rules are added/removed both here and by the chat's capture-rule tools.
     private bool _captureRulesEdited;
 
+    // "Always allow" on the chat's command approval card switches exec to automatic.
+    private bool _execApprovalEdited;
+
     // Add-capture-rule form state (Screen history page).
     private string _newRuleMatch = string.Empty;
     private int _newRuleTriggerIndex;
@@ -305,6 +308,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _speechEdited = false;
         _systemPromptEdited = false;
         _captureRulesEdited = false;
+        _execApprovalEdited = false;
         _speechTestStatus = null;
 
         // The overlay keeps editing the live config while this window is open, so follow it rather
@@ -399,6 +403,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             _config.AssistantDoneSoundFileName = current.AssistantDoneSoundFileName;
             _config.SoundVolume = current.SoundVolume;
         }
+
+        if (!_execApprovalEdited)
+            _config.ExecApprovalMode = current.ExecApprovalMode;
 
         if (!_captureRulesEdited)
             _config.CaptureRules = current.CaptureRules.Select(r => r.Clone()).ToList();
@@ -554,6 +561,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _speechEdited = false;
         _systemPromptEdited = false;
         _captureRulesEdited = false;
+        _execApprovalEdited = false;
     }
 
     private bool IsSkillEnabled(string name) =>

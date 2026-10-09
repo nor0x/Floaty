@@ -16,6 +16,10 @@ public sealed class StoredMessage
 
     /// <summary>How long the model thought, in milliseconds; backs the "Thought for 4s" header.</summary>
     public int? ReasoningMs { get; set; }
+
+    /// <summary>What a tool-approval note was about (the command that ran, the new system prompt), folded
+    /// under the note's header. Null on every other message and absent from older files.</summary>
+    public string? Detail { get; set; }
 }
 
 /// <summary>A saved chat thread, persisted as <c>~/.floaty/conversations/{Id}.json</c>.</summary>
