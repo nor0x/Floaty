@@ -26,6 +26,9 @@ public sealed class ChatWindowHost : IChatPanelHost
 	private double _panelHeight;
 	private DispatcherTimer? _persistTimer;
 
+	// The panel's slide-in, so a reveal can wait for the scroll-to-latest it ends with.
+	private Task _openAnimation = Task.CompletedTask;
+
 	// Expanded mode (the panel's corner expand toggle). While it is on, the window is docked to the
 	// bottom of the work area and sized to fill it, and these hold the geometry to come back to - which
 	// is also what gets persisted, so config.json always stores the user's own chosen size.
@@ -80,7 +83,7 @@ public sealed class ChatWindowHost : IChatPanelHost
 			_panelHeight + (WindowMarginDip * 2),
 			WindowAnchor.Left);
 
-		_ = _panel.AnimateInAsync();
+		_openAnimation = _panel.AnimateInAsync();
 		IsOpen = true;
 
 		// Re-enter the mode the app was closed in. After EnsureWindow, so the expanded size is measured
@@ -114,6 +117,20 @@ public sealed class ChatWindowHost : IChatPanelHost
 		Show();
 		_panel?.AttachSelection(selection);
 	}
+
+	/// <summary>
+	/// Opens the chat window and lands on the message a ring toast pointed at. Waits out the slide-in,
+	/// which ends by scrolling to the newest message and would otherwise undo the reveal.
+	/// </summary>
+	public async Task RevealMessageAsync(object? target)
+	{
+		Show();
+		await _openAnimation;
+		_panel?.RevealMessage(target);
+	}
+
+	/// <summary>Shows a one-line status in the open panel's inline strip (a toast raised while it is open).</summary>
+	public void ShowStatus(string text) => _panel?.ShowStatus(text);
 
 	/// <summary>Surfaces the "folders aren't supported" hint in the panel's inline toast.</summary>
 	public void ShowFolderDropHint()

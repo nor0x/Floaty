@@ -143,6 +143,7 @@
             <Border Classes="msg"
                     Classes.user="{Binding IsUser}"
                     Classes.note="{Binding IsSystemNote}"
+                    Classes.highlight="{Binding IsHighlighted}"
                     MaxWidth="{Binding $parent[ItemsControl].Bounds.Width, Converter={x:Static chat:ChatBrushes.MessageMaxWidth}}">
                 <StackPanel Spacing="6">
                     <!-- The model's reasoning, when it showed any. Streams open, collapses to its header
@@ -274,6 +275,13 @@
             <Setter Property="Padding" Value="0,4" />
             <Setter Property="Margin" Value="0,6" />
             <Setter Property="HorizontalAlignment" Value="Left" />
+            <!-- Invisible at rest; it rounds the highlight flash below. -->
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.35" />
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="Border.msg.user">
             <Setter Property="Background" Value="#3A3A3F" />
@@ -281,6 +289,11 @@
             <Setter Property="Margin" Value="0,3" />
             <Setter Property="CornerRadius" Value="10" />
             <Setter Property="HorizontalAlignment" Value="Right" />
+        </Style>
+        <!-- The message a ring toast pointed at, flashed briefly when "open in chat" lands on it.
+             Declared after .user so it also wins over the user bubble's fill. -->
+        <Style Selector="Border.msg.highlight">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}" />
         </Style>
         <Style Selector="Border.msg SelectableTextBlock.literal">
             <Setter Property="Foreground" Value="White" />

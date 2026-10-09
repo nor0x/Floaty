@@ -87,6 +87,23 @@ public sealed partial class SettingsViewModel
         set { _config.StartWithNewConversation = value; _saved = false; OnPropertyChanged(); }
     }
 
+    public bool ReplyToastEnabled
+    {
+        get => _config.ReplyToastEnabled;
+        set { _config.ReplyToastEnabled = value; _saved = false; OnPropertyChanged(); }
+    }
+
+    public double ToastDurationSeconds
+    {
+        get => Math.Clamp(_config.ToastDurationSeconds, FloatyConfig.MinToastSeconds, FloatyConfig.MaxToastSeconds);
+        set
+        {
+            _config.ToastDurationSeconds = Math.Round(value);
+            _saved = false;
+            OnPropertyChanged();
+        }
+    }
+
     public bool AttachSelectionOnSummon
     {
         get => _config.AttachSelectionOnSummon;

@@ -1,0 +1,167 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:icons="clr-namespace:Floaty.IconFont"
+             x:Class="Floaty.Views.ToastView">
+
+    <!-- The toast that slides out of the ring. Same surface as the chat panel (fill, hairline stroke,
+         10 DIP corners) so it reads as a piece of the same thing. The kind is carried by classes on
+         Card (reply / info / success / warning / error), so every tint lives in the styles below and
+         an accent change recolours a toast that is already out. -->
+    <UserControl.Styles>
+        <Style Selector="Border#Card">
+            <Setter Property="Background" Value="#E61C1C1E" />
+            <Setter Property="BorderBrush" Value="#22FFFFFF" />
+        </Style>
+        <Style Selector="Border#Card.error">
+            <Setter Property="BorderBrush" Value="#66FF6B6B" />
+        </Style>
+        <Style Selector="Border#Card.warning">
+            <Setter Property="BorderBrush" Value="#55FFC857" />
+        </Style>
+
+        <Style Selector="Border#GlyphBadge">
+            <Setter Property="Background" Value="{DynamicResource AccentSubtleBrush}" />
+        </Style>
+        <Style Selector="Border#Card.success Border#GlyphBadge">
+            <Setter Property="Background" Value="#294ADE80" />
+        </Style>
+        <Style Selector="Border#Card.warning Border#GlyphBadge">
+            <Setter Property="Background" Value="#29FFC857" />
+        </Style>
+        <Style Selector="Border#Card.error Border#GlyphBadge">
+            <Setter Property="Background" Value="#33FF6B6B" />
+        </Style>
+
+        <Style Selector="TextBlock#KindGlyph">
+            <Setter Property="Foreground" Value="{DynamicResource AccentIconOnDarkColor}" />
+        </Style>
+        <Style Selector="Border#Card.success TextBlock#KindGlyph">
+            <Setter Property="Foreground" Value="#86EFAC" />
+        </Style>
+        <Style Selector="Border#Card.warning TextBlock#KindGlyph">
+            <Setter Property="Foreground" Value="#FFD98A" />
+        </Style>
+        <Style Selector="Border#Card.error TextBlock#KindGlyph">
+            <Setter Property="Foreground" Value="#FF9B9B" />
+        </Style>
+
+        <Style Selector="Border#ProgressBar">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="Border#Card.success Border#ProgressBar">
+            <Setter Property="Background" Value="#4ADE80" />
+        </Style>
+        <Style Selector="Border#Card.warning Border#ProgressBar">
+            <Setter Property="Background" Value="#FFC857" />
+        </Style>
+        <Style Selector="Border#Card.error Border#ProgressBar">
+            <Setter Property="Background" Value="#FF6B6B" />
+        </Style>
+
+        <!-- Close / open-in-chat. Quiet until pointed at, like the panel's own corner tools. -->
+        <Style Selector="Button.toastAction">
+            <Setter Property="FontFamily" Value="{StaticResource TablerIcons}" />
+            <Setter Property="Foreground" Value="#99FFFFFF" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.toastAction /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Button.toastAction:pointerover">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.toastAction:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#33FFFFFF" />
+        </Style>
+    </UserControl.Styles>
+
+    <!-- ClipToBounds on a rounded Border clips to its rounded outline, which is what keeps the
+         countdown line inside the bottom corners. -->
+    <Border x:Name="Card"
+            BorderThickness="1"
+            CornerRadius="10"
+            ClipToBounds="True"
+            Cursor="Hand">
+        <Grid RowDefinitions="*,Auto">
+            <!-- Columns are swapped by ApplySide: the kind glyph sits on the ring's side (the toast
+                 "comes out of" the ring there), the buttons on the outer edge. -->
+            <Grid x:Name="BodyGrid"
+                  Grid.Row="0"
+                  ColumnDefinitions="Auto,*,Auto"
+                  Margin="10,10,6,10">
+                <Border x:Name="GlyphBadge"
+                        Grid.Column="0"
+                        Width="28"
+                        Height="28"
+                        CornerRadius="14"
+                        VerticalAlignment="Top">
+                    <TextBlock x:Name="KindGlyph"
+                               FontFamily="{StaticResource TablerIcons}"
+                               FontSize="15"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+
+                <StackPanel x:Name="ContentStack"
+                            Grid.Column="1"
+                            Margin="10,0,6,0"
+                            Spacing="3"
+                            VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleLabel"
+                               Foreground="White"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock x:Name="BodyLabel"
+                               Foreground="#CCFFFFFF"
+                               FontSize="12.5"
+                               LineHeight="17"
+                               TextWrapping="Wrap"
+                               MaxLines="3"
+                               TextTrimming="CharacterEllipsis" />
+                    <Border x:Name="ImageHost"
+                            IsVisible="False"
+                            Margin="0,6,0,0"
+                            CornerRadius="8"
+                            ClipToBounds="True"
+                            HorizontalAlignment="Left">
+                        <Image x:Name="ToastImage"
+                               MaxHeight="150"
+                               Stretch="Uniform" />
+                    </Border>
+                </StackPanel>
+
+                <StackPanel x:Name="Actions"
+                            Grid.Column="2"
+                            Spacing="2"
+                            VerticalAlignment="Top">
+                    <Button x:Name="CloseButton"
+                            Classes="toastAction"
+                            Content="{x:Static icons:TablerLine.X}"
+                            ToolTip.Tip="Dismiss" />
+                    <Button x:Name="OpenButton"
+                            Classes="toastAction"
+                            Content="{x:Static icons:TablerLine.ArrowUpRight}"
+                            ToolTip.Tip="Open in chat" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Countdown: drains toward the ring, pauses while the toast is hovered. -->
+            <Border x:Name="ProgressBar"
+                    Grid.Row="1"
+                    Height="2"
+                    Opacity="0.85"
+                    HorizontalAlignment="Left" />
+        </Grid>
+    </Border>
+</UserControl>

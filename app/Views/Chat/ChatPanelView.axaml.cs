@@ -41,6 +41,7 @@ public partial class ChatPanelView : UserControl
     private readonly IFileIngestService _fileIngest;
     private readonly ISoundService _sounds;
     private readonly IVoiceOutputService _voiceOutput;
+    private readonly ToastService _toasts;
 
     // The assistant bubble currently streaming; it gets its read-aloud button only once it is done.
     private ChatMessageVm? _streamingMessage;
@@ -199,10 +200,12 @@ public partial class ChatPanelView : UserControl
         IFileIngestService fileIngest,
         ISoundService sounds,
         IVoiceOutputService voiceOutput,
+        ToastService toasts,
         IServiceProvider services)
     {
         InitializeComponent();
         _settings = settings;
+        _toasts = toasts;
         _chatService = chatService;
         _captureService = captureService;
         _memoryService = memoryService;
@@ -2804,6 +2807,9 @@ public partial class ChatPanelView : UserControl
         // Voice output speaks the answer sentence by sentence as it streams. Reasoning is never spoken.
         var speech = _voiceOutput.IsEnabled ? _voiceOutput.BeginReply() : null;
 
+        // Styles the toast, should this reply arrive with the panel closed.
+        var failed = false;
+
         try
         {
             var streamed = new StringBuilder();
@@ -2881,6 +2887,7 @@ public partial class ChatPanelView : UserControl
         catch (Exception ex)
         {
             pending.Text = $"⚠️ {ex.Message}";
+            failed = true;
         }
         finally
         {
@@ -2916,12 +2923,103 @@ public partial class ChatPanelView : UserControl
             pending.CitationSources = citations.ToList();
         }
 
+        // The panel was collapsed while this turn ran. The reply is in Messages either way - the
+        // turn never depended on the panel being visible - the toast is what says it arrived.
+        if (!IsOpen && _settings.Current.ReplyToastEnabled)
+            _ = _toasts.ShowAsync(BuildReplyToast(pending, generatedImages, failed));
+
         ScrollToLatest();
         PersistCurrentConversation();
     }
 
     /// <summary>Shown when a turn produced neither an answer nor reasoning.</summary>
     private const string NoResponseText = "(no response)";
+
+    // Long enough for a few lines of preview; the toast clamps to three lines on top of this.
+    private const int ReplyToastMaxChars = 180;
+
+    /// <summary>
+    /// The ring toast for a reply that finished while the panel was closed: a plain-text preview (the
+    /// read-aloud stripper drops markdown, code and image syntax) plus the first picture the reply holds.
+    /// </summary>
+    private FloatyToast BuildReplyToast(ChatMessageVm reply, IReadOnlyList<GeneratedImageFile> images, bool failed)
+    {
+        var imagePath = images.Select(i => i.FullPath).FirstOrDefault(File.Exists)
+            ?? FirstGeneratedImagePath(reply.Text);
+
+        var preview = string.Join(' ', SpeechTextChunker.ToSpeakable(reply.Text)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (preview.Length > ReplyToastMaxChars)
+            preview = preview[..ReplyToastMaxChars].TrimEnd() + "…";
+        if (preview.Length == 0)
+            preview = imagePath is not null ? "Your image is ready." : "Your reply is ready.";
+
+        var title = failed
+            ? "Something went wrong"
+            : string.IsNullOrWhiteSpace(_currentConversation?.Title) ? "Floaty replied" : _currentConversation!.Title.Trim();
+
+        return new FloatyToast(preview)
+        {
+            Title = title,
+            Kind = failed ? ToastKind.Error : ToastKind.Reply,
+            ImagePath = imagePath,
+            Target = reply,
+        };
+    }
+
+    // The first floaty://image/ reference in a reply - one the model embedded itself. Only the generated
+    // images folder can resolve, the same allowlist the markdown renderer applies.
+    private static string? FirstGeneratedImagePath(string markdown)
+    {
+        var start = markdown.IndexOf(GeneratedImageUri.Prefix, StringComparison.OrdinalIgnoreCase);
+        while (start >= 0)
+        {
+            var end = markdown.IndexOfAny([')', ' ', '"', '\n', '>'], start);
+            var url = end < 0 ? markdown[start..] : markdown[start..end];
+            if (GeneratedImageUri.ResolvePath(url) is { } path)
+                return path;
+
+            start = markdown.IndexOf(GeneratedImageUri.Prefix, start + 1, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return null;
+    }
+
+    private const int MessageFlashMs = 1400;
+
+    /// <summary>
+    /// Lands on a message after the panel opens from a ring toast: scrolls it into view and flashes it.
+    /// A target that is gone (another conversation is showing, or there was none) falls back to the
+    /// newest message, which is where a tool toast's turn ends up anyway.
+    /// </summary>
+    public void RevealMessage(object? target)
+    {
+        if (target is not ChatMessageVm message || !Messages.Contains(message))
+        {
+            ScrollToLatest();
+            return;
+        }
+
+        // Background priority, queued after the open animation's own scroll-to-latest, so this one wins.
+        Dispatcher.UIThread.Post(() =>
+        {
+            MessagesList.ContainerFromItem(message)?.BringIntoView();
+            _ = FlashMessageAsync(message);
+        }, DispatcherPriority.Background);
+    }
+
+    private static async Task FlashMessageAsync(ChatMessageVm message)
+    {
+        message.IsHighlighted = true;
+        await Task.Delay(MessageFlashMs);
+        message.IsHighlighted = false;
+    }
+
+    /// <summary>
+    /// A one-line status in the strip under the input. Where a ring toast goes while the chat is open,
+    /// since the panel would cover the side it slides out on and the user is looking here anyway.
+    /// </summary>
+    public void ShowStatus(string text) => _ = ShowInlineToastAsync(text);
 
     /// <summary>
     /// Appends a markdown reference to each image the model generated this turn. The picture itself stays
