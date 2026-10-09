@@ -138,7 +138,7 @@ public sealed class UpdateTools : IChatToolset
 
         if (approved is null)
             return "Cannot install the update: no approval channel is available in this context.";
-        if (approved == false)
+        if (approved == ToolApprovalDecision.Declined)
             return "The user postponed the update.";
 
         try

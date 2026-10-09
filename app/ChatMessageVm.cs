@@ -72,11 +72,14 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
     private TimeSpan? _reasoningDuration;
     private IReadOnlyList<CitationVm> _citations = System.Array.Empty<CitationVm>();
 
-    public ChatMessageVm(bool isUser, string text, bool isSystemNote = false)
+    private bool _isDetailExpanded;
+
+    public ChatMessageVm(bool isUser, string text, bool isSystemNote = false, string? detail = null)
     {
         IsUser = isUser;
         _text = text;
         IsSystemNote = isSystemNote;
+        Detail = string.IsNullOrEmpty(detail) ? null : detail;
 
         // Built here rather than wired from the panel, so a bubble rehydrated from disk is as clickable
         // as one that just streamed in.
@@ -85,6 +88,7 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
             UserToggledReasoning = true;
             IsReasoningExpanded = !IsReasoningExpanded;
         });
+        ToggleDetailCommand = new RelayCommand(() => IsDetailExpanded = !IsDetailExpanded);
     }
 
     public bool IsUser { get; }
@@ -167,6 +171,37 @@ public sealed class ChatMessageVm : INotifyPropertyChanged
         _isReasoningExpanded ? TablerLine.ChevronDown : TablerLine.ChevronRight;
 
     public ICommand ToggleReasoningCommand { get; }
+
+    /// <summary>
+    /// What a tool-approval note is about - the command that ran, the system prompt that was saved -
+    /// folded under the note the way reasoning is folded above an answer. With a detail, <see cref="Text"/>
+    /// becomes the clickable header ("⚡ Ran in pwsh"). Null on every other message.
+    /// </summary>
+    public string? Detail { get; }
+
+    public bool HasDetail => Detail is not null;
+
+    /// <inheritdoc cref="HasDetail"/>
+    public bool HasNoDetail => Detail is null;
+
+    /// <summary>Starts folded: the note is the record, the command is there when wanted.</summary>
+    public bool IsDetailExpanded
+    {
+        get => _isDetailExpanded;
+        set
+        {
+            if (_isDetailExpanded == value)
+                return;
+            _isDetailExpanded = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DetailToggleGlyph));
+        }
+    }
+
+    public string DetailToggleGlyph =>
+        _isDetailExpanded ? TablerLine.ChevronDown : TablerLine.ChevronRight;
+
+    public ICommand ToggleDetailCommand { get; }
 
     // Sub-second thinking reads as noise as "0s", and anything past a minute wants the minutes shown.
     private static string FormatThinkingTime(TimeSpan elapsed) => elapsed.TotalSeconds switch

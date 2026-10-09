@@ -2126,6 +2126,7 @@ public partial class ChatPanelView : UserControl
             Citations = m.CitationSources.Count > 0 ? m.CitationSources.ToList() : null,
             Reasoning = m.HasReasoning ? m.Reasoning : null,
             ReasoningMs = m.ReasoningDuration is { } elapsed ? (int)elapsed.TotalMilliseconds : null,
+            Detail = m.Detail,
         }).ToList();
 
         var hasRealMessages = stored.Any(m => !m.IsSystemNote && !string.IsNullOrWhiteSpace(m.Text));
@@ -2156,7 +2157,7 @@ public partial class ChatPanelView : UserControl
         Messages.Clear();
         foreach (var stored in conversation.Messages)
         {
-            var vm = new ChatMessageVm(stored.IsUser, stored.Text, stored.IsSystemNote);
+            var vm = new ChatMessageVm(stored.IsUser, stored.Text, stored.IsSystemNote, stored.Detail);
 
             // Reasoning comes back folded, however it was left: reopening a thread is for reading the
             // answers, and the header is one click away.
@@ -2945,26 +2946,43 @@ public partial class ChatPanelView : UserControl
         }
     }
 
-    // Completes when the user clicks confirm/Cancel on the approval panel; set while a request is pending.
-    private TaskCompletionSource<bool>? _pendingExecApproval;
+    // Completes when the user clicks a button on the approval panel; set while a request is pending.
+    private TaskCompletionSource<ToolApprovalDecision>? _pendingExecApproval;
+
+    // "This chat" grants, by conversation id, then GrantKey. Memory only on purpose: a restart, or any
+    // other thread, asks again.
+    private readonly Dictionary<string, HashSet<string>> _conversationGrants = new();
 
     // Called by a gated tool (exec, update_system_prompt, install_update — possibly off the UI thread)
     // before it acts: shows the approval panel with exactly what will happen, waits for the user,
-    // records the outcome as a system note, and returns whether they approved. All UI mutation is
-    // marshaled to the main thread.
-    private async Task<bool> ApproveToolAsync(ToolApprovalRequest request)
+    // records the outcome as a system note, and returns how they answered. A pre-approved request, or one
+    // whose GrantKey this conversation already allowed, skips the panel and only leaves the note. All UI
+    // mutation is marshaled to the main thread.
+    private async Task<ToolApprovalDecision> ApproveToolAsync(ToolApprovalRequest request)
     {
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<ToolApprovalDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string? conversationId = null;
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            conversationId = _currentConversation?.Id;
+            if (request.PreApproved || IsGranted(conversationId, request.GrantKey))
+            {
+                tcs.TrySetResult(ToolApprovalDecision.Once);
+                return;
+            }
+
             // A second request while one is open would orphan the first; decline it rather than hang.
-            _pendingExecApproval?.TrySetResult(false);
+            _pendingExecApproval?.TrySetResult(ToolApprovalDecision.Declined);
             _pendingExecApproval = tcs;
             ExecApprovalIcon.Text = request.Icon;
             ExecApprovalHeaderLabel.Text = request.Header;
             ExecApprovalCommandLabel.Text = request.Detail;
-            ExecApprovalRunButton.Content = request.ConfirmLabel;
+            ExecApprovalRunLabel.Text = request.ConfirmLabel;
+
+            var grantable = !string.IsNullOrEmpty(request.GrantKey);
+            ExecApprovalChatButton.IsVisible = grantable;
+            ExecApprovalAlwaysButton.IsVisible = grantable;
 
             ExecApprovalDirLabel.Text = request.SubDetail ?? string.Empty;
             ExecApprovalDirLabel.IsVisible = !string.IsNullOrWhiteSpace(request.SubDetail);
@@ -2973,31 +2991,56 @@ public partial class ChatPanelView : UserControl
             ScrollToLatest();
         });
 
-        var approved = await tcs.Task;
+        var decision = await tcs.Task;
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
+            if (decision == ToolApprovalDecision.Conversation && conversationId is not null && request.GrantKey is { } key)
+            {
+                if (!_conversationGrants.TryGetValue(conversationId, out var keys))
+                    _conversationGrants[conversationId] = keys = new HashSet<string>(StringComparer.Ordinal);
+                keys.Add(key);
+            }
+
             if (_pendingExecApproval is null)
                 ExecApprovalPanel.IsVisible = false;
+
+            var approved = decision != ToolApprovalDecision.Declined;
             Messages.Add(new ChatMessageVm(isUser: false,
-                approved ? request.ApprovedNote : request.DeclinedNote, isSystemNote: true));
+                approved ? request.ApprovedNote : request.DeclinedNote,
+                isSystemNote: true,
+                detail: request.Detail));
             RefreshMessageAreaHeight();
             ScrollToLatest();
         });
 
-        return approved;
+        return decision;
     }
 
-    private void OnExecApprovalRunClicked(object? sender, RoutedEventArgs e) => ResolveExecApproval(true);
+    private bool IsGranted(string? conversationId, string? grantKey) =>
+        conversationId is not null
+        && grantKey is not null
+        && _conversationGrants.TryGetValue(conversationId, out var keys)
+        && keys.Contains(grantKey);
 
-    private void OnExecApprovalCancelClicked(object? sender, RoutedEventArgs e) => ResolveExecApproval(false);
+    private void OnExecApprovalRunClicked(object? sender, RoutedEventArgs e) =>
+        ResolveExecApproval(ToolApprovalDecision.Once);
 
-    private void ResolveExecApproval(bool approved)
+    private void OnExecApprovalChatClicked(object? sender, RoutedEventArgs e) =>
+        ResolveExecApproval(ToolApprovalDecision.Conversation);
+
+    private void OnExecApprovalAlwaysClicked(object? sender, RoutedEventArgs e) =>
+        ResolveExecApproval(ToolApprovalDecision.Always);
+
+    private void OnExecApprovalCancelClicked(object? sender, RoutedEventArgs e) =>
+        ResolveExecApproval(ToolApprovalDecision.Declined);
+
+    private void ResolveExecApproval(ToolApprovalDecision decision)
     {
         var pending = _pendingExecApproval;
         _pendingExecApproval = null;
         ExecApprovalPanel.IsVisible = false;
-        pending?.TrySetResult(approved);
+        pending?.TrySetResult(decision);
     }
 
     // The outgoing user message: plain text, or multimodal when windows were tagged with @, files were

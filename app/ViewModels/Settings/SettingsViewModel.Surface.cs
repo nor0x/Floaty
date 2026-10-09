@@ -426,7 +426,35 @@ public sealed partial class SettingsViewModel
     public ExecApprovalMode ExecApprovalMode
     {
         get => _config.ExecApprovalMode;
-        set { _config.ExecApprovalMode = value; _saved = false; OnPropertyChanged(); }
+        set
+        {
+            _config.ExecApprovalMode = value;
+            _execApprovalEdited = true;
+            _saved = false;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsExecAutoApproved));
+        }
+    }
+
+    /// <summary>Commands run without asking - set here, or by "Always allow" on the chat's approval card.</summary>
+    public bool IsExecAutoApproved => _config.ExecApprovalMode == ExecApprovalMode.NeverRequire;
+
+    /// <summary>
+    /// Takes back "Always allow": the chat asks before every command again. Saved on the spot rather
+    /// than waiting for Save, since it narrows what the assistant may do. The live config is changed
+    /// rather than this page's clone, so other unsaved edits here are left alone.
+    /// </summary>
+    [RelayCommand]
+    private void RevokeExecAutoApproval()
+    {
+        var live = _settings.Current;
+        live.ExecApprovalMode = ExecApprovalMode.AlwaysRequire;
+        _settings.Save(live);
+
+        _config.ExecApprovalMode = ExecApprovalMode.AlwaysRequire;
+        _execApprovalEdited = false;
+        OnPropertyChanged(nameof(ExecApprovalMode));
+        OnPropertyChanged(nameof(IsExecAutoApproved));
     }
 
     public IReadOnlyList<ExecShellKind> ExecShells { get; } = Enum.GetValues<ExecShellKind>();

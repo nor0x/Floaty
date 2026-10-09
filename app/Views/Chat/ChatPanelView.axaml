@@ -168,10 +168,38 @@
                                              Margin="2,0,0,2" />
                     </StackPanel>
 
+                    <!-- A tool-approval note with something to show (the command that ran, the saved
+                         system prompt): the note is the header, the detail folds beneath it like the
+                         reasoning above. Starts folded. -->
+                    <StackPanel IsVisible="{Binding HasDetail}" Spacing="3">
+                        <Button Classes="reason" Command="{Binding ToggleDetailCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Text="{Binding DetailToggleGlyph}"
+                                           FontFamily="{StaticResource TablerIcons}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Text}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                        <Border IsVisible="{Binding IsDetailExpanded}"
+                                Background="#33000000"
+                                Padding="6,4"
+                                CornerRadius="6"
+                                Margin="2,0,0,2">
+                            <SelectableTextBlock Text="{Binding Detail}"
+                                                 Foreground="#DDFFFFFF"
+                                                 FontFamily="Cascadia Mono,Consolas,monospace"
+                                                 FontSize="11"
+                                                 TextWrapping="Wrap" />
+                        </Border>
+                    </StackPanel>
+
                     <!-- Literal text for user + system notes; markdown for assistant answers. The
                          copy and read-aloud buttons sit in their own column at the end of the text,
                          bottom-aligned so they trail the last line. -->
-                    <Grid ColumnDefinitions="*,Auto">
+                    <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasNoDetail}">
                         <SelectableTextBlock Grid.Column="0"
                                              Classes="literal"
                                              Text="{Binding Text}"
@@ -388,6 +416,44 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="TextElement.Foreground" Value="{StaticResource Muted}" />
         </Style>
+        <!-- The approval card's buttons: icon + label, centred both ways. Fluent's own pointerover
+             would repaint the accent Run button grey, so hover is a lift in opacity instead. -->
+        <Style Selector="Button.approval">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Background" Value="{StaticResource Subtle}" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Opacity" Value="0.9" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.approval.primary">
+            <Setter Property="Background" Value="{DynamicResource AccentColor}" />
+        </Style>
+        <Style Selector="Button.approval:pointerover">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Button.approval:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#44FFFFFF" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.approval.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentColor}" />
+        </Style>
+        <Style Selector="Button.approval TextBlock.icon">
+            <Setter Property="FontFamily" Value="{StaticResource TablerIcons}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.approval TextBlock.label">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
         <!-- The chat input: MAUI needed native-TextBox interop for this; here it is a style. -->
         <Style Selector="TextBox.chat">
             <Setter Property="Background" Value="Transparent" />
@@ -726,12 +792,12 @@
                     Grid.Row="4"
                     IsVisible="False"
                     Margin="-6,4,-6,6"
-                    Padding="10"
+                    Padding="8"
                     Background="{StaticResource Faint}"
                     BorderBrush="{StaticResource Subtle}"
                     BorderThickness="1"
                     CornerRadius="8">
-                <StackPanel Spacing="6">
+                <StackPanel Spacing="5">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock x:Name="ExecApprovalIcon"
                                    Text="{x:Static icons:TablerLine.Terminal2}"
@@ -746,39 +812,61 @@
                                    FontWeight="Bold"
                                    VerticalAlignment="Center" />
                     </StackPanel>
-                    <Border Background="#33000000" Padding="8,6" CornerRadius="6">
-                        <SelectableTextBlock x:Name="ExecApprovalCommandLabel"
-                                             Foreground="#EEFFFFFF"
-                                             FontFamily="Cascadia Mono,Consolas,monospace"
-                                             FontSize="12"
-                                             TextWrapping="Wrap" />
+                    <!-- Capped at about four lines: a long script scrolls inside the box rather than
+                         pushing the message list off the panel. -->
+                    <Border Background="#33000000" Padding="6,4" CornerRadius="6">
+                        <ScrollViewer MaxHeight="62"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <SelectableTextBlock x:Name="ExecApprovalCommandLabel"
+                                                 Foreground="#EEFFFFFF"
+                                                 FontFamily="Cascadia Mono,Consolas,monospace"
+                                                 FontSize="11"
+                                                 TextWrapping="Wrap" />
+                        </ScrollViewer>
                     </Border>
                     <TextBlock x:Name="ExecApprovalDirLabel"
                                IsVisible="False"
                                Foreground="{StaticResource Dim}"
                                FontSize="10" />
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <!-- Wraps rather than clips when the panel is narrow. The two grant buttons only
+                         show for requests that carry a GrantKey (shell commands). -->
+                    <WrapPanel HorizontalAlignment="Right" ItemSpacing="6" LineSpacing="6">
                         <Button x:Name="ExecApprovalCancelButton"
-                                Content="Cancel"
-                                Click="OnExecApprovalCancelClicked"
-                                Height="30"
-                                Padding="12,0"
-                                FontSize="12"
-                                CornerRadius="6"
-                                BorderThickness="0"
-                                Background="{StaticResource Subtle}"
-                                Foreground="White" />
+                                Classes="approval"
+                                Click="OnExecApprovalCancelClicked">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Classes="icon" Text="{x:Static icons:TablerLine.X}" />
+                                <TextBlock Classes="label" Text="Cancel" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ExecApprovalAlwaysButton"
+                                Classes="approval"
+                                Click="OnExecApprovalAlwaysClicked"
+                                ToolTip.Tip="Run commands without asking. Revoke in Settings → Shell">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Classes="icon" Text="{x:Static icons:TablerLine.ShieldCheck}" />
+                                <TextBlock Classes="label" Text="Always allow" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ExecApprovalChatButton"
+                                Classes="approval"
+                                Click="OnExecApprovalChatClicked"
+                                ToolTip.Tip="Run commands in this conversation without asking">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Classes="icon" Text="{x:Static icons:TablerLine.MessageCircle}" />
+                                <TextBlock Classes="label" Text="This chat" />
+                            </StackPanel>
+                        </Button>
                         <Button x:Name="ExecApprovalRunButton"
-                                Content="Run"
-                                Click="OnExecApprovalRunClicked"
-                                Height="30"
-                                Padding="16,0"
-                                FontSize="12"
-                                CornerRadius="6"
-                                BorderThickness="0"
-                                Background="{DynamicResource AccentColor}"
-                                Foreground="White" />
-                    </StackPanel>
+                                Classes="approval primary"
+                                Click="OnExecApprovalRunClicked">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <TextBlock Classes="icon" Text="{x:Static icons:TablerLine.PlayerPlay}" />
+                                <TextBlock x:Name="ExecApprovalRunLabel" Classes="label" Text="Run" />
+                            </StackPanel>
+                        </Button>
+                    </WrapPanel>
                 </StackPanel>
             </Border>
 
