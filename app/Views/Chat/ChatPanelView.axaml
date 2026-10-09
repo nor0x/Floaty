@@ -785,15 +785,16 @@
             <!-- The input row. This must never be pushed out of view, so RefreshMessageAreaHeight
                  measures it as chrome and caps the message list at whatever is left. -->
             <Grid x:Name="InputRow" Grid.Row="5" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,-6,0">
-                <!-- Edge tools: the collapse chevron and the compact toggle. ApplyPanelSide moves the
-                     pair as a unit and mirrors it, keeping the chevron outermost, toward the ring. -->
+                <!-- Edge tools: the collapse chevron stacked over the compact toggle, one column wide
+                     so the input keeps the horizontal room. ApplyPanelSide moves the stack to the
+                     side facing the ring. -->
                 <Grid x:Name="InputEdgeTools"
                       Grid.Column="0"
-                      ColumnDefinitions="Auto,Auto">
+                      RowDefinitions="*,*">
                     <!-- Chevron: collapse the chat panel entirely. Glyph is set at runtime so it
                          points toward the ring on whichever side the panel opened. -->
                     <Button x:Name="CollapseButton"
-                            Grid.Column="0"
+                            Grid.Row="1"
                             Click="OnCollapseChatClicked"
                             Width="18"
                             Padding="0"
@@ -816,7 +817,7 @@
                     <!-- Compact toggle: hides the message list and the header row, leaving only this
                          input row. Glyph and tooltip are set by SetCompact. -->
                     <Button x:Name="CompactToggleButton"
-                            Grid.Column="1"
+                            Grid.Row="0"
                             Click="OnCompactToggleClicked"
                             ToolTip.Tip="Hide messages"
                             Width="18"

@@ -433,9 +433,6 @@ public partial class ChatPanelView : UserControl
             CollapseGlyph.Text = TablerLine.CaretRight;
             InputEdgeTools.Margin = new Thickness(0, 0, 6, 0);
             Grid.SetColumn(InputEdgeTools, 2);
-            // The chevron stays outermost: on the left side it trails the compact toggle.
-            Grid.SetColumn(CompactToggleButton, 0);
-            Grid.SetColumn(CollapseButton, 1);
             Grid.SetColumn(TopCornerTools, 0);
             TopCornerTools.HorizontalAlignment = HorizontalAlignment.Left;
             TopCornerTools.Margin = new Thickness(-5, -5, 0, 0);
@@ -454,8 +451,6 @@ public partial class ChatPanelView : UserControl
             CollapseGlyph.Text = TablerLine.CaretLeft;
             InputEdgeTools.Margin = new Thickness(6, 0, 0, 0);
             Grid.SetColumn(InputEdgeTools, 0);
-            Grid.SetColumn(CollapseButton, 0);
-            Grid.SetColumn(CompactToggleButton, 1);
             Grid.SetColumn(TopCornerTools, 2);
             TopCornerTools.HorizontalAlignment = HorizontalAlignment.Right;
             TopCornerTools.Margin = new Thickness(0, -5, 2, 0);
