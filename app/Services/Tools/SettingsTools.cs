@@ -56,7 +56,7 @@ public sealed class SettingsTools : IChatToolset
     public string Guidance =>
         "You can change Floaty's own settings when the user asks: call get_settings first to see the " +
         "current values and the valid choices, then set_appearance (accent color, ring size, always on " +
-        "top, chat placement), set_ring_image, set_sound (capture and reply-finished sounds, volume) or " +
+        "top, chat placement), set_ring_image, set_sound (capture, reply-finished and job-finished sounds, volume) or " +
         "set_voice_output. Convert color names to a hex value yourself. Tell the user what you changed. " +
         "To change how you behave in every future chat, use update_system_prompt: prefer mode 'append' " +
         "for a new instruction, because 'replace' discards the built-in guidance about Floaty's tools. " +
@@ -87,6 +87,8 @@ public sealed class SettingsTools : IChatToolset
                       $"{Or(c.CaptureSoundFileName, SettingsService.DefaultCaptureSound)}");
         sb.AppendLine($"- reply (assistant reply finished): {(c.AssistantDoneSoundEnabled ? "on" : "off")}, " +
                       $"{Or(c.AssistantDoneSoundFileName, SettingsService.DefaultAssistantDoneSound)}");
+        sb.AppendLine($"- job (recurring job finished): {(c.JobSoundEnabled ? "on" : "off")}, " +
+                      $"{Or(c.JobSoundFileName, SettingsService.DefaultJobDoneSound)}");
         sb.AppendLine($"- volume: {SettingsService.ClampSoundVolume(c.SoundVolume) * 100:0}%");
         sb.AppendLine($"  choices: {string.Join(", ", _settings.GetBuiltInSounds().Concat(_settings.GetAvailableSounds()))}");
 
@@ -202,23 +204,24 @@ public sealed class SettingsTools : IChatToolset
         return ringName.Length == 0 ? "Floaty's ring is back to the default." : $"Floaty's ring is now '{ringName}'.";
     }
 
-    [Description("Change one of Floaty's sounds: the capture shutter or the reply-finished chime. The new " +
-                 "sound is played once so the user hears it. Pass only what should change.")]
+    [Description("Change one of Floaty's sounds: the capture shutter, the reply-finished chime or the " +
+                 "job-finished sound. The new sound is played once so the user hears it. Pass only what should change.")]
     private string SetSound(
-        [Description("Which sound: 'capture' (window captured) or 'reply' (assistant reply finished).")] string slot,
+        [Description("Which sound: 'capture' (window captured), 'reply' (assistant reply finished) or 'job' (recurring job finished).")] string slot,
         [Description("Sound file name from get_settings' choices, or 'default'.")] string? sound = null,
         [Description("Turn this sound on or off.")] bool? enabled = null,
         [Description("Volume for all of Floaty's sounds, 0-100.")] double? volume_percent = null)
     {
         var config = _settings.Current;
-        var isCapture = slot?.Trim().ToLowerInvariant() switch
+        FloatySound? which = slot?.Trim().ToLowerInvariant() switch
         {
-            "capture" or "shutter" or "screenshot" => true,
-            "reply" or "done" or "assistant" or "finished" => false,
-            _ => (bool?)null,
+            "capture" or "shutter" or "screenshot" => FloatySound.Capture,
+            "reply" or "done" or "assistant" or "finished" => FloatySound.AssistantDone,
+            "job" or "jobs" or "recurring" or "scheduled" => FloatySound.JobDone,
+            _ => null,
         };
-        if (isCapture is null)
-            return $"Unknown sound '{slot}'. Use 'capture' or 'reply'.";
+        if (which is not { } kind)
+            return $"Unknown sound '{slot}'. Use 'capture', 'reply' or 'job'.";
 
         var changes = new List<string>();
 
@@ -239,19 +242,23 @@ public sealed class SettingsTools : IChatToolset
                 name = match;
             }
 
-            if (isCapture.Value)
-                config.CaptureSoundFileName = name;
-            else
-                config.AssistantDoneSoundFileName = name;
+            switch (kind)
+            {
+                case FloatySound.Capture: config.CaptureSoundFileName = name; break;
+                case FloatySound.AssistantDone: config.AssistantDoneSoundFileName = name; break;
+                default: config.JobSoundFileName = name; break;
+            }
             changes.Add($"sound {(name.Length == 0 ? "default" : name)}");
         }
 
         if (enabled is { } on)
         {
-            if (isCapture.Value)
-                config.CaptureSoundEnabled = on;
-            else
-                config.AssistantDoneSoundEnabled = on;
+            switch (kind)
+            {
+                case FloatySound.Capture: config.CaptureSoundEnabled = on; break;
+                case FloatySound.AssistantDone: config.AssistantDoneSoundEnabled = on; break;
+                default: config.JobSoundEnabled = on; break;
+            }
             changes.Add(on ? "on" : "off");
         }
 
@@ -266,16 +273,19 @@ public sealed class SettingsTools : IChatToolset
 
         _settings.Save(config);
 
-        var soundEnabled = isCapture.Value ? config.CaptureSoundEnabled : config.AssistantDoneSoundEnabled;
-        if (soundEnabled)
+        var (soundEnabled, file, label) = kind switch
         {
-            var file = isCapture.Value
-                ? Or(config.CaptureSoundFileName, SettingsService.DefaultCaptureSound)
-                : Or(config.AssistantDoneSoundFileName, SettingsService.DefaultAssistantDoneSound);
+            FloatySound.Capture => (config.CaptureSoundEnabled,
+                Or(config.CaptureSoundFileName, SettingsService.DefaultCaptureSound), "Capture"),
+            FloatySound.AssistantDone => (config.AssistantDoneSoundEnabled,
+                Or(config.AssistantDoneSoundFileName, SettingsService.DefaultAssistantDoneSound), "Reply-finished"),
+            _ => (config.JobSoundEnabled,
+                Or(config.JobSoundFileName, SettingsService.DefaultJobDoneSound), "Job-finished"),
+        };
+        if (soundEnabled)
             _settings.PreviewSound(file, config.SoundVolume);
-        }
 
-        return $"{(isCapture.Value ? "Capture" : "Reply-finished")} sound updated: {string.Join(", ", changes)}.";
+        return $"{label} sound updated: {string.Join(", ", changes)}.";
     }
 
     [Description("Turn reading replies aloud on or off, or change the voice and speed.")]

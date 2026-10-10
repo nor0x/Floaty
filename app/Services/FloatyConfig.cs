@@ -287,6 +287,18 @@ public sealed class FloatyConfig
     /// </summary>
     public string AssistantDoneSoundFileName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether a sound plays when a recurring job finishes a run (subject to
+    /// <see cref="JobNotifyOnlyOnFailure"/>).
+    /// </summary>
+    public bool JobSoundEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Sound played when a recurring job finishes. Empty uses <see cref="SettingsService.DefaultJobDoneSound"/>.
+    /// Draws from the same pool as <see cref="CaptureSoundFileName"/>.
+    /// </summary>
+    public string JobSoundFileName { get; set; } = string.Empty;
+
     /// <summary>Playback volume for Floaty's own sounds, 0–1. Clamped on use.</summary>
     public double SoundVolume { get; set; } = 0.7;
 
@@ -340,6 +352,21 @@ public sealed class FloatyConfig
 
     public const double MinToastSeconds = 3;
     public const double MaxToastSeconds = 30;
+
+    /// <summary>
+    /// Master switch for recurring jobs (<c>~/.floaty/jobs</c>). Off stops the scheduler firing anything;
+    /// each job keeps its own <c>enabled</c> flag, and "Run now" still works.
+    /// </summary>
+    public bool JobsEnabled { get; set; } = true;
+
+    /// <summary>Whether a finished job run slides a toast out of the ring, which opens the job's thread.</summary>
+    public bool JobToastEnabled { get; set; } = true;
+
+    /// <summary>
+    /// When true, the job toast and sound only fire for failed runs; a successful run is silent and
+    /// lands in its thread.
+    /// </summary>
+    public bool JobNotifyOnlyOnFailure { get; set; }
 
     /// <summary>
     /// When true, the summon hotkey (Alt+F) also picks up whatever text was selected in the app the

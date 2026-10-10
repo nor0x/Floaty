@@ -35,6 +35,7 @@ public static class SettingsFormat
             SettingsViewModel.SettingsSection.Mcp => TablerLine.PlugConnected,
             SettingsViewModel.SettingsSection.Exec => TablerLine.Terminal2,
             SettingsViewModel.SettingsSection.Skills => TablerLine.Puzzle,
+            SettingsViewModel.SettingsSection.Jobs => TablerLine.CalendarRepeat,
             SettingsViewModel.SettingsSection.Updates => TablerLine.Download,
             _ => TablerLine.Settings,
         });

@@ -84,6 +84,10 @@
         <!-- MCP client (Model Context Protocol). 2.0.0-preview.1 exposes McpClient.CreateAsync +
              McpClientTool : AIFunction, so MCP tools plug into Microsoft.Extensions.AI ChatOptions.Tools. -->
         <PackageReference Include="ModelContextProtocol" Version="2.0.0-preview.1" />
+
+        <!-- Cron parsing and next-occurrence math for recurring jobs (~/.floaty/jobs), DST-aware in
+             the local time zone. CronText adds the English descriptions on top. -->
+        <PackageReference Include="Cronos" Version="0.13.0" />
     </ItemGroup>
 
     <!-- Windows-only: screen-capture dependencies (GDI bitmap encode + UI Automation) for the

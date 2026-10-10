@@ -21,6 +21,7 @@ public interface IChatService
         string? skillInstructions = null,
         Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
+        ChatTurnOverrides? overrides = null,
         CancellationToken cancellationToken = default);
 
     Task<string> GetResponseAsync(
@@ -30,6 +31,7 @@ public interface IChatService
         string? skillInstructions = null,
         Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
+        ChatTurnOverrides? overrides = null,
         CancellationToken cancellationToken = default);
 }
 
@@ -41,6 +43,20 @@ public interface IChatService
 /// signal the UI acts on: reasoning collapses the moment the first answer chunk arrives.
 /// </remarks>
 public readonly record struct ChatChunk(string Text, bool IsReasoning);
+
+/// <summary>
+/// What a caller other than the chat panel can change about one turn. Used by
+/// <see cref="JobScheduler"/>, whose jobs may pin their own model and bind MCP tools by name.
+/// </summary>
+/// <param name="Client">Answers this turn instead of the chat role's client.</param>
+/// <param name="Profile">The provider behind <paramref name="Client"/>, for its reasoning settings.</param>
+/// <param name="ExtraTools">Added to the tool list after the built-in ones and the toolsets.</param>
+/// <param name="ExtraSystemPrompt">Added as a system message after any skill instructions.</param>
+public sealed record ChatTurnOverrides(
+    IChatClient? Client = null,
+    ProviderProfile? Profile = null,
+    IReadOnlyList<AITool>? ExtraTools = null,
+    string? ExtraSystemPrompt = null);
 
 /// <summary>
 /// Microsoft.Extensions.AI-backed chat service. Gets its <see cref="IChatClient"/> from
@@ -129,11 +145,12 @@ public sealed class ChatService : IChatService
         string? skillInstructions = null,
         Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
+        ChatTurnOverrides? overrides = null,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var config = _settings.Current;
 
-        var client = _clients.GetChatClient();
+        var client = overrides?.Client ?? _clients.GetChatClient();
         if (client is null)
         {
             yield return new ChatChunk("Set up a model provider in Settings (⚙) to start chatting.", IsReasoning: false);
@@ -161,6 +178,9 @@ public sealed class ChatService : IChatService
         if (!string.IsNullOrWhiteSpace(skillInstructions))
             messages.Add(new ChatMessage(ChatRole.System,
                 $"You are using a Floaty skill. Follow its instructions:\n\n{skillInstructions}"));
+
+        if (!string.IsNullOrWhiteSpace(overrides?.ExtraSystemPrompt))
+            messages.Add(new ChatMessage(ChatRole.System, overrides.ExtraSystemPrompt));
 
         // Always expose memory search + read + save; add the scoped MCP server's tools via /server.
         var tools = new List<AITool> { _searchTool, _readCaptureTool, _saveTool };
@@ -239,10 +259,13 @@ public sealed class ChatService : IChatService
                 $"The user invoked the '{mcpServer}' MCP server. Prefer its tools to fulfill the request."));
         }
 
+        if (overrides?.ExtraTools is { Count: > 0 } extraTools)
+            tools.AddRange(extraTools);
+
         messages.AddRange(history);
 
         var options = new ChatOptions { Tools = tools };
-        ApplyReasoning(options, _clients.GetProfile(ModelRole.Chat));
+        ApplyReasoning(options, overrides?.Client is not null ? overrides.Profile : _clients.GetProfile(ModelRole.Chat));
 
         // Reasoning reaches us one of two ways: as TextReasoningContent (Anthropic's thinking blocks,
         // and the reasoning_content field the OpenAI binding already parses out of DeepSeek/Ollama/
@@ -445,11 +468,12 @@ public sealed class ChatService : IChatService
         string? skillInstructions = null,
         Func<ToolApprovalRequest, Task<ToolApprovalDecision>>? toolApproval = null,
         ICollection<GeneratedImageFile>? generatedImages = null,
+        ChatTurnOverrides? overrides = null,
         CancellationToken cancellationToken = default)
     {
         var sb = new StringBuilder();
         await foreach (var chunk in GetStreamingResponseAsync(
-            history, mcpServer, citations, skillInstructions, toolApproval, generatedImages, cancellationToken)
+            history, mcpServer, citations, skillInstructions, toolApproval, generatedImages, overrides, cancellationToken)
             .WithCancellation(cancellationToken))
         {
             // Reasoning is scaffolding, not the answer; a caller that wanted the whole reply as one
