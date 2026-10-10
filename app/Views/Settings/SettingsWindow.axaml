@@ -91,6 +91,7 @@
                 <views:McpView           IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Mcp}" />
                 <views:ExecView          IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Exec}" />
                 <views:SkillsView        IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Skills}" />
+                <views:JobsView          IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Jobs}" />
                 <views:UpdatesView       IsVisible="{Binding ActiveSection, Converter={x:Static views:SettingsFormat.IsSection}, ConverterParameter=Updates}" />
             </Panel>
         </ScrollViewer>
