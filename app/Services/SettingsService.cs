@@ -121,6 +121,16 @@ public sealed class SettingsService
     public void PreviewRingSize(double size) => RingSizePreviewRequested?.Invoke(this, size);
 
     /// <summary>
+    /// Raised when the user picks a ring image in Settings so the live overlay can show it without
+    /// persisting. The argument is the ring selection as stored in
+    /// <see cref="FloatyConfig.RingImageFileName"/> (empty means the default ring).
+    /// </summary>
+    public event EventHandler<string>? RingImagePreviewRequested;
+
+    /// <summary>Requests a transient ring-image preview on the live overlay (see <see cref="RingImagePreviewRequested"/>).</summary>
+    public void PreviewRingImage(string? fileName) => RingImagePreviewRequested?.Invoke(this, fileName ?? string.Empty);
+
+    /// <summary>
     /// Raised while the user picks an accent color so the live overlay can preview it
     /// without persisting. The argument is the requested hex color.
     /// </summary>

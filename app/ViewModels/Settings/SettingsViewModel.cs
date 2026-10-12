@@ -1258,6 +1258,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _config.RingImageFileName = value;
         _ringImageEdited = true;
         _saved = false;
+        _settings.PreviewRingImage(value);
     }
 
     /// <summary>
@@ -1394,8 +1395,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    // If the settings window closes without saving, revert any live previews (ring size, accent)
-    // to the persisted values so the overlay doesn't keep uncommitted state.
+    // If the settings window closes without saving, revert any live previews (ring size and image,
+    // accent) to the persisted values so the overlay doesn't keep uncommitted state.
     public void Dispose()
     {
         _settings.Changed -= OnLiveConfigChanged;
@@ -1404,6 +1405,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _jobScheduler.RunStarted -= OnJobRunStarted;
         _jobScheduler.RunCompleted -= OnJobRunCompleted;
         _settings.PreviewRingSize(_settings.Current.RingSize);
+        _settings.PreviewRingImage(_settings.Current.RingImageFileName);
         _settings.PreviewAccentColor(_settings.Current.AccentColor);
     }
 

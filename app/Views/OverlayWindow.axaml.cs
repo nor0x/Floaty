@@ -202,6 +202,7 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
 
         _settings.Changed += OnSettingsChanged;
         _settings.RingSizePreviewRequested += OnRingSizePreviewRequested;
+        _settings.RingImagePreviewRequested += OnRingImagePreviewRequested;
         _settings.AccentColorPreviewRequested += OnAccentColorPreviewRequested;
 
         ApplyRingImage();
@@ -368,16 +369,23 @@ public partial class OverlayWindow : Window, IChatPanelHost, IRingFeedback
     private void OnRingSizePreviewRequested(object? sender, double size) =>
         Dispatcher.UIThread.Post(() => ApplyRingSize(size));
 
+    // Same for a ring picked in the Appearance gallery.
+    private void OnRingImagePreviewRequested(object? sender, string fileName) =>
+        Dispatcher.UIThread.Post(() => ApplyRingImage(fileName));
+
     private void OnAccentColorPreviewRequested(object? sender, string hex) =>
         Dispatcher.UIThread.Post(() => (Application.Current as App)?.ApplyAccentColor(hex));
 
     /// <summary>The ring shown when nothing is selected, or when the selection no longer resolves.</summary>
     private const string DefaultRing = "daisy.png";
 
-    /// <summary>Loads the configured ring image, falling back to <see cref="DefaultRing"/>.</summary>
-    public void ApplyRingImage()
+    /// <summary>
+    /// Loads the configured ring image - or <paramref name="selected"/>, when previewing an unsaved
+    /// pick - falling back to <see cref="DefaultRing"/>.
+    /// </summary>
+    public void ApplyRingImage(string? selected = null)
     {
-        var selected = _settings.Current.RingImageFileName;
+        selected ??= _settings.Current.RingImageFileName;
 
         if (_settings.IsBuiltInRingImage(selected))
         {
