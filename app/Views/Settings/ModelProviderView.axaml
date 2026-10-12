@@ -149,7 +149,7 @@
                 </Grid>
                 <TextBlock Classes="hint"
                            IsVisible="{Binding Kind, Converter={x:Static views:SettingsFormat.SupportsEffort}}"
-                           Text="Effort is how hard a reasoning model thinks; verbosity is how long its answer runs (OpenAI's GPT-5 family only). Default sends nothing. Maximum is xhigh on OpenAI and max on Anthropic, and Anthropic has nothing below low. A model that doesn't support a level may reject the request." />
+                           Text="Effort is how hard a reasoning model thinks; verbosity is how long its answer runs (OpenAI's GPT-5 family only). Default sends nothing. Maximum is xhigh on OpenAI and max on Anthropic, and Anthropic has nothing below low. If a model doesn't support a level, Floaty uses the nearest one it does." />
             </StackPanel>
         </Border>
 

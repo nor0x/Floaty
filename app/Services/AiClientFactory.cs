@@ -41,6 +41,13 @@ public sealed class AiClientFactory : IDisposable
     /// <summary>Fallback for an Anthropic profile whose endpoint (and preset) left the base URL blank.</summary>
     private const string AnthropicBaseUrl = "https://api.anthropic.com";
 
+    /// <summary>
+    /// Output ceiling for <see cref="TestAsync"/>'s probe: the smallest value every chat API accepts.
+    /// Chat completions and Anthropic take 1, but the Responses API rejects anything below 16 with a 400,
+    /// which would fail the test for a key and model that work fine.
+    /// </summary>
+    private const int TestMaxOutputTokens = 16;
+
     private readonly SettingsService _settings;
     private readonly ILocalEmbeddingFactory _localEmbeddings;
     private readonly Lock _gate = new();
@@ -284,7 +291,7 @@ public sealed class AiClientFactory : IDisposable
     }
 
     /// <summary>
-    /// Sends the smallest possible request through <paramref name="profile"/> so the user can find
+    /// Sends a minimal request through <paramref name="profile"/> so the user can find
     /// out a key or endpoint is wrong from the Settings page rather than from a chat that silently
     /// fails. Returns null on success, otherwise a message worth showing.
     /// </summary>
@@ -313,7 +320,7 @@ public sealed class AiClientFactory : IDisposable
             if (!string.IsNullOrWhiteSpace(profile.ChatModel))
             {
                 using var client = BuildChatClient(new ResolvedRole(profile, profile.ChatModel, string.Empty));
-                var options = new ChatOptions { MaxOutputTokens = 1 };
+                var options = new ChatOptions { MaxOutputTokens = TestMaxOutputTokens };
                 await client.GetResponseAsync("Hi", options, cancellationToken);
                 return null;
             }
