@@ -1,0 +1,122 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Floaty.ViewModels.Settings"
+             x:Class="Floaty.Views.Settings.JobsView"
+             x:DataType="vm:SettingsViewModel">
+
+    <StackPanel Spacing="0">
+        <TextBlock Classes="h" Text="Jobs" />
+        <TextBlock Classes="sub"
+                   Text="Recurring jobs are prompts Floaty runs on a schedule in the background, with its usual tools. Each one is a Markdown file in ~/.floaty/jobs: a cron schedule in the frontmatter and the prompt below it. Each run's result goes to the job's own thread under /chats. You can also ask in chat: &quot;every weekday at 9, summarize what I worked on yesterday&quot;." />
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <CheckBox Content="Run scheduled jobs" IsChecked="{Binding JobsEnabled}" />
+                <TextBlock Classes="hint"
+                           Text="Off pauses every schedule (it takes effect when you Save). Run now still works, and a job that was due while Floaty was closed runs once when it's back." />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="Rescan" Command="{Binding RescanJobsCommand}" />
+                    <Button Content="Open jobs folder" Command="{Binding OpenJobsFolderCommand}" />
+                </StackPanel>
+
+                <TextBlock Classes="hint" IsVisible="{Binding !HasJobs}"
+                           Text="No jobs yet. Add one below, ask in chat, or drop a file such as morning-digest.md into the jobs folder:&#10;---&#10;schedule: &quot;0 7 * * *&quot;&#10;---&#10;Summarize what's new in my notes since yesterday." />
+
+                <ItemsControl ItemsSource="{Binding JobRows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SettingsViewModel+JobRow">
+                            <Border Classes="row">
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <CheckBox Grid.Column="0"
+                                              Margin="0,0,10,0"
+                                              VerticalAlignment="Top"
+                                              IsChecked="{Binding Enabled, Mode=OneWay}"
+                                              Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).ToggleJobCommand}"
+                                              CommandParameter="{Binding Name}" />
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Schedule}" Classes="hint" />
+                                        <TextBlock Text="{Binding Status}" Classes="hint"
+                                                   IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        <TextBlock Text="{Binding Problem}" Classes="hint"
+                                                   Foreground="{DynamicResource DangerBrush}"
+                                                   TextWrapping="Wrap"
+                                                   IsVisible="{Binding Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding !ConfirmingDelete}">
+                                        <Button Content="Run now"
+                                                IsEnabled="{Binding CanRun}"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).RunJobCommand}"
+                                                CommandParameter="{Binding Name}" />
+                                        <Button Content="Edit"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).EditJobCommand}"
+                                                CommandParameter="{Binding Name}" />
+                                        <Button Content="Remove"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).AskDeleteJobCommand}"
+                                                CommandParameter="{Binding Name}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding ConfirmingDelete}">
+                                        <TextBlock Text="Delete the file?" VerticalAlignment="Center" />
+                                        <Button Classes="danger" Content="Delete"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).ConfirmDeleteJobCommand}"
+                                                CommandParameter="{Binding Name}" />
+                                        <Button Content="Cancel"
+                                                Command="{Binding $parent[UserControl].((vm:SettingsViewModel)DataContext).CancelDeleteJobCommand}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock Classes="hint" Foreground="{DynamicResource DangerBrush}" Text="{Binding JobError}"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding JobError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                <TextBlock Classes="hint"
+                           Text="Toggles, Run now and Remove apply immediately. A run that needs approval for something (a shell command, say) has nobody to ask, so that step is skipped and noted in the job's thread." />
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="Add a job" />
+                <TextBox PlaceholderText="Name (e.g. morning digest)" Text="{Binding NewJobName}" />
+                <TextBlock Classes="hint" Text="{Binding NewJobFileHint}"
+                           IsVisible="{Binding NewJobFileHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <TextBox PlaceholderText="Schedule: minute hour day month weekday (e.g. 0 9 * * 1-5)"
+                         FontFamily="Consolas, Menlo, monospace"
+                         Text="{Binding NewJobSchedule}" />
+                <TextBlock Classes="hint" Text="{Binding NewJobScheduleText}" TextWrapping="Wrap"
+                           IsVisible="{Binding NewJobScheduleValid}" />
+                <TextBlock Classes="hint" Text="{Binding NewJobScheduleText}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource DangerBrush}"
+                           IsVisible="{Binding !NewJobScheduleValid}" />
+                <TextBox PlaceholderText="What should Floaty do each time? Write it as a self-contained prompt."
+                         Text="{Binding NewJobPrompt}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         MinHeight="90" />
+                <TextBox PlaceholderText="Model (optional): provider/model, or a model id on the chat provider"
+                         Text="{Binding NewJobModel}" />
+                <Button Content="Add job" Command="{Binding AddJobCommand}" HorizontalAlignment="Left" />
+                <TextBlock Classes="hint"
+                           Text="Cron times are your local time. &quot;*/30 * * * *&quot; is every 30 minutes, &quot;0 7 * * *&quot; every day at 07:00, &quot;0 9 * * 1&quot; Mondays at 09:00. To give a job MCP tools, list them as mcpTools in its file (or ask in chat)." />
+            </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+            <StackPanel Spacing="10">
+                <TextBlock Classes="section" Text="When a job finishes" />
+                <CheckBox Content="Show a toast from the ring" IsChecked="{Binding JobToastEnabled}" />
+                <CheckBox Content="Play a sound" IsChecked="{Binding JobSoundEnabled}" />
+                <CheckBox Content="Only when a run fails" IsChecked="{Binding JobNotifyOnlyOnFailure}" />
+                <TextBlock Classes="hint"
+                           Text="Clicking the toast opens the job's thread. The sound itself is picked under Sounds → Recurring job finished." />
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

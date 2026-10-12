@@ -42,6 +42,9 @@ public static class FloatyPaths
     /// <summary><c>~/.floaty/skills</c> — user-placed agent skills (each a folder with a SKILL.md).</summary>
     public static string Skills => EnsureDir(Path.Combine(Home, "skills"));
 
+    /// <summary><c>~/.floaty/jobs</c> — recurring jobs, one <c>&lt;name&gt;.md</c> per job (see <see cref="JobService"/>).</summary>
+    public static string Jobs => EnsureDir(Path.Combine(Home, "jobs"));
+
     /// <summary><c>~/.floaty/models</c> — downloaded local speech-to-text models, one folder per model id.</summary>
     public static string SttModels => EnsureDir(Path.Combine(Home, "models"));
 

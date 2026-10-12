@@ -54,6 +54,10 @@ public sealed class WindowsSoundService : ISoundService, IDisposable
                 config.AssistantDoneSoundEnabled,
                 config.AssistantDoneSoundFileName,
                 SettingsService.DefaultAssistantDoneSound),
+            FloatySound.JobDone => (
+                config.JobSoundEnabled,
+                config.JobSoundFileName,
+                SettingsService.DefaultJobDoneSound),
             _ => (false, string.Empty, string.Empty),
         };
 

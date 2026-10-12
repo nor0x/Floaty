@@ -37,6 +37,7 @@ public partial class ChatPanelView : UserControl
     private readonly IMemoryService _memoryService;
     private readonly ConversationService _conversationStore;
     private readonly SkillService _skillService;
+    private readonly JobScheduler _jobScheduler;
     private readonly IVoiceInputService _voiceInput;
     private readonly IFileIngestService _fileIngest;
     private readonly ISoundService _sounds;
@@ -201,6 +202,7 @@ public partial class ChatPanelView : UserControl
         ISoundService sounds,
         IVoiceOutputService voiceOutput,
         ToastService toasts,
+        JobScheduler jobScheduler,
         IServiceProvider services)
     {
         InitializeComponent();
@@ -212,6 +214,7 @@ public partial class ChatPanelView : UserControl
         _fileIngest = fileIngest;
         _conversationStore = conversationStore;
         _skillService = skillService;
+        _jobScheduler = jobScheduler;
         _voiceInput = voiceInput;
         _sounds = sounds;
         _voiceOutput = voiceOutput;
@@ -268,6 +271,7 @@ public partial class ChatPanelView : UserControl
         _voiceInput.Error += OnVoiceError;
         _voiceOutput.SpeakingChanged += OnSpeakingChanged;
         _voiceOutput.Error += OnVoiceOutputError;
+        _jobScheduler.RunCompleted += OnJobRunCompleted;
 
         ApplyAccentColor(_settings.Current.AccentColor);
         ApplyPanelSide(onLeft: false);
@@ -309,6 +313,7 @@ public partial class ChatPanelView : UserControl
         _voiceInput.Error -= OnVoiceError;
         _voiceOutput.SpeakingChanged -= OnSpeakingChanged;
         _voiceOutput.Error -= OnVoiceOutputError;
+        _jobScheduler.RunCompleted -= OnJobRunCompleted;
 
         if (_voiceInput.IsListening)
             _ = _voiceInput.StopAsync();
@@ -2101,7 +2106,9 @@ public partial class ChatPanelView : UserControl
         var startFresh = !s_launchConversationResolved && _settings.Current.StartWithNewConversation;
         s_launchConversationResolved = true;
 
-        var recent = startFresh ? null : _conversationStore.LoadAll().FirstOrDefault();
+        // A job thread is skipped: the newest thread is often just the latest scheduled run, which is
+        // what the job's toast is for, not what the user came back to.
+        var recent = startFresh ? null : _conversationStore.LoadAll().FirstOrDefault(c => c.JobName is null);
         if (recent is not null)
         {
             _currentConversation = recent;
@@ -2159,26 +2166,47 @@ public partial class ChatPanelView : UserControl
     {
         Messages.Clear();
         foreach (var stored in conversation.Messages)
-        {
-            var vm = new ChatMessageVm(stored.IsUser, stored.Text, stored.IsSystemNote, stored.Detail);
-
-            // Reasoning comes back folded, however it was left: reopening a thread is for reading the
-            // answers, and the header is one click away.
-            if (!string.IsNullOrEmpty(stored.Reasoning))
-            {
-                vm.Reasoning = stored.Reasoning;
-                if (stored.ReasoningMs is { } ms)
-                    vm.ReasoningDuration = TimeSpan.FromMilliseconds(ms);
-            }
-
-            if (stored.Citations is { Count: > 0 } sources)
-            {
-                vm.Citations = sources.Select(ToCitationVm).ToList();
-                vm.CitationSources = sources;
-            }
-            Messages.Add(vm);
-        }
+            Messages.Add(ToMessageVm(stored));
     }
+
+    private ChatMessageVm ToMessageVm(StoredMessage stored)
+    {
+        var vm = new ChatMessageVm(stored.IsUser, stored.Text, stored.IsSystemNote, stored.Detail);
+
+        // Reasoning comes back folded, however it was left: reopening a thread is for reading the
+        // answers, and the header is one click away.
+        if (!string.IsNullOrEmpty(stored.Reasoning))
+        {
+            vm.Reasoning = stored.Reasoning;
+            if (stored.ReasoningMs is { } ms)
+                vm.ReasoningDuration = TimeSpan.FromMilliseconds(ms);
+        }
+
+        if (stored.Citations is { Count: > 0 } sources)
+        {
+            vm.Citations = sources.Select(ToCitationVm).ToList();
+            vm.CitationSources = sources;
+        }
+
+        return vm;
+    }
+
+    /// <summary>
+    /// A recurring job's run was just appended to its thread on disk. When that thread is the one up,
+    /// the run is added here too and saved at once - the panel saves its whole message list, so without
+    /// this its next save would write the run back out.
+    /// </summary>
+    private void OnJobRunCompleted(object? sender, JobRunResult e) =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_currentConversation?.Id != e.ConversationId)
+                return;
+
+            foreach (var stored in e.Messages)
+                Messages.Add(ToMessageVm(stored));
+            ScrollToLatest();
+            PersistCurrentConversation();
+        });
 
     // Persist the current thread, then start a fresh empty one.
     private void NewConversation()
@@ -2935,9 +2963,6 @@ public partial class ChatPanelView : UserControl
     /// <summary>Shown when a turn produced neither an answer nor reasoning.</summary>
     private const string NoResponseText = "(no response)";
 
-    // Long enough for a few lines of preview; the toast clamps to three lines on top of this.
-    private const int ReplyToastMaxChars = 180;
-
     /// <summary>
     /// The ring toast for a reply that finished while the panel was closed: a plain-text preview (the
     /// read-aloud stripper drops markdown, code and image syntax) plus the first picture the reply holds.
@@ -2947,10 +2972,7 @@ public partial class ChatPanelView : UserControl
         var imagePath = images.Select(i => i.FullPath).FirstOrDefault(File.Exists)
             ?? FirstGeneratedImagePath(reply.Text);
 
-        var preview = string.Join(' ', SpeechTextChunker.ToSpeakable(reply.Text)
-            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        if (preview.Length > ReplyToastMaxChars)
-            preview = preview[..ReplyToastMaxChars].TrimEnd() + "…";
+        var preview = ToastText.Preview(reply.Text);
         if (preview.Length == 0)
             preview = imagePath is not null ? "Your image is ready." : "Your reply is ready.";
 
@@ -2994,6 +3016,17 @@ public partial class ChatPanelView : UserControl
     /// </summary>
     public void RevealMessage(object? target)
     {
+        // A job toast lands on the job's thread rather than a message in whatever thread is up - unless
+        // a reply is streaming here, which switching away would cut off.
+        if (target is JobThreadTarget thread)
+        {
+            EnsureConversationLoaded();
+            if (_streamingMessage is null)
+                OpenConversation(thread.ConversationId);
+            ScrollToLatest();
+            return;
+        }
+
         if (target is not ChatMessageVm message || !Messages.Contains(message))
         {
             ScrollToLatest();

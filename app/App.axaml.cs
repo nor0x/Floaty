@@ -86,6 +86,12 @@ public partial class App : Application
         captureRules.Start();
         overlay.Closed += (_, _) => captureRules.Dispose();
 
+        // Recurring jobs (~/.floaty/jobs) fire on a tick while Floaty runs; a firing missed while it was
+        // closed catches up once. Stops with the overlay like the rules.
+        var jobScheduler = Services.GetRequiredService<JobScheduler>();
+        jobScheduler.Start();
+        overlay.Closed += (_, _) => jobScheduler.Dispose();
+
         base.OnFrameworkInitializationCompleted();
     }
 
@@ -113,6 +119,7 @@ public partial class App : Application
         services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.SystemTools>();
         services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.CaptureTools>();
         services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.ToastTools>();
+        services.AddSingleton<Services.Tools.IChatToolset, Services.Tools.JobTools>();
 
         // Ring toasts: the overlay registers itself as the presenter; the chat panel (reply previews) and
         // the show_toast tool only ever talk to this.
@@ -141,6 +148,11 @@ public partial class App : Application
         // Agent skills (SKILL.md), shipped with the app and discovered from disk, invokable via
         // /skill slash commands.
         services.AddSingleton<SkillService>();
+
+        // Recurring jobs: the ~/.floaty/jobs/*.md catalog (watched for hand edits), and the scheduler that
+        // runs them as background chat turns into each job's own thread.
+        services.AddSingleton<JobService>();
+        services.AddSingleton<JobScheduler>();
 
         // In-app auto-update (Velopack) checking the GitHub Releases of nor0x/Floaty.
         services.AddSingleton<UpdateService>();

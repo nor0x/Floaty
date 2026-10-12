@@ -11,6 +11,9 @@ public enum FloatySound
 
     /// <summary>An assistant reply finished streaming.</summary>
     AssistantDone,
+
+    /// <summary>A recurring job finished a run.</summary>
+    JobDone,
 }
 
 /// <summary>

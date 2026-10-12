@@ -30,6 +30,13 @@ public sealed class Conversation
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
     public List<StoredMessage> Messages { get; set; } = new();
+
+    /// <summary>
+    /// Set on a recurring job's thread (<see cref="JobScheduler"/> appends every run of that job to it).
+    /// Null on ordinary chats and absent from every file written before jobs existed. The chat panel
+    /// never resumes a job thread on its first open: the newest thread is often just the latest run.
+    /// </summary>
+    public string? JobName { get; set; }
 }
 
 /// <summary>

@@ -44,6 +44,30 @@ public sealed record FloatyToast(string Body)
     public object? Target { get; init; }
 }
 
+/// <summary>Turns a markdown reply into the few plain-text lines a toast has room for.</summary>
+public static class ToastText
+{
+    // Long enough for a few lines of preview; the toast clamps to three lines on top of this.
+    public const int PreviewMaxChars = 180;
+
+    /// <summary>
+    /// A plain-text preview of <paramref name="markdown"/>: the read-aloud stripper drops markdown, code
+    /// and image syntax, whitespace collapses, and anything past <see cref="PreviewMaxChars"/> is cut.
+    /// Empty when nothing speakable is left.
+    /// </summary>
+    public static string Preview(string? markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+            return string.Empty;
+
+        var preview = string.Join(' ', SpeechTextChunker.ToSpeakable(markdown)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return preview.Length > PreviewMaxChars
+            ? preview[..PreviewMaxChars].TrimEnd() + "…"
+            : preview;
+    }
+}
+
 /// <summary>
 /// Routes toasts to whatever can show them. The overlay window registers itself as the presenter at
 /// construction, because the ring - which toasts slide out of - lives there under both chat

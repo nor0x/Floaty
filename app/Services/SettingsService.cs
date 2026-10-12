@@ -91,6 +91,9 @@ public sealed class SettingsService
     /// <summary>Built-in used when <see cref="FloatyConfig.AssistantDoneSoundFileName"/> is unset.</summary>
     public const string DefaultAssistantDoneSound = "notify.wav";
 
+    /// <summary>Built-in used when <see cref="FloatyConfig.JobSoundFileName"/> is unset.</summary>
+    public const string DefaultJobDoneSound = "chime.wav";
+
     /// <summary>Smallest allowed ring diameter (device-independent units).</summary>
     public const double RingMinSize = 50;
 

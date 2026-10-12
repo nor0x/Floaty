@@ -59,6 +59,10 @@ public sealed class AiClientFactory : IDisposable
     private string? _speechKey;
     private string? _embeddingsKey;
 
+    // Chat clients for an explicit model (ResolveChat), keyed like the role caches. Few in practice:
+    // one per distinct job model.
+    private readonly Dictionary<string, IChatClient> _pinnedChats = new(StringComparer.Ordinal);
+
     public AiClientFactory(SettingsService settings, ILocalEmbeddingFactory localEmbeddings)
     {
         _settings = settings;
@@ -113,6 +117,76 @@ public sealed class AiClientFactory : IDisposable
                 .UseFunctionInvocation()
                 .Build();
             return _chat;
+        }
+    }
+
+    /// <summary>
+    /// A chat client for an explicit model, as a recurring job's <c>model:</c> field names one. The spec
+    /// is either <c>provider/model</c>, where provider matches a profile's id or display name, or a bare
+    /// model id served by whichever provider holds the chat role. The provider prefix is only taken when
+    /// it names a configured provider, so OpenRouter's own <c>vendor/model</c> ids still pass through.
+    /// Returns null with <paramref name="error"/> set when the spec can't be served.
+    /// </summary>
+    public (IChatClient Client, ProviderProfile Profile)? ResolveChat(string modelSpec, out string? error)
+    {
+        error = null;
+        var config = _settings.Current;
+        var spec = modelSpec.Trim();
+
+        ProviderProfile? profile = null;
+        var model = spec;
+        var slash = spec.IndexOf('/');
+        if (slash > 0)
+        {
+            var prefix = spec[..slash];
+            profile = config.Providers.FirstOrDefault(p =>
+                string.Equals(p.Id, prefix, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(p.DisplayName, prefix, StringComparison.OrdinalIgnoreCase));
+            if (profile is not null)
+                model = spec[(slash + 1)..].Trim();
+        }
+
+        profile ??= Resolve(ModelRole.Chat)?.Profile;
+        if (profile is null)
+        {
+            error = "No chat provider is configured.";
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            error = $"No model named in '{modelSpec}'.";
+            return null;
+        }
+
+        if (!CanServe(profile.Kind, ModelRole.Chat))
+        {
+            error = $"{profile.DisplayName} can't serve chat.";
+            return null;
+        }
+
+        var preset = ProviderPresets.Find(profile.PresetId);
+        if (preset is { NeedsKey: true } && string.IsNullOrWhiteSpace(profile.ApiKey))
+        {
+            error = $"{profile.DisplayName} has no API key.";
+            return null;
+        }
+
+        var cacheKey = string.Join('|',
+            profile.Id, profile.Kind, profile.ApiKey, ResolveBaseUrl(profile), model, profile.ChatApi);
+
+        lock (_gate)
+        {
+            if (!_pinnedChats.TryGetValue(cacheKey, out var client))
+            {
+                client = BuildChatClient(new ResolvedRole(profile, model, cacheKey))
+                    .AsBuilder()
+                    .UseFunctionInvocation()
+                    .Build();
+                _pinnedChats[cacheKey] = client;
+            }
+
+            return (client, profile);
         }
     }
 
@@ -455,6 +529,7 @@ public sealed class AiClientFactory : IDisposable
             _imageKey = null;
             _speechKey = null;
             _embeddingsKey = null;
+            _pinnedChats.Clear();
         }
 
         if (embeddingsDropped)
@@ -470,6 +545,9 @@ public sealed class AiClientFactory : IDisposable
             _chat?.Dispose();
             _vision?.Dispose();
             _embeddings?.Dispose();
+            foreach (var pinned in _pinnedChats.Values)
+                pinned.Dispose();
+            _pinnedChats.Clear();
             _chat = null;
             _vision = null;
             _embeddings = null;

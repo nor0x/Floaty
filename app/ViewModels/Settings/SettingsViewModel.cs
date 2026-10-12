@@ -31,6 +31,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Mcp,
         Exec,
         Skills,
+        Jobs,
         Updates,
     }
 
@@ -76,6 +77,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             (c, v) => c.AssistantDoneSoundEnabled = v,
             c => c.AssistantDoneSoundFileName,
             (c, v) => c.AssistantDoneSoundFileName = v),
+        new("jobSound",
+            "Recurring job finished",
+            "Play a sound when a job finishes a run",
+            "Plays after each run of a recurring job, unless Settings → Jobs limits notifications to failed runs.",
+            SettingsService.DefaultJobDoneSound,
+            c => c.JobSoundEnabled,
+            (c, v) => c.JobSoundEnabled = v,
+            c => c.JobSoundFileName,
+            (c, v) => c.JobSoundFileName = v),
     ];
 
     private static readonly (string Label, string Value)[] AccentPresets =
@@ -100,6 +110,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ISpeechSynthesisService _speech;
     private readonly IVoiceOutputService _voiceOutput;
     private readonly CaptureRuleService _captureRules;
+    private readonly JobService _jobService;
+    private readonly JobScheduler _jobScheduler;
 
     public SettingsViewModel(
         SettingsService settings,
@@ -111,7 +123,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         ILocalEmbeddingFactory localEmbeddings,
         ISpeechSynthesisService speech,
         IVoiceOutputService voiceOutput,
-        CaptureRuleService captureRules)
+        CaptureRuleService captureRules,
+        JobService jobService,
+        JobScheduler jobScheduler)
     {
         _settings = settings;
         _skillService = skillService;
@@ -123,6 +137,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _speech = speech;
         _voiceOutput = voiceOutput;
         _captureRules = captureRules;
+        _jobService = jobService;
+        _jobScheduler = jobScheduler;
     }
 
     /// <summary>
@@ -264,6 +280,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             CaptureSoundFileName = current.CaptureSoundFileName,
             AssistantDoneSoundEnabled = current.AssistantDoneSoundEnabled,
             AssistantDoneSoundFileName = current.AssistantDoneSoundFileName,
+            JobSoundEnabled = current.JobSoundEnabled,
+            JobSoundFileName = current.JobSoundFileName,
             SoundVolume = current.SoundVolume,
             ScreenHistoryMode = current.ScreenHistoryMode,
             AutostartMode = current.AutostartMode,
@@ -282,6 +300,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             StartWithNewConversation = current.StartWithNewConversation,
             ReplyToastEnabled = current.ReplyToastEnabled,
             ToastDurationSeconds = current.ToastDurationSeconds,
+            JobsEnabled = current.JobsEnabled,
+            JobToastEnabled = current.JobToastEnabled,
+            JobNotifyOnlyOnFailure = current.JobNotifyOnlyOnFailure,
             AttachSelectionOnSummon = current.AttachSelectionOnSummon,
             McpServers = current.McpServers.Select(CloneServer).ToList(),
             CaptureRules = current.CaptureRules.Select(r => r.Clone()).ToList(),
@@ -321,6 +342,17 @@ public sealed partial class SettingsViewModel : ObservableObject
         // "Last captured" in the rule list moves whenever a rule fires.
         _captureRules.Captured -= OnCaptureRuleFired;
         _captureRules.Captured += OnCaptureRuleFired;
+
+        // Jobs are files, not config: the list follows the folder (and each run) live, whatever Save says.
+        _jobService.Changed -= OnJobsChanged;
+        _jobService.Changed += OnJobsChanged;
+        _jobScheduler.RunStarted -= OnJobRunStarted;
+        _jobScheduler.RunStarted += OnJobRunStarted;
+        _jobScheduler.RunCompleted -= OnJobRunCompleted;
+        _jobScheduler.RunCompleted += OnJobRunCompleted;
+        _jobs = _jobService.Jobs.ToList();
+        _jobError = null;
+        _confirmDeleteJob = null;
 
         _selectedProviderId = ActiveProfile?.Id ?? _config.Providers.FirstOrDefault()?.Id ?? string.Empty;
         _originalEmbeddingRole = RoleKey(ModelRole.Embedding);
@@ -403,6 +435,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             _config.CaptureSoundFileName = current.CaptureSoundFileName;
             _config.AssistantDoneSoundEnabled = current.AssistantDoneSoundEnabled;
             _config.AssistantDoneSoundFileName = current.AssistantDoneSoundFileName;
+            _config.JobSoundEnabled = current.JobSoundEnabled;
+            _config.JobSoundFileName = current.JobSoundFileName;
             _config.SoundVolume = current.SoundVolume;
         }
 
@@ -1366,6 +1400,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.Changed -= OnLiveConfigChanged;
         _captureRules.Captured -= OnCaptureRuleFired;
+        _jobService.Changed -= OnJobsChanged;
+        _jobScheduler.RunStarted -= OnJobRunStarted;
+        _jobScheduler.RunCompleted -= OnJobRunCompleted;
         _settings.PreviewRingSize(_settings.Current.RingSize);
         _settings.PreviewAccentColor(_settings.Current.AccentColor);
     }
