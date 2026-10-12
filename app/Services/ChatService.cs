@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Globalization;
 using System.Text;
@@ -81,6 +82,13 @@ public sealed class ChatService : IChatService
 
     // Output tokens reserved for the answer on top of the thinking budget, since the two share max_tokens.
     private const int AnswerTokenHeadroom = 4096;
+
+    // OpenAI's reasoning-effort rungs, lowest first. No single model takes all of them.
+    private static readonly string[] EffortLadder = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+    // Effort a model rejected → the nearest one it accepted, keyed by EffortKey. In memory only, so a
+    // restart costs one refused request per model; that is cheaper than a model table that goes stale.
+    private static readonly ConcurrentDictionary<string, string> _effortSubstitutes = new();
 
     // Per-turn sink the search_captures tool writes its sources into; flows via the async call chain
     // from GetStreamingResponseAsync into the function-invocation middleware.
@@ -264,8 +272,11 @@ public sealed class ChatService : IChatService
 
         messages.AddRange(history);
 
+        var profile = overrides?.Client is not null ? overrides.Profile : _clients.GetProfile(ModelRole.Chat);
+        var model = client.GetService<ChatClientMetadata>()?.DefaultModelId ?? profile?.ChatModel;
+
         var options = new ChatOptions { Tools = tools };
-        ApplyReasoning(options, overrides?.Client is not null ? overrides.Profile : _clients.GetProfile(ModelRole.Chat));
+        ApplyReasoning(options, profile, model);
 
         // Reasoning reaches us one of two ways: as TextReasoningContent (Anthropic's thinking blocks,
         // and the reasoning_content field the OpenAI binding already parses out of DeepSeek/Ollama/
@@ -277,38 +288,67 @@ public sealed class ChatService : IChatService
         // in the stream rather than resurfacing at the end.
         ThinkTagSplitter? splitter = new();
 
-        await foreach (var update in client.GetStreamingResponseAsync(messages, options, cancellationToken)
-            .WithCancellation(cancellationToken))
+        // The request goes out on the first MoveNextAsync, before anything has been yielded, so a model
+        // that refuses the configured reasoning effort can be retried once with the nearest level it takes.
+        var updates = client.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
+        bool more;
+        try
         {
-            foreach (var content in update.Contents)
+            more = await updates.MoveNextAsync();
+        }
+        catch (Exception ex) when (profile is not null
+            && OpenAiEffort(profile.ReasoningEffort) is { } requested
+            && TryPickSupportedEffort(ex, WireOpenAiEffort(profile, model) ?? requested, out var substitute))
+        {
+            await updates.DisposeAsync();
+            _effortSubstitutes[EffortKey(profile, model, requested)] = substitute;
+
+            options = new ChatOptions { Tools = tools };
+            ApplyReasoning(options, profile, model);
+            updates = client.GetStreamingResponseAsync(messages, options, cancellationToken).GetAsyncEnumerator(cancellationToken);
+            more = await updates.MoveNextAsync();
+        }
+
+        try
+        {
+            while (more)
             {
-                switch (content)
+                foreach (var content in updates.Current.Contents)
                 {
-                    // Not covered by update.Text: that concatenates TextContent only, and
-                    // TextReasoningContent deliberately does not derive from it.
-                    case TextReasoningContent { Text.Length: > 0 } reasoning:
-                        if (splitter is not null)
-                        {
-                            foreach (var chunk in splitter.Flush())
-                                yield return chunk;
-                            splitter = null;
-                        }
+                    switch (content)
+                    {
+                        // Not covered by update.Text: that concatenates TextContent only, and
+                        // TextReasoningContent deliberately does not derive from it.
+                        case TextReasoningContent { Text.Length: > 0 } reasoning:
+                            if (splitter is not null)
+                            {
+                                foreach (var chunk in splitter.Flush())
+                                    yield return chunk;
+                                splitter = null;
+                            }
 
-                        yield return new ChatChunk(reasoning.Text, IsReasoning: true);
-                        break;
-
-                    case TextContent { Text.Length: > 0 } text:
-                        if (splitter is null)
-                        {
-                            yield return new ChatChunk(text.Text, IsReasoning: false);
+                            yield return new ChatChunk(reasoning.Text, IsReasoning: true);
                             break;
-                        }
 
-                        foreach (var chunk in splitter.Feed(text.Text))
-                            yield return chunk;
-                        break;
+                        case TextContent { Text.Length: > 0 } text:
+                            if (splitter is null)
+                            {
+                                yield return new ChatChunk(text.Text, IsReasoning: false);
+                                break;
+                            }
+
+                            foreach (var chunk in splitter.Feed(text.Text))
+                                yield return chunk;
+                            break;
+                    }
                 }
+
+                more = await updates.MoveNextAsync();
             }
+        }
+        finally
+        {
+            await updates.DisposeAsync();
         }
 
         // Whatever the splitter was still holding back in case it grew into a tag.
@@ -327,8 +367,9 @@ public sealed class ChatService : IChatService
     /// <remarks>
     /// Lives here rather than in <see cref="AiClientFactory"/> because the factory also builds the vision
     /// client used for screenshot captioning, which has no business thinking.
+    /// <paramref name="model"/> keys the effort a model was found to reject (see <see cref="_effortSubstitutes"/>).
     /// </remarks>
-    private static void ApplyReasoning(ChatOptions options, ProviderProfile? profile)
+    private static void ApplyReasoning(ChatOptions options, ProviderProfile? profile, string? model)
     {
         if (profile is null)
             return;
@@ -380,7 +421,7 @@ public sealed class ChatService : IChatService
             case ProviderKind.OpenAI or ProviderKind.AzureOpenAI or ProviderKind.OpenAiCompatible
                 when profile.ChatApi == ChatApiMode.Responses:
             {
-                var openAiEffort = OpenAiEffort(effort);
+                var openAiEffort = WireOpenAiEffort(profile, model);
 #pragma warning disable OPENAI001 // Same experimental Responses API surface AiClientFactory opts into.
 #pragma warning disable SCME0001 // JsonPatch: the SDK has no typed property for text.verbosity yet.
                 options.RawRepresentationFactory = _ =>
@@ -409,7 +450,7 @@ public sealed class ChatService : IChatService
             case ProviderKind.OpenAI or ProviderKind.AzureOpenAI or ProviderKind.OpenAiCompatible:
             {
                 // Chat completions: reasoning shows up unasked, so only effort and verbosity go on the wire.
-                var openAiEffort = OpenAiEffort(effort);
+                var openAiEffort = WireOpenAiEffort(profile, model);
                 if (openAiEffort is null && verbosity is null)
                     return;
 
@@ -429,6 +470,62 @@ public sealed class ChatService : IChatService
                 break;
             }
         }
+    }
+
+    /// <summary>
+    /// The effort actually sent for <paramref name="profile"/>'s setting on <paramref name="model"/>: the
+    /// configured level, unless that model already turned it down and a supported neighbour was found.
+    /// </summary>
+    private static string? WireOpenAiEffort(ProviderProfile profile, string? model)
+    {
+        var requested = OpenAiEffort(profile.ReasoningEffort);
+        return requested is not null && _effortSubstitutes.TryGetValue(EffortKey(profile, model, requested), out var substitute)
+            ? substitute
+            : requested;
+    }
+
+    private static string EffortKey(ProviderProfile profile, string? model, string requested) =>
+        $"{profile.Id}|{model}|{requested}";
+
+    /// <summary>
+    /// Picks the supported effort nearest <paramref name="requested"/> when <paramref name="ex"/> is a model
+    /// rejecting its reasoning effort - OpenAI's 400 lists what the model takes ("Supported values are:
+    /// 'none', 'low', ..."), and which rungs exist varies by model (gpt-5 has minimal, later models
+    /// dropped it and added max). Ties go to the higher rung, so minimal becomes low rather than none.
+    /// </summary>
+    private static bool TryPickSupportedEffort(Exception ex, string requested, out string substitute)
+    {
+        substitute = string.Empty;
+
+        var message = ex.Message;
+        if (!(message.Contains("reasoning.effort", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("reasoning_effort", StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        var listAt = message.IndexOf("Supported values are:", StringComparison.OrdinalIgnoreCase);
+        var wanted = Array.IndexOf(EffortLadder, requested);
+        if (listAt < 0 || wanted < 0)
+            return false;
+
+        var best = -1;
+        foreach (System.Text.RegularExpressions.Match match in
+            System.Text.RegularExpressions.Regex.Matches(message[listAt..], "'([a-z]+)'"))
+        {
+            var rung = Array.IndexOf(EffortLadder, match.Groups[1].Value);
+            if (rung < 0 || rung == wanted)
+                continue;
+
+            var distance = Math.Abs(rung - wanted);
+            var bestDistance = best < 0 ? int.MaxValue : Math.Abs(best - wanted);
+            if (distance < bestDistance || (distance == bestDistance && rung > best))
+                best = rung;
+        }
+
+        if (best < 0)
+            return false;
+
+        substitute = EffortLadder[best];
+        return true;
     }
 
     /// <summary>OpenAI's wire value for an effort level, or null to leave it to the provider.</summary>
