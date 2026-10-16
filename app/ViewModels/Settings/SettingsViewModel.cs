@@ -695,21 +695,30 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // The form has one "Command or URL" box and no transport picker, so the transport is read off
+        // what was typed: an http(s) URL is a remote server, anything else a command to launch.
+        var target = _newServer.Command?.Trim() ?? string.Empty;
+        if (target.Length == 0)
+        {
+            _mcpError = "Command or URL is required.";
+            return;
+        }
+
         var server = new McpServerConfig
         {
             Name = name,
-            Transport = _newServer.Transport,
+            Transport = McpServerConfig.IsHttpUrl(target) ? "http" : "stdio",
             Enabled = true,
         };
 
         if (string.Equals(server.Transport, "http", StringComparison.OrdinalIgnoreCase))
         {
-            server.Url = _newServer.Url?.Trim() ?? string.Empty;
-            server.Headers = ParsePairs(_newServerHeaders);
+            server.Url = target;
+            server.Headers = ParsePairs(_newServerHeaders, ':', '=');
         }
         else
         {
-            server.Command = _newServer.Command?.Trim() ?? string.Empty;
+            server.Command = target;
             server.Args = ParseLines(_newServerArgs);
             server.Env = ParsePairs(_newServerEnv);
         }
@@ -1167,15 +1176,23 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? new List<string>()
             : text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
-    private static Dictionary<string, string> ParsePairs(string? text)
+    /// <summary>
+    /// Parses one <c>key{separator}value</c> pair per line, splitting at the first of
+    /// <paramref name="separators"/> (default <c>=</c>). Headers pass both <c>:</c> and <c>=</c> - a
+    /// header name can contain neither, so <c>Authorization: Bearer x</c> and
+    /// <c>Authorization=Bearer x</c> both work.
+    /// </summary>
+    private static Dictionary<string, string> ParsePairs(string? text, params char[] separators)
     {
         var result = new Dictionary<string, string>();
         if (string.IsNullOrWhiteSpace(text))
             return result;
+        if (separators.Length == 0)
+            separators = ['='];
 
         foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var index = line.IndexOf('=');
+            var index = line.IndexOfAny(separators);
             if (index <= 0)
                 continue;
             var key = line[..index].Trim();

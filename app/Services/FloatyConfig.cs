@@ -530,6 +530,15 @@ public sealed class McpServerConfig
 
     /// <summary>Additional HTTP headers (e.g. Authorization) for an http server.</summary>
     public Dictionary<string, string> Headers { get; set; } = new();
+
+    /// <summary>What the server points at, for display: the URL of an http server, else the command.</summary>
+    [JsonIgnore]
+    public string Target => string.Equals(Transport, "http", StringComparison.OrdinalIgnoreCase) ? Url : Command;
+
+    /// <summary>Whether <paramref name="text"/> is an absolute http(s) URL, i.e. an http server's endpoint.</summary>
+    public static bool IsHttpUrl(string? text) =>
+        Uri.TryCreate(text?.Trim(), UriKind.Absolute, out var uri) &&
+        (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 }
 
 /// <summary>

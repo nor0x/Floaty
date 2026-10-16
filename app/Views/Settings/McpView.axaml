@@ -24,7 +24,7 @@
                                     <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" Margin="0,0,10,0" />
                                     <StackPanel Grid.Column="1" Spacing="2">
                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding Command}" Classes="hint" />
+                                        <TextBlock Text="{Binding Target}" Classes="hint" />
                                     </StackPanel>
                                     <Button Grid.Column="2"
                                             Content="Remove"
@@ -43,12 +43,12 @@
             <StackPanel Spacing="10">
                 <TextBlock Classes="section" Text="Add a server" />
                 <TextBox PlaceholderText="Name" Text="{Binding NewServer.Name}" />
-                <TextBox PlaceholderText="Command or URL" Text="{Binding NewServer.Command}" />
-                <TextBox PlaceholderText="Arguments (one per line)" Text="{Binding NewServerArgs}"
+                <TextBox PlaceholderText="Command, or http(s):// URL for a remote server" Text="{Binding NewServer.Command}" />
+                <TextBox PlaceholderText="Arguments (command only, one per line)" Text="{Binding NewServerArgs}"
                          AcceptsReturn="True" MinHeight="60" />
-                <TextBox PlaceholderText="Environment (KEY=value, one per line)" Text="{Binding NewServerEnv}"
+                <TextBox PlaceholderText="Environment (command only, KEY=value, one per line)" Text="{Binding NewServerEnv}"
                          AcceptsReturn="True" MinHeight="60" />
-                <TextBox PlaceholderText="Headers (Key: value, one per line)" Text="{Binding NewServerHeaders}"
+                <TextBox PlaceholderText="Headers (URL only, Key: value, one per line)" Text="{Binding NewServerHeaders}"
                          AcceptsReturn="True" MinHeight="60" />
                 <TextBlock Classes="hint" Foreground="{DynamicResource DangerBrush}" Text="{Binding McpError}"
                            IsVisible="{Binding McpError, Converter={x:Static ObjectConverters.IsNotNull}}" />

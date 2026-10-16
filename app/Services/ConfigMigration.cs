@@ -20,6 +20,36 @@ public static class ConfigMigration
         changed |= RenameBuiltInRing(config);
         changed |= MigrateChatApi(config);
         changed |= AdoptActiveProvider(config);
+        changed |= RepairHttpMcpServers(config);
+        return changed;
+    }
+
+    /// <summary>
+    /// Fixes MCP servers saved as stdio with a URL for a command. Settings → MCP had one "Command or
+    /// URL" box but always saved stdio, so an http server was later spawned as a process ("'http:' is
+    /// not recognized as an internal or external command"). Its headers were dropped at the time and
+    /// can't be recovered here; the URL can.
+    ///
+    /// Naturally idempotent: a repaired server is http, which this skips.
+    /// </summary>
+    private static bool RepairHttpMcpServers(FloatyConfig config)
+    {
+        var changed = false;
+        foreach (var server in config.McpServers)
+        {
+            if (!string.Equals(server.Transport, "stdio", StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(server.Url) ||
+                server.Args.Count > 0 ||
+                !McpServerConfig.IsHttpUrl(server.Command))
+                continue;
+
+            server.Transport = "http";
+            server.Url = server.Command.Trim();
+            server.Command = string.Empty;
+            server.Env.Clear();
+            changed = true;
+        }
+
         return changed;
     }
 
