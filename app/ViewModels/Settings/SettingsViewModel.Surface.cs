@@ -391,7 +391,11 @@ public sealed partial class SettingsViewModel
 
     // --- MCP ---
 
-    public IReadOnlyList<McpServerConfig> McpServers => _config.McpServers;
+    // A fresh list per read, like CaptureRuleRows: handing back the clone's own List would give the
+    // ItemsControl the same instance after an add/remove, which it treats as unchanged.
+    public IReadOnlyList<McpServerConfig> McpServers => _config.McpServers.ToList();
+
+    public bool HasMcpServers => _config.McpServers.Count > 0;
     public string? McpError => _mcpError;
     public McpServerConfig NewServer => _newServer;
 

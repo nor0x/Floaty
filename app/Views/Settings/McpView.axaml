@@ -15,7 +15,7 @@
             <StackPanel Spacing="10">
                 <TextBlock Classes="section" Text="Configured servers" />
                 <TextBlock Classes="hint" Text="No servers configured yet."
-                           IsVisible="{Binding !McpServers.Count}" />
+                           IsVisible="{Binding !HasMcpServers}" />
                 <ItemsControl ItemsSource="{Binding McpServers}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="svc:McpServerConfig">
