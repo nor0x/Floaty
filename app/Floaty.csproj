@@ -81,9 +81,11 @@
 
         <!-- Local vector + graph store for capture embeddings (~/.floaty/floaty.db). -->
         <PackageReference Include="LiteGraph" Version="7.0.0" />
-        <!-- MCP client (Model Context Protocol). 2.0.0-preview.1 exposes McpClient.CreateAsync +
-             McpClientTool : AIFunction, so MCP tools plug into Microsoft.Extensions.AI ChatOptions.Tools. -->
-        <PackageReference Include="ModelContextProtocol" Version="2.0.0-preview.1" />
+        <!-- MCP client (Model Context Protocol). McpClient.CreateAsync + McpClientTool : AIFunction, so
+             MCP tools plug into Microsoft.Extensions.AI ChatOptions.Tools. Needs 2.2+: 2.0.0-preview.1
+             implemented a draft of the 2026-07-28 server/discover handshake that required serverInfo in the
+             result body, so it failed against servers on the final revision (which carries it in _meta). -->
+        <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
 
         <!-- Cron parsing and next-occurrence math for recurring jobs (~/.floaty/jobs), DST-aware in
              the local time zone. CronText adds the English descriptions on top. -->

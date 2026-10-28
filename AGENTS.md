@@ -14,7 +14,7 @@ A local-first AI desktop assistant built with Avalonia. It runs as a tray icon p
 | Language / SDK | C# (nullable enabled, implicit usings), .NET SDK pinned in `app/global.json` (10.0.301, `rollForward: latestFeature`) |
 | AI | `Microsoft.Extensions.AI` abstractions over several provider bindings - `Microsoft.Extensions.AI.OpenAI` (OpenAI plus every OpenAI-compatible endpoint), `Azure.AI.OpenAI`, `Anthropic` (official C# SDK), and in-process ONNX embeddings |
 | Local memory | `LiteGraph` - embedded SQLite graph/vector store at `~/.floaty/floaty.db` |
-| MCP | `ModelContextProtocol` 2.0.0-preview.1 (`McpClientTool : AIFunction` plugs into `ChatOptions.Tools`) |
+| MCP | `ModelContextProtocol` 2.2.0 (`McpClientTool : AIFunction` plugs into `ChatOptions.Tools`) |
 | Recurring jobs | `Cronos` (5-field cron, next occurrence in local time); frontmatter read/written by the in-house `Frontmatter` |
 | Windows overlay | Avalonia `Window` (`WindowDecorations=None`, `TransparencyLevelHint=Transparent`) + Win32 interop for click-through regions |
 | Screen capture | UI Automation (`Interop.UIAutomationClient`) for text, GDI (`System.Drawing.Common`) for screenshots |
@@ -143,7 +143,9 @@ There is no test suite currently; verify changes by building and, for UI/interop
   inspector is not in core. Debug layout by probing from code.
 - **Verification harnesses must be DPI-aware.** A DPI-unaware `GetWindowRect` reports *virtualised*
   coordinates (physical / RenderScaling), which makes correct behaviour look broken.
-- **ModelContextProtocol is a preview package** (2.0.0-preview.1); its API surface may shift on update.
+- **ModelContextProtocol must stay on 2.2+.** 2.0.0-preview.1 implemented a draft of the 2026-07-28
+  `server/discover` handshake that required `serverInfo` in the result body; servers on the final revision
+  carry it in `_meta`, so every connect failed with "missing required properties including: 'serverInfo'".
 - **The `Anthropic` package is versioned 10+ but still beta upstream** - breaking changes can land in minor releases, so it stays pinned.
 - **Never gate a feature on an API key.** `FloatyConfig`'s `OpenAiApiKey` / `Model` / `EmbeddingModel` / `SnapshotModel` are legacy migration inputs only (nullable + `WhenWritingNull`, so they vanish from `config.json` after one save). Ask `AiClientFactory.IsConfigured` or `IMemoryService.CanRemember` instead.
 - **`SettingsViewModel.Initialize` hand-copies every `FloatyConfig` property into a working
